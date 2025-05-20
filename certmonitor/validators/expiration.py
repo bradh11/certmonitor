@@ -37,6 +37,8 @@ class ExpirationValidator(BaseCertValidator):
                     "is_valid": true,
                     "days_to_expiry": 120,
                     "expires_on": "2025-09-01T23:59:59",
+                    "leapday_expiry": false,
+                    "weekend_expiry": false,
                     "warnings": []
                 }
                 ```
@@ -49,6 +51,8 @@ class ExpirationValidator(BaseCertValidator):
                     "is_valid": false,
                     "days_to_expiry": -10,
                     "expires_on": "2025-04-30T23:59:59",
+                    "leapday_expiry": false,
+                    "weekend_expiry": false,
                     "warnings": [
                         "Certificate is expired and has been expired for (-10 days)"
                     ]
@@ -62,6 +66,8 @@ class ExpirationValidator(BaseCertValidator):
 
         is_valid = now < not_after
         days_to_expiry = (not_after - now).days
+        leapday_expiry = not_after.month == 2 and not_after.day == 29
+        weekend_expiry = not_after.weekday() in (5, 6)
 
         warnings = []
         if days_to_expiry < 0:
@@ -81,5 +87,7 @@ class ExpirationValidator(BaseCertValidator):
             "is_valid": is_valid,
             "days_to_expiry": days_to_expiry,
             "expires_on": not_after.isoformat(),
+            "leapday_expiry": leapday_expiry,
+            "weekend_expiry": weekend_expiry,
             "warnings": warnings,
         }
