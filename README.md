@@ -101,6 +101,8 @@ MIID...snip...IDAQAB
     "is_valid": true,
     "days_to_expiry": 120,
     "expires_on": "2025-09-01T23:59:59",
+    "leapday_expiry": false,
+    "weekend_expiry": false,
     "warnings": []
   },
   "subject_alt_names": {
