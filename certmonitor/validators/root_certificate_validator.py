@@ -56,17 +56,18 @@ class RootCertificateValidator(BaseCertValidator):
                   ]
                 }
         """
-        issuer = cert.get("issuer", {})
-        subject = cert.get("subject", {})
+        cert_info = cert.get("cert_info", {})
+        issuer = cert_info.get("issuer", {})
+        subject = cert_info.get("subject", {})
         common_name = issuer.get("commonName", "Unknown")
         organization_name = issuer.get("organizationName", "Unknown")
 
         # Check for presence of OCSP and caIssuers fields
-        has_ocsp = "OCSP" in cert
-        has_ca_issuers = "caIssuers" in cert
+        has_ocsp = bool(cert_info.get("OCSP"))
+        has_ca_issuers = bool(cert_info.get("caIssuers"))
 
         # Check if the certificate is self-signed
-        is_self_signed = issuer == subject
+        is_self_signed = issuer == subject and issuer != {}
 
         # Heuristic check: If the issuer's common name or organization name contains 'Untrusted', flag it
         is_trusted = (
