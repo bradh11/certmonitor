@@ -1,6 +1,6 @@
 # validators/key_info.py
 
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from .base import BaseCertValidator
 
@@ -79,7 +79,9 @@ class KeyInfoValidator(BaseCertValidator):
 
         return result
 
-    def _is_key_strong_enough(self, key_type, key_size, curve):
+    def _is_key_strong_enough(
+        self, key_type: str, key_size: Optional[int], curve: Optional[str]
+    ) -> Optional[bool]:
         """
         Checks if the key is strong enough based on its type, size, and curve.
 
@@ -89,11 +91,15 @@ class KeyInfoValidator(BaseCertValidator):
             curve (str): The curve of the key (if applicable).
 
         Returns:
-            bool or None: True if the key is considered strong enough, False if not, and None if undetermined.
+            bool: True if the key is considered strong enough, False if not.
         """
         if "rsaEncryption" in key_type:
-            return key_size >= 2048 if key_size else None
+            if key_size is None:
+                return None
+            return key_size >= 2048
         elif "ecPublicKey" in key_type:
             strong_curves = ["secp256r1", "secp384r1", "secp521r1"]
-            return curve in strong_curves if curve else None
-        return None  # Unable to determine
+            if curve is None:
+                return None
+            return curve in strong_curves
+        return None

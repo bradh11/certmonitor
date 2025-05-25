@@ -1,4 +1,5 @@
 # validators/__init__.py
+from typing import Any
 
 from .expiration import ExpirationValidator
 from .hostname import HostnameValidator
@@ -24,7 +25,7 @@ VALIDATORS = {
 }
 
 
-def register_validator(validator_instance):
+def register_validator(validator_instance: Any) -> None:
     """
     Register a custom validator instance with the system.
 

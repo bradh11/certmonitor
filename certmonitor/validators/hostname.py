@@ -1,6 +1,6 @@
 # validators/hostname.py
 
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from .base import BaseCertValidator
 
@@ -95,7 +95,7 @@ class HostnameValidator(BaseCertValidator):
             "alt_names": dns_names,
         }
 
-    def _get_common_name(self, cert):
+    def _get_common_name(self, cert: dict) -> Optional[str]:
         """
         Retrieves the Common Name (CN) from the certificate.
 
@@ -107,9 +107,11 @@ class HostnameValidator(BaseCertValidator):
         """
         subject = cert.get("subject", {})
         common_name = subject.get("commonName")
-        return common_name
+        if isinstance(common_name, str):
+            return common_name
+        return None
 
-    def _matches_hostname(self, hostname, cert_names):
+    def _matches_hostname(self, hostname: str, cert_names: list) -> bool:
         """
         Checks if the hostname matches any of the provided certificate names.
 
@@ -122,7 +124,7 @@ class HostnameValidator(BaseCertValidator):
         """
         return hostname.lower() in (name.lower() for name in cert_names)
 
-    def _matches_wildcard(self, hostname, pattern):
+    def _matches_wildcard(self, hostname: str, pattern: str) -> bool:
         """
         Checks if the hostname matches a wildcard pattern.
 

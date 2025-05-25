@@ -56,10 +56,11 @@ class ExpirationValidator(BaseCertValidator):
                 }
                 ```
         """
-        now = datetime.datetime.now(datetime.UTC)
+        # Use timezone.utc for Python 3.8+ compatibility
+        now = datetime.datetime.now(datetime.timezone.utc)
         not_after = datetime.datetime.strptime(
             cert["cert_info"]["notAfter"], "%b %d %H:%M:%S %Y GMT"
-        ).replace(tzinfo=datetime.UTC)
+        ).replace(tzinfo=datetime.timezone.utc)
 
         is_valid = now < not_after
         days_to_expiry = (not_after - now).days

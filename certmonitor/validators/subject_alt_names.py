@@ -1,7 +1,7 @@
 # validators/subject_alt_names.py
 
 import ipaddress
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple, cast
 
 from .base import BaseCertValidator
 
@@ -120,7 +120,7 @@ class SubjectAltNamesValidator(BaseCertValidator):
                 value for san_type, value in raw_sans if san_type == "IP Address"
             ]
 
-        result = {
+        result: Dict[str, Any] = {
             "is_valid": True,
             "sans": {"DNS": dns_sans, "IP Address": ip_sans},
             "count": len(dns_sans) + len(ip_sans),
@@ -152,30 +152,33 @@ class SubjectAltNamesValidator(BaseCertValidator):
             result["contains_alternate"] = contains_alternate
 
         # Additional checks and warnings
+        warnings = cast(List[str], result["warnings"])
         if not dns_sans and not ip_sans:
-            result["warnings"].append(
-                "Certificate does not contain any DNS or IP Address SANs"
-            )
+            warnings.append("Certificate does not contain any DNS or IP Address SANs")
 
         if result["count"] > 100:
-            result["warnings"].append(
+            warnings.append(
                 f"Certificate contains an unusually high number of SANs ({result['count']})"
             )
 
         if not result["contains_host"]["is_valid"]:
-            result["warnings"].append(
+            warnings.append(
                 f"The hostname/IP {host} is not included in the SANs: {result['contains_host']['reason']}"
             )
 
-        for alt_name, alt_validation in result["contains_alternate"].items():
+        for alt_name, alt_validation in cast(
+            Dict[str, Any], result["contains_alternate"]
+        ).items():
             if not alt_validation["is_valid"]:
-                result["warnings"].append(
+                warnings.append(
                     f"The alternate name {alt_validation['name']} is not included in the SANs: {alt_validation['reason']}"
                 )
 
         return result
 
-    def _check_name_in_sans_with_reason(self, name, dns_sans, ip_sans):
+    def _check_name_in_sans_with_reason(
+        self, name: str, dns_sans: List[str], ip_sans: List[str]
+    ) -> Tuple[bool, str]:
         """Checks if the given name is present in the SANs and provides a reason.
 
         Args:
@@ -212,7 +215,7 @@ class SubjectAltNamesValidator(BaseCertValidator):
 
             return False, f"No match found for {name} in DNS SANs: {dns_sans}"
 
-    def _matches_wildcard(self, hostname, pattern):
+    def _matches_wildcard(self, hostname: str, pattern: str) -> bool:
         """Checks if the given hostname matches a wildcard pattern.
 
         Args:
