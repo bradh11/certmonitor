@@ -103,6 +103,11 @@ coverage.xml
 .pytest_cache/
 cover/
 
+# Coverage artifacts
+coverage.json
+coverage.xml
+htmlcov/
+
 # Translations
 *.mo
 *.pot
