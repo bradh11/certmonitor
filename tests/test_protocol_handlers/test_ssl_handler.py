@@ -379,3 +379,32 @@ class TestSSLHandler:
         mock_socket.close.assert_called()
         assert isinstance(result, dict)
         assert result["error"] == "SSLError"
+
+    def test_ssl_handler_unsafe_legacy_renegotiation_error(self):
+        """Test SSL handler handles unsafe legacy renegotiation error."""
+        from unittest.mock import MagicMock
+
+        # Create a mock error handler
+        mock_error_handler = MagicMock()
+        mock_error_handler.handle_error.return_value = {"error": "SSL Error"}
+
+        handler = SSLHandler("example.com", 443, mock_error_handler)
+
+        # Mock socket and SSL context to simulate unsafe legacy renegotiation
+        with patch("socket.socket") as mock_socket_class:
+            mock_socket = MagicMock()
+            mock_socket_class.return_value = mock_socket
+
+            # Create an SSL error that contains the unsafe legacy renegotiation message
+            ssl_error = ssl.SSLError("unsafe legacy renegotiation disabled")
+            mock_socket.connect.side_effect = ssl_error
+
+            with patch("ssl.create_default_context") as mock_context:
+                mock_ssl_context = MagicMock()
+                mock_context.return_value = mock_ssl_context
+
+                result = handler.connect()
+
+                # Verify error handler was called
+                mock_error_handler.handle_error.assert_called()
+                assert result == {"error": "SSL Error"}

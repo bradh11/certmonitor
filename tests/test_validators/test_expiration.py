@@ -46,6 +46,37 @@ def test_expiration_validator_certificate_too_long():
     )
 
 
+def test_expiration_long_validity_certificate():
+    """Test certificate with validity > 398 days to ensure comprehensive coverage."""
+    from datetime import timezone
+
+    validator = ExpirationValidator()
+
+    # Create a certificate with exactly 400 days validity to ensure we hit the > 398 condition
+    now = datetime.now(timezone.utc)
+    not_before = now - timedelta(days=1)
+    not_after = now + timedelta(days=400)  # Exactly 400 days from now
+
+    cert_data = {
+        "cert_info": {
+            "notBefore": not_before.strftime("%b %d %H:%M:%S %Y GMT"),
+            "notAfter": not_after.strftime("%b %d %H:%M:%S %Y GMT"),
+        }
+    }
+
+    result = validator.validate(cert_data, "example.com", 443)
+
+    # Verify we get the warning about industry standard
+    assert result["is_valid"] is True
+    assert "warnings" in result
+
+    # Check that we have a warning about industry standard
+    industry_warning_found = any(
+        "more than industry standard" in warning for warning in result["warnings"]
+    )
+    assert industry_warning_found
+
+
 if __name__ == "__main__":
     import pytest
 

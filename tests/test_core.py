@@ -1226,7 +1226,9 @@ def test_validate_cert_validators_with_other_args():
     mock_validator.validator_type = "cert"
     mock_validator.validate.return_value = {"is_valid": True}
 
-    with patch.object(monitor, "validators", {"custom_validator": mock_validator}):
+    with patch.object(
+        monitor, "validators", {"custom_validator": mock_validator}
+    ):
         validator_args = {"custom_validator": ["arg1", "arg2"]}
         result = monitor.validate(validator_args=validator_args)
 
@@ -1491,3 +1493,40 @@ def test_is_ip_address_with_invalid_input():
     # Test with valid IP addresses
     assert monitor._is_ip_address("192.168.1.1")
     assert monitor._is_ip_address("::1")  # IPv6
+
+
+def test_ip_address_exception_handling():
+    """Test _is_ip_address exception handling to ensure comprehensive coverage."""
+    monitor = CertMonitor("example.com")
+
+    # Test cases that should trigger ValueError exception
+    test_cases = [
+        "definitely.not.an.ip",
+        "999.999.999.999",  # Invalid IP range
+        "256.256.256.256",  # Out of range IP
+        "192.168.1",  # Incomplete IP
+        "invalid-hostname",
+        "",  # Empty string
+        ":::invalid::ipv6:::",  # Invalid IPv6
+    ]
+
+    for invalid_input in test_cases:
+        # This should hit the except ValueError block
+        result = monitor._is_ip_address(invalid_input)
+        assert result is False
+
+
+def test_ip_address_exception_with_mock():
+    """Test _is_ip_address exception handling with mock to ensure coverage."""
+    monitor = CertMonitor("test.com")
+
+    # Create a mock that raises ValueError when ipaddress.ip_address is called
+    with patch("certmonitor.core.ipaddress.ip_address") as mock_ip_address:
+        mock_ip_address.side_effect = ValueError("Invalid IP address")
+
+        # This should trigger the except ValueError block
+        result = monitor._is_ip_address("invalid.input")
+        assert result is False
+
+        # Verify ipaddress.ip_address was called
+        mock_ip_address.assert_called_once_with("invalid.input")

@@ -197,3 +197,37 @@ class TestBaseProtocolHandler:
             assert isinstance(cert_result, dict)
             assert "protocol" in connect_result
             assert "cert_type" in cert_result
+
+    def test_base_handler_abstract_methods_pass_statements(self):
+        """Test base protocol handler abstract methods to ensure pass statements are covered."""
+
+        # Create a handler that deliberately calls the parent abstract methods to hit the pass statements
+        class TestHandler(BaseProtocolHandler):
+            def __init__(self, host, port):
+                super().__init__(host, port, error_handler=None)
+
+            def connect(self):
+                # This will execute the pass statement in the base class
+                super().connect()
+                return None
+
+            def fetch_raw_cert(self):
+                # This will execute the pass statement in the base class
+                super().fetch_raw_cert()
+                return {}
+
+            def close(self):
+                # This will execute the pass statement in the base class
+                super().close()
+
+        # Test that we can create and use the handler
+        handler = TestHandler("example.com", 443)
+
+        # Call the methods that invoke the parent abstract methods
+        connect_result = handler.connect()
+        cert_result = handler.fetch_raw_cert()
+        handler.close()
+
+        # Verify the results
+        assert connect_result is None
+        assert cert_result == {}
