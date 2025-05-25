@@ -19,8 +19,7 @@ dev = [
     "pytest-cov>=5.0.0",
     "pytest-mock>=3.14.0",
     "maturin>=1.8.4",
-    "pyright>=1.1.350",
-    "mypy>=1.14.1",
+    "mypy>=1.0.0",
 ]
 
 docs = [
@@ -36,6 +35,37 @@ docs = [
 module-name = "certmonitor.certinfo"
 # python-source = "certmonitor"
 features = ["pyo3/extension-module"]
+
+[tool.mypy]
+# MyPy configuration for CertMonitor
+python_version = "3.8"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+disallow_untyped_decorators = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+warn_unreachable = true
+strict_equality = true
+show_error_codes = true
+
+# Allow some flexibility for tests
+[[tool.mypy.overrides]]
+module = "tests.*"
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+
+# Ignore missing stubs for third-party packages
+[[tool.mypy.overrides]]
+module = [
+    "pytest.*",
+    "maturin.*",
+]
+ignore_missing_imports = true
 
 [build-system]
 requires = ["maturin>=1.0,<2.0"]
