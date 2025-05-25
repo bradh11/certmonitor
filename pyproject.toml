@@ -19,6 +19,8 @@ dev = [
     "pytest-cov>=5.0.0",
     "pytest-mock>=3.14.0",
     "maturin>=1.8.4",
+    "pyright>=1.1.350",
+    "mypy>=1.14.1",
 ]
 
 docs = [

@@ -1,10 +1,6 @@
 """Tests for CertMonitor public key operations and extraction methods."""
 
-from unittest.mock import MagicMock, patch
-
-import pytest
-
-from certmonitor.core import CertMonitor
+from unittest.mock import patch
 
 
 class TestPublicKeyExtraction:

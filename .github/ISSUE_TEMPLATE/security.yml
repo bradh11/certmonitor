@@ -1,0 +1,111 @@
+name: 🔒 Security Issue
+description: Report a security vulnerability (please use private reporting for sensitive issues)
+title: "[Security]: "
+labels: ["security", "needs-triage"]
+assignees: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ⚠️ **IMPORTANT**: If this is a sensitive security vulnerability that could be exploited, please use GitHub's private vulnerability reporting feature instead of creating a public issue.
+        
+        This template is for general security-related improvements and non-sensitive security issues.
+
+  - type: checkboxes
+    id: sensitivity
+    attributes:
+      label: Security Issue Type
+      description: Please confirm the type of security issue
+      options:
+        - label: This is NOT a sensitive vulnerability that could be exploited
+          required: true
+        - label: This is a general security improvement or hardening suggestion
+        - label: This is related to certificate validation or cryptographic standards
+        - label: This is related to secure coding practices
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Security Issue Description
+      description: Describe the security concern or improvement
+      placeholder: "I noticed that..."
+    validations:
+      required: true
+
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Severity Assessment
+      description: How would you rate the severity of this issue?
+      options:
+        - Low - Minor security improvement
+        - Medium - Notable security concern
+        - High - Significant security issue
+        - Critical - Major security vulnerability
+    validations:
+      required: true
+
+  - type: textarea
+    id: impact
+    attributes:
+      label: Potential Impact
+      description: What could be the impact of this security issue?
+      placeholder: "This could potentially lead to..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to Reproduce (if applicable)
+      description: How can this security issue be demonstrated?
+      placeholder: |
+        1. 
+        2. 
+        3. 
+    validations:
+      required: false
+
+  - type: textarea
+    id: suggestion
+    attributes:
+      label: Suggested Fix
+      description: Do you have suggestions for how to address this security issue?
+      placeholder: "This could be fixed by..."
+    validations:
+      required: false
+
+  - type: dropdown
+    id: standards
+    attributes:
+      label: Related Security Standards
+      description: Is this related to specific security standards or best practices?
+      options:
+        - OWASP guidelines
+        - RFC security recommendations
+        - Certificate/PKI standards
+        - Cryptographic best practices
+        - Secure coding standards
+        - Python security guidelines
+        - Not applicable
+        - Other
+    validations:
+      required: false
+
+  - type: textarea
+    id: references
+    attributes:
+      label: References
+      description: Any relevant security references, CVEs, or documentation
+      placeholder: "Related CVEs, security advisories, or documentation..."
+    validations:
+      required: false
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional Context
+      description: Any other relevant security information
+      placeholder: Additional context...
+    validations:
+      required: false

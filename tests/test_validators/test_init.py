@@ -2,10 +2,6 @@
 
 """Tests for validators module initialization and registration functionality."""
 
-from unittest.mock import MagicMock
-
-import pytest
-
 from certmonitor.validators import (
     VALIDATORS,
     get_enabled_validators,

@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 🔒 Security Vulnerability (Private)
+    url: https://github.com/bradh/certmonitor/security/advisories/new
+    about: Report a sensitive security vulnerability privately
+  - name: 💬 Discussions
+    url: https://github.com/bradh/certmonitor/discussions
+    about: Ask questions and discuss ideas with the community
+  - name: 📖 Documentation
+    url: https://certmonitor.readthedocs.io/
+    about: Read the full documentation and guides

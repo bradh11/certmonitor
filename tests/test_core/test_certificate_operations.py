@@ -228,7 +228,7 @@ class TestCertificateFetching:
             with patch.object(
                 monitor, "_parse_pem_cert", return_value={"parsed": "data"}
             ):
-                result = monitor._fetch_raw_cert()
+                monitor._fetch_raw_cert()
                 # This should trigger the empty cert_info condition on line 164
                 monitor._parse_pem_cert.assert_called_once()
 

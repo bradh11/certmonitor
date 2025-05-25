@@ -1,0 +1,56 @@
+# Configuration for automatic labeling of PRs
+# See: https://github.com/actions/labeler
+
+# Python source code changes
+python:
+  - '**/*.py'
+  - 'pyproject.toml'
+  - 'uv.lock'
+
+# Rust source code changes  
+rust:
+  - 'rust_certinfo/**'
+  - 'Cargo.toml'
+  - 'Cargo.lock'
+
+# Test changes
+tests:
+  - 'tests/**'
+  - '**/test_*.py'
+  - 'pytest.ini'
+
+# Documentation changes
+documentation:
+  - 'docs/**'
+  - '*.md'
+  - 'mkdocs.yml'
+
+# CI/CD changes
+ci:
+  - '.github/**'
+  - 'Makefile'
+
+# Dependencies
+dependencies:
+  - 'pyproject.toml'
+  - 'uv.lock'
+  - 'Cargo.lock'
+
+# Core functionality
+core:
+  - 'certmonitor/core.py'
+  - 'certmonitor/__init__.py'
+
+# Validators
+validators:
+  - 'certmonitor/validators/**'
+
+# Protocol handlers
+protocols:
+  - 'certmonitor/protocol_handlers/**'
+
+# Security related
+security:
+  - 'certmonitor/validators/**'
+  - 'certmonitor/cipher_algorithms.py'
+  - '**/security*'

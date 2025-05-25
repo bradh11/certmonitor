@@ -1,0 +1,108 @@
+name: ❓ Question / Help
+description: Ask a question or get help using CertMonitor
+title: "[Question]: "
+labels: ["question", "needs-triage"]
+assignees: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Have a question about using CertMonitor? We're here to help! Please provide as much detail as possible.
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Pre-flight checklist
+      description: Please verify these before asking
+      options:
+        - label: I have read the documentation and searched for existing answers
+          required: true
+        - label: I have searched existing issues to see if this question has been asked
+          required: true
+
+  - type: dropdown
+    id: category
+    attributes:
+      label: Question Category
+      description: What category does your question fall into?
+      options:
+        - Installation and setup
+        - Basic usage
+        - Advanced features
+        - Validators
+        - Certificate handling
+        - Protocol support
+        - Error troubleshooting
+        - Performance
+        - Best practices
+        - Contributing
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: question
+    attributes:
+      label: Your Question
+      description: What would you like to know?
+      placeholder: "I'm trying to... but I'm not sure how to..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: Provide context about what you're trying to accomplish
+      placeholder: "I'm working on a project that needs to..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: attempted
+    attributes:
+      label: What You've Tried
+      description: What have you already attempted?
+      placeholder: "I've tried..."
+    validations:
+      required: false
+
+  - type: textarea
+    id: code
+    attributes:
+      label: Code Example
+      description: Share any relevant code you're working with
+      render: python
+      placeholder: |
+        from certmonitor import CertMonitor
+        
+        # Your code here
+    validations:
+      required: false
+
+  - type: input
+    id: python_version
+    attributes:
+      label: Python Version
+      description: What version of Python are you using?
+      placeholder: "3.8.10, 3.9.15, 3.10.8, etc."
+    validations:
+      required: false
+
+  - type: input
+    id: os
+    attributes:
+      label: Operating System
+      description: What operating system are you using?
+      placeholder: "macOS 12.6, Ubuntu 20.04, Windows 11, etc."
+    validations:
+      required: false
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional Information
+      description: Any other details that might be helpful
+      placeholder: Additional context...
+    validations:
+      required: false

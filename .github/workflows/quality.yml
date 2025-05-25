@@ -1,0 +1,88 @@
+# Code quality and performance workflow
+name: Code Quality
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  quality-checks:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v1
+        with:
+          version: "0.6.17"
+
+      - name: Install dependencies
+        run: |
+          uv sync --group dev
+
+      - name: Run type checking with mypy
+        run: |
+          uv run pip install mypy types-requests
+          uv run mypy certmonitor/ --ignore-missing-imports --show-error-codes
+
+      - name: Check code complexity with radon
+        run: |
+          uv run pip install radon
+          uv run radon cc certmonitor/ --min B
+          uv run radon mi certmonitor/ --min B
+
+      - name: Generate and upload coverage
+        run: |
+          uv run pytest --cov=certmonitor --cov-report=xml --cov-report=html --cov-fail-under=95
+
+      - name: Upload coverage reports to Codecov
+        uses: codecov/codecov-action@v3
+        with:
+          file: ./coverage.xml
+          flags: unittests
+          name: certmonitor-coverage
+
+  performance-tests:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v1
+        with:
+          version: "0.6.17"
+
+      - name: Install dependencies and build
+        run: |
+          uv sync --group dev
+          make develop
+
+      - name: Run performance benchmarks
+        run: |
+          uv run pip install pytest-benchmark
+          uv run pytest tests/ -k benchmark --benchmark-json=benchmark.json || true
+
+      - name: Store benchmark results
+        uses: benchmark-action/github-action-benchmark@v1
+        if: github.ref == 'refs/heads/main'
+        with:
+          tool: 'pytest'
+          output-file-path: benchmark.json
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          auto-push: true

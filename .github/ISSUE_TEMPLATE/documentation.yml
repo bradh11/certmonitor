@@ -1,0 +1,109 @@
+name: 📚 Documentation Issue
+description: Report an issue with documentation (missing, unclear, or incorrect)
+title: "[Docs]: "
+labels: ["documentation", "needs-triage"]
+assignees: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Help us improve CertMonitor's documentation! Please describe what's missing, unclear, or incorrect.
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Pre-flight checklist
+      description: Please verify these before submitting
+      options:
+        - label: I have searched existing issues to make sure this hasn't been reported
+          required: true
+        - label: I have checked the latest documentation
+          required: true
+
+  - type: dropdown
+    id: doc_type
+    attributes:
+      label: Documentation Type
+      description: What type of documentation issue is this?
+      options:
+        - Missing documentation
+        - Incorrect information
+        - Unclear explanation
+        - Broken link
+        - Typo/grammar
+        - Outdated content
+        - Missing code examples
+        - API reference issue
+        - Installation instructions
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: location
+    attributes:
+      label: Documentation Location
+      description: Where is the documentation issue? (URL, file path, or section name)
+      placeholder: "https://certmonitor.readthedocs.io/... or docs/usage/basic.md or README.md section"
+    validations:
+      required: true
+
+  - type: textarea
+    id: issue_description
+    attributes:
+      label: Issue Description
+      description: Clearly describe what's wrong or missing
+      placeholder: "The documentation states... but it should..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected_content
+    attributes:
+      label: Expected Content
+      description: What should the documentation say or include?
+      placeholder: "The documentation should explain..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: suggested_fix
+    attributes:
+      label: Suggested Fix
+      description: If you have a specific suggestion for how to fix this, please share it
+      placeholder: "I suggest changing the text to..."
+    validations:
+      required: false
+
+  - type: dropdown
+    id: audience
+    attributes:
+      label: Target Audience
+      description: Who would benefit from this documentation improvement?
+      options:
+        - New users/beginners
+        - Advanced users
+        - Contributors/developers
+        - API users
+        - All users
+        - Other
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: contribution
+    attributes:
+      label: Contribution
+      description: Would you be willing to help improve the documentation?
+      options:
+        - label: I would be willing to submit a PR to fix this documentation issue
+        - label: I would be willing to help review documentation improvements
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional Context
+      description: Any other information that would help us improve the documentation
+      placeholder: Screenshots, related documentation, etc.
+    validations:
+      required: false
