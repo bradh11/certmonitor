@@ -1,6 +1,7 @@
 """Tests for CertMonitor raw certificate data operations."""
 
 from unittest.mock import MagicMock, patch
+
 from certmonitor.core import CertMonitor
 
 

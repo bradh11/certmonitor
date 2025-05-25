@@ -23,8 +23,9 @@ def test_expired_cert(sample_cert):
 
 def test_expiration_validator_certificate_too_long():
     """Test expiration validator with certificate valid for more than 398 days to cover line 72."""
-    from certmonitor.validators.expiration import ExpirationValidator
     from datetime import datetime, timedelta
+
+    from certmonitor.validators.expiration import ExpirationValidator
 
     validator = ExpirationValidator()
 

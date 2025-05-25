@@ -3,10 +3,11 @@
 import socket
 import ssl
 from unittest.mock import MagicMock, patch
+
 import pytest
 
-from certmonitor.protocol_handlers.ssl_handler import SSLHandler
 from certmonitor.error_handlers import ErrorHandler
+from certmonitor.protocol_handlers.ssl_handler import SSLHandler
 
 
 class TestSSLHandler:

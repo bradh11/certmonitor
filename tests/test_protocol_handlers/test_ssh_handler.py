@@ -1,8 +1,8 @@
 import socket
 from unittest.mock import MagicMock, patch
 
-from certmonitor.protocol_handlers.ssh_handler import SSHHandler
 from certmonitor.error_handlers import ErrorHandler
+from certmonitor.protocol_handlers.ssh_handler import SSHHandler
 
 
 class TestSSHHandler:

@@ -10,8 +10,8 @@ This module tests:
 """
 
 from certmonitor.cipher_algorithms import (
-    parse_cipher_suite,
     list_algorithms,
+    parse_cipher_suite,
     update_algorithms,
     update_allowed_lists,
 )
@@ -175,8 +175,8 @@ class TestCipherAlgorithms:
         )
 
         from certmonitor.cipher_algorithms import (
-            ALLOWED_TLS_VERSIONS,
             ALLOWED_CIPHER_SUITES,
+            ALLOWED_TLS_VERSIONS,
         )
 
         assert ALLOWED_TLS_VERSIONS == custom_tls_versions
@@ -186,8 +186,8 @@ class TestCipherAlgorithms:
         """Test that None values don't update the lists."""
         # Store original values
         from certmonitor.cipher_algorithms import (
-            ALLOWED_TLS_VERSIONS,
             ALLOWED_CIPHER_SUITES,
+            ALLOWED_TLS_VERSIONS,
         )
 
         original_tls = ALLOWED_TLS_VERSIONS.copy()
@@ -203,8 +203,8 @@ class TestCipherAlgorithms:
     def test_default_allowed_lists_values(self):
         """Test that default allowed lists have expected values."""
         from certmonitor.cipher_algorithms import (
-            ALLOWED_TLS_VERSIONS,
             ALLOWED_CIPHER_SUITES,
+            ALLOWED_TLS_VERSIONS,
         )
 
         # Should contain modern TLS versions

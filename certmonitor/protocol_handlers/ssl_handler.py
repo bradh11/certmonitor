@@ -3,21 +3,21 @@
 import logging
 import socket
 import ssl
-from typing import Any, Dict, Optional, Tuple
 import warnings
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from .base import BaseProtocolHandler
 
 
 class SSLHandler(BaseProtocolHandler):
-    def __init__(self, host: str, port: int, error_handler):
+    def __init__(self, host: str, port: int, error_handler: Any) -> None:
         super().__init__(host, port, error_handler)
-        self.socket = None
-        self.secure_socket = None
-        self.tls_version = None
+        self.socket: Optional[socket.socket] = None
+        self.secure_socket: Optional[ssl.SSLSocket] = None
+        self.tls_version: Optional[str] = None
 
-    def get_supported_protocols(self):
-        supported_protocols = []
+    def get_supported_protocols(self) -> List[int]:
+        supported_protocols: List[int] = []
         for protocol in [
             ssl.PROTOCOL_TLS_CLIENT,
             ssl.PROTOCOL_TLSv1_2,
@@ -92,6 +92,10 @@ class SSLHandler(BaseProtocolHandler):
             )
         try:
             cert = self.secure_socket.getpeercert(binary_form=True)
+            if cert is None:
+                return self.error_handler.handle_error(
+                    "CertificateError", "No certificate available", self.host, self.port
+                )
             return {
                 "cert_info": self.secure_socket.getpeercert(),
                 "der": cert,
@@ -102,7 +106,7 @@ class SSLHandler(BaseProtocolHandler):
                 "CertificateError", str(e), self.host, self.port
             )
 
-    def fetch_raw_cipher(self) -> Tuple[str, str, Optional[int]]:
+    def fetch_raw_cipher(self) -> Union[Tuple[str, str, Optional[int]], Dict[str, Any]]:
         if not self.secure_socket:
             return self.error_handler.handle_error(
                 "ConnectionError",
@@ -110,7 +114,15 @@ class SSLHandler(BaseProtocolHandler):
                 self.host,
                 self.port,
             )
-        return self.secure_socket.cipher()
+        cipher_info = self.secure_socket.cipher()
+        if cipher_info is None:
+            return self.error_handler.handle_error(
+                "CipherError",
+                "No cipher information available",
+                self.host,
+                self.port,
+            )
+        return cipher_info
 
     def check_connection(self) -> bool:
         if self.secure_socket:
@@ -122,7 +134,7 @@ class SSLHandler(BaseProtocolHandler):
                 return False
         return False
 
-    def close(self):
+    def close(self) -> None:
         if self.secure_socket:
             self.secure_socket.close()
         if self.socket:

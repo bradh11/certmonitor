@@ -1,7 +1,8 @@
 # cipher_algorithms.py
 
-from functools import lru_cache
 import re
+from functools import lru_cache
+from typing import Any, Dict, Optional, Pattern, Set, Union
 
 """
 This module defines:
@@ -20,7 +21,10 @@ Users and maintainers can:
 Default values are based on commonly accepted industry standards.
 """
 
-ALL_ALGORITHMS = {
+# Type alias for the algorithms dictionary (can contain either strings or compiled patterns)
+AlgorithmDict = Dict[str, Union[str, Pattern[str]]]
+
+ALL_ALGORITHMS: Dict[str, AlgorithmDict] = {
     "encryption": {
         "AES": r"AES",
         "CHACHA20": r"CHACHA20",
@@ -64,7 +68,7 @@ for category in ALL_ALGORITHMS.values():
 
 
 @lru_cache(maxsize=128)
-def parse_cipher_suite(cipher_suite):
+def parse_cipher_suite(cipher_suite: str) -> Dict[str, str]:
     """
     Parse a cipher suite string to identify encryption, key exchange, and MAC algorithms.
     """
@@ -72,14 +76,15 @@ def parse_cipher_suite(cipher_suite):
 
     for category, algorithms in ALL_ALGORITHMS.items():
         for alg, pattern in algorithms.items():
-            if pattern.search(cipher_suite):
+            # At runtime, patterns are compiled regex objects after initialization
+            if hasattr(pattern, "search") and pattern.search(cipher_suite):  # type: ignore
                 result[category] = alg
                 break
 
     return result
 
 
-def list_algorithms():
+def list_algorithms() -> Dict[str, Any]:
     """
     List all known algorithms by category.
     """
@@ -89,7 +94,7 @@ def list_algorithms():
     return alg_list
 
 
-def update_algorithms(custom_algorithms):
+def update_algorithms(custom_algorithms: Dict[str, Dict[str, str]]) -> None:
     """
     Update the ALL_ALGORITHMS dictionary with user-provided custom algorithms.
     """
@@ -119,7 +124,10 @@ ALLOWED_CIPHER_SUITES = {
 }
 
 
-def update_allowed_lists(custom_tls_versions=None, custom_ciphers=None):
+def update_allowed_lists(
+    custom_tls_versions: Optional[Set[str]] = None,
+    custom_ciphers: Optional[Set[str]] = None,
+) -> None:
     """
     Update the sets of allowed TLS versions and cipher suites.
 

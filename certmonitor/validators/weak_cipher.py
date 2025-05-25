@@ -1,5 +1,7 @@
 # validators/weak_cipher.py
 
+from typing import Any, Dict
+
 from ..cipher_algorithms import ALLOWED_CIPHER_SUITES
 from .base import BaseCipherValidator
 
@@ -9,9 +11,11 @@ class WeakCipherValidator(BaseCipherValidator):
     Validates that the negotiated cipher suite is in the allowed list.
     """
 
-    name = "weak_cipher"
+    name: str = "weak_cipher"
 
-    def validate(self, cipher_info, host, port) -> dict:
+    def validate(
+        self, cipher_info: Dict[str, Any], host: str, port: int
+    ) -> Dict[str, Any]:
         """
         Validates that the negotiated cipher suite is in the allowed list.
 

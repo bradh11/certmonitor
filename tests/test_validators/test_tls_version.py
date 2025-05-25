@@ -1,7 +1,8 @@
 # tests/test_validators/test_tls_version.py
 
-import pytest
 from unittest.mock import patch
+
+import pytest
 
 from certmonitor.validators.tls_version import TLSVersionValidator
 

@@ -1,7 +1,9 @@
 """Tests for CertMonitor validation operations and validator execution."""
 
+from unittest.mock import MagicMock, patch
+
 import pytest
-from unittest.mock import patch, MagicMock
+
 from certmonitor.core import CertMonitor
 
 

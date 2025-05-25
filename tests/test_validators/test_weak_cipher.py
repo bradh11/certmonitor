@@ -1,7 +1,8 @@
 # tests/test_validators/test_weak_cipher.py
 
-import pytest
 from unittest.mock import patch
+
+import pytest
 
 from certmonitor.validators.weak_cipher import WeakCipherValidator
 

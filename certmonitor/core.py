@@ -6,11 +6,9 @@ import os
 import socket
 import ssl
 import tempfile
-from typing import Any, Dict, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 
-from certmonitor import certinfo
-
-from certmonitor import config
+from certmonitor import certinfo, config
 from certmonitor.cipher_algorithms import parse_cipher_suite
 from certmonitor.error_handlers import ErrorHandler
 from certmonitor.protocol_handlers.ssh_handler import SSHHandler
@@ -25,7 +23,7 @@ class CertMonitor:
         self,
         host: str,
         port: int = 443,
-        enabled_validators: list = config.DEFAULT_VALIDATORS,
+        enabled_validators: Optional[List[str]] = None,
     ):
         """Initialize the CertMonitor with the specified host and port."""
         self.host = host
@@ -44,12 +42,12 @@ class CertMonitor:
         self.protocol = None
         self.connected = False
 
-    def __enter__(self):
+    def __enter__(self) -> "CertMonitor":
         """Enter the runtime context related to this object."""
         self.connect()
         return self
 
-    def __exit__(self, exc_type, exc_value, traceback):
+    def __exit__(self, exc_type: Any, exc_value: Any, traceback: Any) -> None:
         """Exit the runtime context related to this object."""
         self.close()
 
@@ -83,13 +81,13 @@ class CertMonitor:
         logging.debug(f"Successfully connected to {self.host}:{self.port}")
         return None
 
-    def close(self):
+    def close(self) -> None:
         """Close the connection and reset the handler."""
         if self.handler:
             self.handler.close()
         self.handler = None
 
-    def detect_protocol(self):
+    def detect_protocol(self) -> Union[str, Dict[str, Any]]:
         """Detect the protocol used by the host."""
         try:
             with socket.create_connection((self.host, self.port), timeout=10) as sock:
@@ -117,7 +115,7 @@ class CertMonitor:
                 "ConnectionError", str(e), self.host, self.port
             )
 
-    def _ensure_connection(self):
+    def _ensure_connection(self) -> Optional[Dict[str, Any]]:
         """Ensures that a valid connection is established."""
         if not self.connected:
             connect_result = self.connect()
@@ -215,7 +213,7 @@ class CertMonitor:
             )
         return self.handler.fetch_raw_cipher()
 
-    def _parse_pem_cert(self, pem_cert: str) -> dict:
+    def _parse_pem_cert(self, pem_cert: str) -> Dict[str, Any]:
         """Parse a PEM formatted certificate to extract relevant details."""
         with tempfile.NamedTemporaryFile(delete=False, mode="w") as temp_file:
             temp_file.write(pem_cert)
@@ -229,7 +227,7 @@ class CertMonitor:
 
         return cert_details
 
-    def _to_structured_dict(self, data) -> dict:
+    def _to_structured_dict(self, data: Any) -> Any:
         """Convert the certificate data into a structured dictionary format.
 
         Args:
@@ -387,7 +385,7 @@ class CertMonitor:
 
         return self.public_key_pem
 
-    def get_cipher_info(self) -> dict:
+    def get_cipher_info(self) -> Dict[str, Any]:
         """Retrieve and structure the cipher information of the SSL/TLS connection."""
         raw_cipher = self._fetch_raw_cipher()
 
@@ -425,7 +423,9 @@ class CertMonitor:
 
         return result
 
-    def validate(self, validator_args=None) -> dict:
+    def validate(
+        self, validator_args: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
         """
         Validates the target host by running all enabled validators.
 

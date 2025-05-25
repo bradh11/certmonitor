@@ -1,10 +1,11 @@
 # tests/test_protocol_handlers/test_base.py
 
-import pytest
 from abc import ABC
 
-from certmonitor.protocol_handlers.base import BaseProtocolHandler
+import pytest
+
 from certmonitor.error_handlers import ErrorHandler
+from certmonitor.protocol_handlers.base import BaseProtocolHandler
 
 
 class TestBaseProtocolHandler:

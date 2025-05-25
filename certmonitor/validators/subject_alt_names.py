@@ -1,6 +1,7 @@
 # validators/subject_alt_names.py
 
 import ipaddress
+from typing import Any, Dict, List, Optional
 
 from .base import BaseCertValidator
 
@@ -14,9 +15,15 @@ class SubjectAltNamesValidator(BaseCertValidator):
         name (str): The name of the validator.
     """
 
-    name = "subject_alt_names"
+    name: str = "subject_alt_names"
 
-    def validate(self, cert, host, port, alternate_names=None) -> dict:
+    def validate(
+        self,
+        cert: Dict[str, Any],
+        host: str,
+        port: int,
+        alternate_names: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
         """
         Validates the SANs in the provided SSL certificate.
 

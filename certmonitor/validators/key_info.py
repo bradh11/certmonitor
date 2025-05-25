@@ -1,5 +1,7 @@
 # validators/key_info.py
 
+from typing import Any, Dict
+
 from .base import BaseCertValidator
 
 
@@ -12,9 +14,9 @@ class KeyInfoValidator(BaseCertValidator):
         name (str): The name of the validator.
     """
 
-    name = "key_info"
+    name: str = "key_info"
 
-    def validate(self, cert, host, port) -> dict:
+    def validate(self, cert: Dict[str, Any], host: str, port: int) -> Dict[str, Any]:
         """
         Validates the key information of the provided SSL certificate.
 

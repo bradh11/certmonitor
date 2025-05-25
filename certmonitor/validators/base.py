@@ -1,6 +1,7 @@
 # validators/base.py
 
 from abc import ABC, abstractmethod
+from typing import Any, Dict
 
 
 class BaseValidator(ABC):
@@ -10,7 +11,7 @@ class BaseValidator(ABC):
 
     @property
     @abstractmethod
-    def name(self):
+    def name(self) -> str:
         """
         Returns the name of the validator.
 
@@ -19,7 +20,7 @@ class BaseValidator(ABC):
         """
 
     @abstractmethod
-    def validate(self, cert, host, port):
+    def validate(self, cert: Dict[str, Any], host: str, port: int) -> Dict[str, Any]:
         """
         Validates the given certificate.
 
@@ -34,16 +35,20 @@ class BaseValidator(ABC):
 
 
 class BaseCertValidator(BaseValidator):
-    validator_type = "cert"
+    validator_type: str = "cert"
 
-    def validate(self, cert_info, host, port):
-        # cert validation logic
-        pass
+    def validate(
+        self, cert_info: Dict[str, Any], host: str, port: int
+    ) -> Dict[str, Any]:
+        # Default implementation - subclasses should override this
+        return None  # type: ignore
 
 
 class BaseCipherValidator(BaseValidator):
-    validator_type = "cipher"
+    validator_type: str = "cipher"
 
-    def validate(self, cipher_info, host, port):
-        # cipher validation logic
-        pass
+    def validate(
+        self, cipher_info: Dict[str, Any], host: str, port: int
+    ) -> Dict[str, Any]:
+        # Default implementation - subclasses should override this
+        return None  # type: ignore

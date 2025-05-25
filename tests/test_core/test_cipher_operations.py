@@ -1,7 +1,9 @@
 """Tests for CertMonitor cipher operations and TLS protocol information."""
 
+from unittest.mock import MagicMock, patch
+
 import pytest
-from unittest.mock import patch, MagicMock
+
 from certmonitor.core import CertMonitor
 
 

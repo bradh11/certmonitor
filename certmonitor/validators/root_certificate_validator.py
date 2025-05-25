@@ -1,5 +1,7 @@
 # validators/root_certificate_validator.py
 
+from typing import Any, Dict
+
 from .base import BaseCertValidator
 
 
@@ -11,9 +13,9 @@ class RootCertificateValidator(BaseCertValidator):
         name (str): The name of the validator.
     """
 
-    name = "root_certificate"
+    name: str = "root_certificate"
 
-    def validate(self, cert, host, port) -> dict:
+    def validate(self, cert: Dict[str, Any], host: str, port: int) -> Dict[str, Any]:
         """
         Validates if the SSL certificate is issued by a trusted root CA.
 

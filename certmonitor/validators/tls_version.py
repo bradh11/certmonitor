@@ -1,5 +1,7 @@
 # validators/tls_version.py
 
+from typing import Any, Dict
+
 from ..cipher_algorithms import ALLOWED_TLS_VERSIONS
 from .base import BaseCipherValidator
 
@@ -9,9 +11,11 @@ class TLSVersionValidator(BaseCipherValidator):
     Checks if the negotiated TLS version is in the allowed list.
     """
 
-    name = "tls_version"
+    name: str = "tls_version"
 
-    def validate(self, cipher_info, host, port) -> dict:
+    def validate(
+        self, cipher_info: Dict[str, Any], host: str, port: int
+    ) -> Dict[str, Any]:
         """
         Validates the TLS protocol version used by the connection.
 

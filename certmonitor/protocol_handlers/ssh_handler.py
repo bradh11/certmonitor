@@ -2,14 +2,16 @@
 
 import re
 import socket
+from typing import Any, Dict, Optional
 
 from .base import BaseProtocolHandler
 
 
 class SSHHandler(BaseProtocolHandler):
-    def connect(self):
+    def connect(self) -> Optional[Dict[str, Any]]:
         try:
             self.socket = socket.create_connection((self.host, self.port), timeout=10)
+            return None
         except socket.error as e:
             return self.error_handler.handle_error(
                 "SocketError", str(e), self.host, self.port
@@ -19,8 +21,13 @@ class SSHHandler(BaseProtocolHandler):
                 "UnknownError", str(e), self.host, self.port
             )
 
-    def fetch_raw_cert(self):
+    def fetch_raw_cert(self) -> Dict[str, Any]:
         try:
+            if not self.socket:
+                return self.error_handler.handle_error(
+                    "ConnectionError", "Socket not connected", self.host, self.port
+                )
+
             ssh_banner = self.socket.recv(1024).decode("ascii", errors="ignore").strip()
             match = re.match(r"^SSH-(\d+\.\d+)-(.*)$", ssh_banner)
             if match:
@@ -39,11 +46,12 @@ class SSHHandler(BaseProtocolHandler):
                 "SSHError", str(e), self.host, self.port
             )
 
-    def close(self):
+    def close(self) -> None:
         if self.socket:
             self.socket.close()
+            self.socket = None
 
-    def check_connection(self):
+    def check_connection(self) -> bool:
         if not self.socket:
             return False
         try:

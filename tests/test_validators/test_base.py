@@ -1,12 +1,13 @@
 # tests/test_validators/test_base.py
 
-import pytest
 from abc import ABCMeta
 
+import pytest
+
 from certmonitor.validators.base import (
-    BaseValidator,
     BaseCertValidator,
     BaseCipherValidator,
+    BaseValidator,
 )
 
 

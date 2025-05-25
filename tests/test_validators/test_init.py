@@ -3,13 +3,14 @@
 """Tests for validators module initialization and registration functionality."""
 
 from unittest.mock import MagicMock
+
 import pytest
 
 from certmonitor.validators import (
-    register_validator,
-    list_validators,
-    get_enabled_validators,
     VALIDATORS,
+    get_enabled_validators,
+    list_validators,
+    register_validator,
 )
 from certmonitor.validators.base import BaseValidator
 
