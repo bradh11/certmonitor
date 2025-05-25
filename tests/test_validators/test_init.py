@@ -34,7 +34,7 @@ def test_register_validator():
     """Test register_validator function."""
     # Save original validators
     original_validators = VALIDATORS.copy()
-    
+
     try:
         # Clear any existing validators
         VALIDATORS.clear()
@@ -56,7 +56,7 @@ def test_list_validators():
     """Test list_validators function."""
     # Save original validators
     original_validators = VALIDATORS.copy()
-    
+
     try:
         # Clear any existing validators
         VALIDATORS.clear()
@@ -66,7 +66,7 @@ def test_list_validators():
             @property
             def name(self):
                 return "test1"
-            
+
             def validate(self, cert_data, host, port, *args, **kwargs):
                 return {"is_valid": True}
 
@@ -74,13 +74,13 @@ def test_list_validators():
             @property
             def name(self):
                 return "test2"
-            
+
             def validate(self, cert_data, host, port, *args, **kwargs):
                 return {"is_valid": True}
 
         validator1 = MockValidator1()
         validator2 = MockValidator2()
-        
+
         register_validator(validator1)
         register_validator(validator2)
 
@@ -108,15 +108,15 @@ def test_validators_registry_populated():
     # Test that default validators are present
     expected_validators = [
         "expiration",
-        "hostname", 
+        "hostname",
         "key_info",
         "subject_alt_names",
         "root_certificate",
         "tls_version",
-        "weak_cipher"
+        "weak_cipher",
     ]
-    
+
     for validator_name in expected_validators:
         assert validator_name in VALIDATORS
-        assert hasattr(VALIDATORS[validator_name], 'validate')
-        assert hasattr(VALIDATORS[validator_name], 'name')
+        assert hasattr(VALIDATORS[validator_name], "validate")
+        assert hasattr(VALIDATORS[validator_name], "name")

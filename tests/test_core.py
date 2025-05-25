@@ -1226,9 +1226,7 @@ def test_validate_cert_validators_with_other_args():
     mock_validator.validator_type = "cert"
     mock_validator.validate.return_value = {"is_valid": True}
 
-    with patch.object(
-        monitor, "validators", {"custom_validator": mock_validator}
-    ):
+    with patch.object(monitor, "validators", {"custom_validator": mock_validator}):
         validator_args = {"custom_validator": ["arg1", "arg2"]}
         result = monitor.validate(validator_args=validator_args)
 
