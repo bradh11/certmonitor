@@ -44,6 +44,8 @@ class SSHHandler(BaseProtocolHandler):
             self.socket.close()
 
     def check_connection(self):
+        if not self.socket:
+            return False
         try:
             self.socket.getpeername()
             return True

@@ -14,6 +14,16 @@ if __name__ == "__main__":
         print("Hostname test:")
         print(monitor.cert_data)
 
+        # Test public key extraction
+        print("\nPublic Key Extraction Test:")
+        print(f"  public_key_der available: {monitor.public_key_der is not None}")
+        print(f"  public_key_pem available: {monitor.public_key_pem is not None}")
+        if monitor.public_key_der:
+            print(f"  DER length: {len(monitor.public_key_der)} bytes")
+        if monitor.public_key_pem:
+            print(f"  PEM length: {len(monitor.public_key_pem)} characters")
+            print(f"  PEM format:\n{monitor.public_key_pem}")
+
     print("\n" + "=" * 50 + "\n")
 
     # Test with an IPv4 address

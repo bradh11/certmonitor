@@ -29,4 +29,20 @@ if __name__ == "__main__":
         print("Cipher Results")
         print(json.dumps(monitor.get_cipher_info(), indent=2))
 
+        print("\n" + "=" * 50 + "\n")
+
+        # Test the new public key extraction functionality
+        print("Public Key Information:")
+        print(f"Public Key DER available: {monitor.public_key_der is not None}")
+        print(f"Public Key PEM available: {monitor.public_key_pem is not None}")
+
+        if monitor.public_key_der:
+            print(f"Public Key DER length: {len(monitor.public_key_der)} bytes")
+            print(f"Public Key DER type: {type(monitor.public_key_der)}")
+
+        if monitor.public_key_pem:
+            print(f"Public Key PEM length: {len(monitor.public_key_pem)} characters")
+            print("Public Key PEM:")
+            print(monitor.public_key_pem)
+
     print("\n" + "=" * 50 + "\n")

@@ -4,6 +4,7 @@ use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use x509_parser::prelude::*;
 use x509_parser::public_key::PublicKey;
+use base64::{Engine as _, engine::general_purpose};
 
 /// A small struct to hold the parsed key info in Rust
 #[derive(Debug, Clone)]
@@ -76,9 +77,60 @@ fn parse_public_key_info(der_data: Vec<u8>) -> PyResult<Py<PyAny>> {
     Ok(py_dict)
 }
 
+/// Extract the public key from a certificate in DER format.
+///
+/// Returns the DER-encoded SubjectPublicKeyInfo as bytes.
+#[pyfunction]
+fn extract_public_key_der(der_data: Vec<u8>) -> PyResult<Py<PyAny>> {
+    // Parse the certificate from DER
+    let (_, certificate) = X509Certificate::from_der(&der_data)
+        .map_err(|_| PyValueError::new_err("Failed to parse X.509 certificate"))?;
+
+    // Extract SubjectPublicKeyInfo (SPKI) and return its raw DER bytes
+    let spki_der = certificate.public_key().raw;
+    
+    // Convert to Python bytes object
+    Python::with_gil(|py| {
+        let py_bytes = pyo3::types::PyBytes::new(py, spki_der);
+        Ok(py_bytes.into())
+    })
+}
+
+/// Extract the public key from a certificate in PEM format.
+///
+/// Returns the PEM-encoded SubjectPublicKeyInfo as a string.
+#[pyfunction]
+fn extract_public_key_pem(der_data: Vec<u8>) -> PyResult<String> {
+    // Parse the certificate from DER
+    let (_, certificate) = X509Certificate::from_der(&der_data)
+        .map_err(|_| PyValueError::new_err("Failed to parse X.509 certificate"))?;
+
+    // Extract SubjectPublicKeyInfo (SPKI) DER bytes
+    let spki_der = certificate.public_key().raw;
+    
+    // Encode to base64
+    let base64_encoded = general_purpose::STANDARD.encode(spki_der);
+    
+    // Format as PEM
+    let pem_formatted = format!(
+        "-----BEGIN PUBLIC KEY-----\n{}\n-----END PUBLIC KEY-----",
+        base64_encoded
+            .chars()
+            .collect::<Vec<char>>()
+            .chunks(64)
+            .map(|chunk| chunk.iter().collect::<String>())
+            .collect::<Vec<String>>()
+            .join("\n")
+    );
+    
+    Ok(pem_formatted)
+}
+
 /// The module definition. This tells PyO3 to create a Python module named `certinfo`.
 #[pymodule]
 fn certinfo(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(parse_public_key_info, m)?)?;
+    m.add_function(wrap_pyfunction!(extract_public_key_der, m)?)?;
+    m.add_function(wrap_pyfunction!(extract_public_key_pem, m)?)?;
     Ok(())
 }

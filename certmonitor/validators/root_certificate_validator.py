@@ -66,12 +66,22 @@ class RootCertificateValidator(BaseCertValidator):
         has_ocsp = bool(cert_info.get("OCSP"))
         has_ca_issuers = bool(cert_info.get("caIssuers"))
 
+        # Check if issuer information is missing or empty
+        has_valid_issuer = bool(
+            issuer and (issuer.get("commonName") or issuer.get("organizationName"))
+        )
+
         # Check if the certificate is self-signed
-        is_self_signed = issuer == subject and issuer != {}
+        # A certificate is self-signed if issuer == subject AND both are not empty
+        # OR if both issuer and subject are empty (which is also invalid/suspicious)
+        is_self_signed = (issuer == subject) and (
+            issuer != {} or (issuer == {} and subject == {})
+        )
 
         # Heuristic check: If the issuer's common name or organization name contains 'Untrusted', flag it
         is_trusted = (
-            (has_ocsp and has_ca_issuers)
+            has_valid_issuer
+            and (has_ocsp and has_ca_issuers)
             and not is_self_signed
             and (
                 "untrusted" not in common_name.lower()
@@ -80,6 +90,8 @@ class RootCertificateValidator(BaseCertValidator):
         )
 
         warnings = []
+        if not has_valid_issuer:
+            warnings.append("Certificate does not have valid issuer information.")
         if not has_ocsp:
             warnings.append("Certificate does not provide OCSP information.")
         if not has_ca_issuers:
