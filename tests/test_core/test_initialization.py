@@ -38,6 +38,20 @@ class TestCertMonitorInitialization:
         monitor = CertMonitor("www.example.com", enabled_validators=[])
         assert monitor.enabled_validators == []
 
+    def test_initialization_with_default_validators_config_fallback(self):
+        """Test initialization uses default validators when empty list provided with config fallback."""
+        with patch(
+            "certmonitor.core.config.ENABLED_VALIDATORS", ["default1", "default2"]
+        ):
+            monitor = CertMonitor("www.example.com", enabled_validators=[])
+            # The implementation uses: enabled_validators or config.ENABLED_VALIDATORS
+            assert monitor.enabled_validators == ["default1", "default2"]
+
+    def test_initialization_with_explicit_empty_list(self):
+        """Test initialization with explicitly empty validator list."""
+        monitor = CertMonitor("www.example.com", enabled_validators=[])
+        assert monitor.enabled_validators == []
+
     def test_is_ip_address_ipv6(self):
         """Test _is_ip_address() correctly identifies IPv6 addresses."""
         assert CertMonitor("2001:db8::1").is_ip
