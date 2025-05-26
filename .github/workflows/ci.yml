@@ -244,6 +244,7 @@ jobs:
             p/security-audit
             p/secrets
             p/python
+
         env:
           # Allow tool to handle legacy TLS for security assessment
           SEMGREP_RULES: "p/security-audit p/secrets p/python"
