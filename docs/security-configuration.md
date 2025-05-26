@@ -36,19 +36,15 @@ CertMonitor is a **security assessment tool** designed to analyze and monitor SS
 ## Security Scanning Configuration
 
 ### Primary Security Tools
-1. **Semgrep**: Comprehensive static analysis for security vulnerabilities
-2. **Bandit**: Python-specific security linter with configured exceptions
-3. **Cargo Audit**: Rust dependency vulnerability scanning
+1. **Bandit**: Python-specific security linter with configured exceptions for legitimate security tool patterns
+2. **Cargo Audit**: Rust dependency vulnerability scanning
 
 ### Tool-Specific Configuration
 
-#### Semgrep Ignores (`.semgrepignore`)
-- Weak SSL versions in protocol handlers
-- Subprocess shell usage in internal scripts
-- Legacy crypto in test files
-
 #### Bandit Configuration (`.bandit`)
 - Skips SSL/TLS checks that are intentional for this security tool
+- Excludes test files that need to use insecure configurations
+- Allows subprocess usage in controlled internal scripts
 - Excludes test files and controlled security assessment code
 - Configured exceptions for legitimate certificate monitoring patterns
 

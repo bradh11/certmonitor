@@ -20,7 +20,6 @@ class SSLHandler(BaseProtocolHandler):
         supported_protocols: List[int] = []
         # NOTE: Legacy TLS/SSL versions are intentionally included for security assessment
         # This tool needs to detect and analyze weak configurations in legacy systems
-        # semgrep:ignore python.lang.security.audit.weak-ssl-version.weak-ssl-version
         for protocol in [
             ssl.PROTOCOL_TLS_CLIENT,
             ssl.PROTOCOL_TLSv1_2,

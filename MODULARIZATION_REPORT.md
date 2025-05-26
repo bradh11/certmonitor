@@ -67,7 +67,7 @@
 - **core.py**: ✅ (632 lines)
 - **error_handlers.py**: ✅ (29 lines)
 - **cipher_algorithms.py**: ✅ (145 lines)
-- **protocol_handlers/ssl_handler.py**: ✅ (194 lines)
+- **protocol_handlers/ssl_handler.py**: ✅ (193 lines)
 - **protocol_handlers/ssh_handler.py**: ✅ (77 lines)
 - **protocol_handlers/base.py**: ✅ (28 lines)
 - **utils/utils.py**: ❌ (1 lines)

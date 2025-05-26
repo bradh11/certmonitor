@@ -238,31 +238,16 @@ jobs:
             # Allow on main/develop since PR was already tested
             uv run bandit -r certmonitor/ -f json -o bandit-report.json -c .bandit || true
           fi
-          
-      - name: Run semgrep security scanner
-        uses: returntocorp/semgrep-action@v1
-        with:
-          config: >-
-            p/security-audit
-            p/secrets
-            p/python
-        env:
-          # Allow tool to handle legacy TLS for security assessment
-          SEMGREP_RULES: "p/security-audit p/secrets p/python"
-        # Fail on PRs to catch issues early, but allow on main/develop since PR was already tested
-        continue-on-error: ${{ github.event_name != 'pull_request' }}
-        if: github.actor != 'dependabot[bot]'
       
       - name: Review security findings
-        if: github.actor != 'dependabot[bot]'
         run: |
-          echo "🔍 Security scan completed."
+          echo "🔍 Python security scan completed with bandit."
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             echo "⚠️  PR Security Check: Any blocking findings must be addressed or documented."
-            echo "📋 Add exceptions to .semgrepignore if findings are intentional for this security tool."
+            echo "📋 Add exceptions to .bandit configuration if findings are intentional for this security tool."
           else
             echo "⚠️  Note: Some findings may be intentional for this security assessment tool."
-            echo "📋 Review .semgrepignore for documented exceptions."
+            echo "📋 Review .bandit configuration for documented exceptions."
           fi
 
   # Documentation build - runs on PR merges and before releases

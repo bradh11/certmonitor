@@ -20,8 +20,8 @@ def run_command(cmd: str) -> Tuple[str, int]:
     Note: This is an internal development script with controlled commands.
     """
     try:
-        # semgrep:ignore python.lang.security.audit.subprocess-shell-true.subprocess-shell-true
-        # This is a controlled internal script, not processing user input
+        # NOTE: This is a controlled internal script, not user input
+        # This is documented in .bandit configuration as an exception
         result = subprocess.run(
             cmd, shell=True, capture_output=True, text=True, cwd=Path.cwd()
         )
