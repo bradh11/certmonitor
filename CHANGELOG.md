@@ -28,8 +28,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `make format` - Format both Python and Rust code
   - `make format-check` - Check formatting for both languages
   - `make lint` - Lint both Python and Rust code
+  - `make security` - Run security vulnerability check (cargo audit)
   - Individual language commands: `python-format`, `python-lint`, `rust-format`, `rust-lint`
-  - Enhanced `make test` with 8-step CI-equivalent comprehensive testing
+  - Enhanced `make test` with 9-step CI-equivalent comprehensive testing including security checks
   - Improved `make help` with clear categorized command documentation
 
 ### Changed
@@ -48,6 +49,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Python 3.8 compatibility issues (datetime.UTC → datetime.timezone.utc)
 - CI workflow syntax errors and redundant documentation building
 - Fixed incorrect reporting on root certificate validation
+- **Security vulnerability RUSTSEC-2025-0020** by upgrading PyO3 from 0.20.0 to 0.24.1
+- **Rust code compatibility** with PyO3 0.24.x API changes (updated module binding syntax)
 
 ## [0.1.2] - 2025-05-11
 

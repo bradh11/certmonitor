@@ -1,6 +1,6 @@
 # Makefile for certmonitor project
 
-.PHONY: develop build wheel test test-quick docs clean lint format format-check verify-wheel check report ci help typecheck python-lint python-format rust-format rust-format-check rust-lint
+.PHONY: develop build wheel test test-quick docs clean lint format format-check verify-wheel check report ci help typecheck python-lint python-format rust-format rust-format-check rust-lint security
 
 # Show available targets and their descriptions
 help:
@@ -24,6 +24,7 @@ help:
 	@echo "  rust-format  Run Rust-only formatting"
 	@echo "  rust-lint    Run Rust-only linting"
 	@echo "  typecheck    Run mypy type checking"
+	@echo "  security     Run security vulnerability check"
 	@echo "  ci           Alias for 'test' (full CI checks)"
 	@echo ""
 	@echo "📊 Reporting:"
@@ -56,36 +57,40 @@ test-quick:
 # Comprehensive test suite (equivalent to CI checks)
 test: develop
 	@echo "🧪 Running comprehensive test suite (CI equivalent)..."
-	@echo "=================================================="
+	@echo "==================================================="
 	@echo ""
-	@echo "📋 1/8 Python code formatting check..."
+	@echo "📋 1/9 Python code formatting check..."
 	uv run ruff format --check .
 	@echo "✅ Python formatting check complete"
 	@echo ""
-	@echo "🔍 2/8 Python linting check..."
+	@echo "🔍 2/9 Python linting check..."
 	uv run ruff check .
 	@echo "✅ Python linting check complete"
 	@echo ""
-	@echo "🦀 3/8 Rust code formatting check..."
+	@echo "🦀 3/9 Rust code formatting check..."
 	cargo fmt --all -- --check
 	@echo "✅ Rust formatting check complete"
 	@echo ""
-	@echo "🔧 4/8 Rust linting check..."
+	@echo "🔧 4/9 Rust linting check..."
 	cargo clippy --all-targets --all-features -- -D warnings
 	@echo "✅ Rust linting check complete"
 	@echo ""
-	@echo "🧪 5/8 Running pytest with coverage..."
+	@echo "🧪 5/9 Running pytest with coverage..."
 	uv run pytest --cov=certmonitor --cov-report=term-missing --cov-fail-under=95
 	@echo "✅ Tests and coverage complete"
 	@echo ""
-	@echo "🔧 6/8 Python type checking..."
+	@echo "🔧 6/9 Python type checking..."
 	uv run mypy certmonitor/
 	@echo "✅ Type checking complete"
 	@echo ""
-	@echo "🏗️  7/8 Build verification..."
+	@echo "🔒 7/9 Security vulnerability check..."
+	cargo audit
+	@echo "✅ Security audit complete"
+	@echo ""
+	@echo "🏗️  8/9 Build verification..."
 	@$(MAKE) wheel >/dev/null 2>&1 && echo "✅ Build successful" || echo "❌ Build failed"
 	@echo ""
-	@echo "📊 8/8 Generating modularization report..."
+	@echo "📊 9/9 Generating modularization report..."
 	@python scripts/generate_report.py
 	@echo ""
 	@echo "🎉 All checks complete! Ready for PR/push."
@@ -151,6 +156,11 @@ rust-format-check:
 # Rust-only linting
 rust-lint:
 	cargo clippy --all-targets --all-features -- -D warnings
+
+# Security vulnerability check
+security:
+	@echo "🔒 Running security vulnerability check..."
+	cargo audit
 
 # Clean all build artifacts, cache, eggs, and venv
 clean:

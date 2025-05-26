@@ -175,7 +175,7 @@ uv run pytest tests/test_validators/            # Specific test directory
 
 ### Comprehensive Testing
 
-The `make test` command runs our full 8-step CI-equivalent test suite:
+The `make test` command runs our full 9-step CI-equivalent test suite:
 
 1. **Python formatting check** - Ensures code is properly formatted
 2. **Python linting check** - Catches code quality issues  
@@ -183,8 +183,9 @@ The `make test` command runs our full 8-step CI-equivalent test suite:
 4. **Rust linting check** - Runs clippy for Rust code quality
 5. **Pytest with coverage** - Runs all tests with 95%+ coverage requirement
 6. **Type checking** - Ensures zero mypy errors
-7. **Build verification** - Verifies the wheel builds successfully
-8. **Quality reporting** - Generates modularization and quality reports
+7. **Security vulnerability check** - Runs cargo audit for dependency security
+8. **Build verification** - Verifies the wheel builds successfully
+9. **Quality reporting** - Generates modularization and quality reports
 
 ### Pre-Commit Testing
 

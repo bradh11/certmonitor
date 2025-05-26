@@ -56,7 +56,7 @@ CertMonitor provides a comprehensive Makefile with unified commands for both Pyt
 #### Comprehensive Testing
 | Command | Description |
 |---------|-------------|
-| `make test` | **Run full CI-equivalent test suite** (8 comprehensive checks) |
+| `make test` | **Run full CI-equivalent test suite** (9 comprehensive checks) |
 | `make test-quick` | Run tests only (fast, no quality checks) |
 | `make ci` | Alias for `make test` |
 
@@ -68,6 +68,7 @@ CertMonitor provides a comprehensive Makefile with unified commands for both Pyt
 | `make format-check` | **Check formatting for both languages** |
 | `make lint` | **Lint both Python and Rust code** |
 | `make typecheck` | Run mypy type checking |
+| `make security` | **Run security vulnerability check** |
 
 #### Language-Specific Commands
 | Command | Description |
@@ -125,15 +126,16 @@ Before committing or creating a PR, run the full test suite:
 make test
 ```
 
-This runs 8 comprehensive checks:
+This runs 9 comprehensive checks:
 1. Python code formatting check
 2. Python linting check  
 3. Rust code formatting check
 4. Rust linting check
 5. Pytest with coverage (95%+ required)
 6. Python type checking (mypy)
-7. Build verification
-8. Modularization report generation
+7. Security vulnerability check (cargo audit)
+8. Build verification
+9. Modularization report generation
 
 ### Working with Rust Code
 

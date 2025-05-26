@@ -9,7 +9,6 @@ and code quality metrics to ensure the codebase remains modular and maintainable
 import json
 import subprocess
 import sys
-from datetime import datetime
 from pathlib import Path
 from typing import Dict, Tuple, Any
 import ast
@@ -232,20 +231,155 @@ def get_code_quality_metrics() -> Dict[str, Any]:
     return results
 
 
+def get_security_metrics() -> Dict[str, Any]:
+    """Get security-related metrics and scan results."""
+    results = {
+        "cargo_audit_available": False,
+        "vulnerabilities_found": 0,
+        "security_scan_status": "unknown",
+        "pyo3_version": "unknown",
+        "dependency_scan_enabled": False,
+    }
+
+    # Check if cargo audit is available
+    audit_check, audit_exit = run_command("cargo audit --version")
+    if audit_exit == 0:
+        results["cargo_audit_available"] = True
+
+        # Run cargo audit
+        audit_output, audit_exit = run_command("cargo audit --json")
+        if audit_exit == 0:
+            try:
+                if audit_output.strip():
+                    audit_data = json.loads(audit_output)
+                    # Get vulnerability count from vulnerabilities.list array
+                    vuln_data = audit_data.get("vulnerabilities", {})
+                    results["vulnerabilities_found"] = len(vuln_data.get("list", []))
+                else:
+                    results["vulnerabilities_found"] = 0
+                results["security_scan_status"] = (
+                    "clean"
+                    if results["vulnerabilities_found"] == 0
+                    else "vulnerabilities_found"
+                )
+                results["dependency_scan_enabled"] = True
+            except json.JSONDecodeError:
+                # If JSON parsing fails, but exit code is 0, assume no vulnerabilities
+                results["vulnerabilities_found"] = 0
+                results["security_scan_status"] = "clean"
+                results["dependency_scan_enabled"] = True
+        else:
+            results["security_scan_status"] = "scan_failed"
+
+    # Check PyO3 version from Cargo.toml
+    try:
+        cargo_toml = Path("Cargo.toml")
+        if cargo_toml.exists():
+            with open(cargo_toml, "r") as f:
+                content = f.read()
+                for line in content.split("\n"):
+                    if "pyo3" in line and "version" in line:
+                        # Extract version from line like: pyo3 = { version = "0.24.1", features = ["extension-module"] }
+                        parts = line.split('"')
+                        if len(parts) >= 2:
+                            results["pyo3_version"] = parts[1]
+                        break
+    except Exception:
+        pass
+
+    return results
+
+
+def get_makefile_metrics() -> Dict[str, Any]:
+    """Analyze Makefile commands and development workflow capabilities."""
+    results = {
+        "makefile_exists": False,
+        "total_commands": 0,
+        "unified_commands": [],
+        "language_specific_commands": [],
+        "security_commands": [],
+        "test_steps": 0,
+        "ci_equivalent": False,
+    }
+
+    makefile_path = Path("Makefile")
+    if not makefile_path.exists():
+        return results
+
+    results["makefile_exists"] = True
+
+    try:
+        with open(makefile_path, "r") as f:
+            content = f.read()
+
+        # Count command targets (lines that start with word and colon, not indented)
+        commands = []
+        for line in content.split("\n"):
+            if (
+                line
+                and not line.startswith("\t")
+                and not line.startswith(" ")
+                and ":" in line
+            ):
+                command = line.split(":")[0].strip()
+                if (
+                    command
+                    and not command.startswith("#")
+                    and not command.startswith(".")
+                ):
+                    commands.append(command)
+
+        results["total_commands"] = len(commands)
+
+        # Categorize commands
+        unified_patterns = ["format", "lint", "test"]
+        language_patterns = ["python-", "rust-"]
+        security_patterns = ["security", "audit"]
+
+        for cmd in commands:
+            if any(pattern in cmd for pattern in unified_patterns) and not any(
+                lang in cmd for lang in language_patterns
+            ):
+                results["unified_commands"].append(cmd)
+            elif any(pattern in cmd for pattern in language_patterns):
+                results["language_specific_commands"].append(cmd)
+            elif any(pattern in cmd for pattern in security_patterns):
+                results["security_commands"].append(cmd)
+
+        # Count test steps by looking for numbered steps in test target
+        if "test:" in content:
+            test_section = (
+                content.split("test:")[1].split("\n\n")[0] if "test:" in content else ""
+            )
+            step_count = (
+                test_section.count("/9")
+                + test_section.count("/8")
+                + test_section.count("/7")
+            )
+            if step_count > 0:
+                results["test_steps"] = (
+                    9 if "/9" in test_section else (8 if "/8" in test_section else 7)
+                )
+                results["ci_equivalent"] = True
+
+    except Exception:
+        pass
+
+    return results
+
+
 def generate_report() -> str:
     """Generate the complete modularization and coverage report."""
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S UTC")
-
     # Gather all data
     test_analysis = analyze_test_modularization()
     coverage_data = get_test_coverage()
     type_hint_analysis = analyze_type_hints()
     quality_metrics = get_code_quality_metrics()
+    security_metrics = get_security_metrics()
+    makefile_metrics = get_makefile_metrics()
 
     # Generate report
     report = f"""# CertMonitor Modularization & Quality Report
-
-**Generated on:** {timestamp}
 
 ## 📊 Executive Summary
 
@@ -277,6 +411,19 @@ def generate_report() -> str:
 - **Ruff issues:** {quality_metrics["ruff_issues"]}
 - **Files with issues:** {quality_metrics["ruff_files_with_issues"]}
 - **Formatting compliant:** {"✅ Yes" if quality_metrics["formatting_compliant"] else "❌ No"}
+
+### Security & Dependencies
+- **Security scanning:** {"✅ Enabled" if security_metrics["cargo_audit_available"] else "❌ Not available"}
+- **Vulnerabilities found:** {security_metrics["vulnerabilities_found"]}
+- **Security status:** {"🔒 Clean" if security_metrics["security_scan_status"] == "clean" else "⚠️ Issues found" if security_metrics["security_scan_status"] == "vulnerabilities_found" else "❓ Unknown"}
+- **PyO3 version:** {security_metrics["pyo3_version"]}
+
+### Development Workflow
+- **Makefile commands:** {makefile_metrics["total_commands"]} total
+- **Unified commands:** {len(makefile_metrics["unified_commands"])} (format, lint, test)
+- **Language-specific:** {len(makefile_metrics["language_specific_commands"])} (python-*, rust-*)
+- **Security commands:** {len(makefile_metrics["security_commands"])} (security, audit)
+- **CI-equivalent testing:** {"✅ {}-step process".format(makefile_metrics["test_steps"]) if makefile_metrics["ci_equivalent"] else "❌ Not configured"}
 
 ---
 
@@ -317,6 +464,102 @@ def generate_report() -> str:
     report += """
 ---
 
+## 🔒 Security Analysis
+
+### Dependency Security
+"""
+
+    report += f"- **Cargo audit available:** {'✅ Yes' if security_metrics['cargo_audit_available'] else '❌ No'}\n"
+    report += (
+        f"- **Vulnerabilities found:** {security_metrics['vulnerabilities_found']}\n"
+    )
+
+    status_icon = (
+        "🔒"
+        if security_metrics["security_scan_status"] == "clean"
+        else "⚠️"
+        if security_metrics["security_scan_status"] == "vulnerabilities_found"
+        else "❓"
+    )
+    status_text = (
+        "Clean"
+        if security_metrics["security_scan_status"] == "clean"
+        else "Issues found"
+        if security_metrics["security_scan_status"] == "vulnerabilities_found"
+        else "Unknown"
+    )
+    report += f"- **Security status:** {status_icon} {status_text}\n"
+
+    report += f"- **PyO3 version:** {security_metrics['pyo3_version']}\n"
+    report += f"- **Dependency scanning:** {'✅ Enabled' if security_metrics['dependency_scan_enabled'] else '❌ Disabled'}\n"
+
+    report += """
+
+### Security Recommendations
+"""
+
+    security_recommendations = []
+    if not security_metrics["cargo_audit_available"]:
+        security_recommendations.append(
+            "🔧 Install cargo-audit: `cargo install cargo-audit`"
+        )
+    if security_metrics["vulnerabilities_found"] > 0:
+        security_recommendations.append(
+            f"⚠️ Address {security_metrics['vulnerabilities_found']} security vulnerabilities"
+        )
+    if security_metrics["security_scan_status"] == "unknown":
+        security_recommendations.append("🔍 Run security scan: `make security`")
+    if not security_recommendations:
+        security_recommendations.append("🔒 Security configuration is optimal")
+
+    for rec in security_recommendations:
+        report += f"{rec}\n"
+
+    report += """
+---
+
+## ⚙️ Development Workflow Analysis
+
+### Makefile Configuration
+"""
+
+    report += f"- **Makefile present:** {'✅ Yes' if makefile_metrics['makefile_exists'] else '❌ No'}\n"
+    report += f"- **Total commands:** {makefile_metrics['total_commands']}\n"
+    report += f"- **Unified commands:** {len(makefile_metrics['unified_commands'])} ({', '.join(makefile_metrics['unified_commands'])})\n"
+    report += f"- **Language-specific commands:** {len(makefile_metrics['language_specific_commands'])} ({', '.join(makefile_metrics['language_specific_commands'])})\n"
+    report += f"- **Security commands:** {len(makefile_metrics['security_commands'])} ({', '.join(makefile_metrics['security_commands'])})\n"
+
+    report += """
+
+### CI-Equivalent Testing
+"""
+
+    report += f"- **Test workflow steps:** {makefile_metrics['test_steps']}/9\n"
+    report += f"- **CI-equivalent testing:** {'✅ Yes' if makefile_metrics['ci_equivalent'] else '❌ No'}\n"
+
+    if makefile_metrics["ci_equivalent"]:
+        report += "- **Workflow status:** 🚀 Full 9-step testing process available\n"
+    else:
+        report += "- **Workflow status:** ⚠️ Basic testing only\n"
+
+    report += """
+
+### Development Commands
+```bash
+# Quality workflow (recommended)
+make check         # Quick quality checks (format + lint)
+make test          # Full CI-equivalent test suite
+make develop       # Install for development
+
+# Individual commands
+make format        # Format code (Python + Rust)
+make lint          # Lint code (Python + Rust) 
+make typecheck     # Type checking
+make security      # Security scanning
+```
+
+---
+
 ## 📈 Quality Metrics Over Time
 
 ### Recommendations
@@ -342,6 +585,27 @@ def generate_report() -> str:
     if not quality_metrics["formatting_compliant"]:
         recommendations.append("🎨 Run `make format` to fix formatting issues")
 
+    # Security-based recommendations
+    if security_metrics["vulnerabilities_found"] > 0:
+        recommendations.append(
+            f"🔒 Address {security_metrics['vulnerabilities_found']} security vulnerabilities"
+        )
+
+    if not security_metrics["cargo_audit_available"]:
+        recommendations.append("🔧 Install cargo-audit for security scanning")
+
+    # Workflow-based recommendations
+    if not makefile_metrics["ci_equivalent"]:
+        recommendations.append(
+            "🚀 Consider implementing full CI-equivalent testing workflow"
+        )
+
+    if (
+        makefile_metrics["total_commands"] > 0
+        and len(makefile_metrics["security_commands"]) == 0
+    ):
+        recommendations.append("🔒 Add security scanning commands to Makefile")
+
     if not recommendations:
         recommendations.append("🎉 Excellent! All quality metrics are meeting targets")
 
@@ -358,13 +622,34 @@ def generate_report() -> str:
 make report
 ```
 
-### Quality Checks
-```bash
+### Enhanced Development Commands
+"""
+
+    if makefile_metrics["makefile_exists"] and makefile_metrics["ci_equivalent"]:
+        report += """```bash
+# 🚀 Recommended CI-equivalent workflow
+make test          # Full 9-step test suite (format, lint, typecheck, test, build)
+make check         # Quick quality checks (format + lint)
+make develop       # Install for development
+
+# 🔒 Security workflow
+make security      # Run security scans
+cargo audit        # Check for vulnerabilities
+
+# 📦 Build workflow  
+make wheel         # Build release wheel
+make verify-wheel  # Verify build artifacts
+```"""
+    else:
+        report += """```bash
+# Basic development commands
 make lint          # Check code quality
 make format        # Fix formatting
 make test          # Run all tests
 make verify-wheel  # Verify build artifacts
-```
+```"""
+
+    report += """
 
 ---
 

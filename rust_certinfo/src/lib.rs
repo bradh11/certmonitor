@@ -128,7 +128,7 @@ fn extract_public_key_pem(der_data: Vec<u8>) -> PyResult<String> {
 
 /// The module definition. This tells PyO3 to create a Python module named `certinfo`.
 #[pymodule]
-fn certinfo(_py: Python, m: &PyModule) -> PyResult<()> {
+fn certinfo(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(parse_public_key_info, m)?)?;
     m.add_function(wrap_pyfunction!(extract_public_key_der, m)?)?;
     m.add_function(wrap_pyfunction!(extract_public_key_pem, m)?)?;
