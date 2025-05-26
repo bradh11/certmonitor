@@ -1,33 +1,35 @@
-# Main CI/CD Pipeline - Comprehensive testing, quality checks, and publishing
+# Main CI/CD Pipeline - Efficient testing and quality checks
 name: CI/CD
 
 on:
   push:
-    branches: ['**']  # Run on every push to any branch
+    branches: [main, develop]  # Only comprehensive tests on main branches
   pull_request:
-    branches: [main, develop]
+    branches: [main, develop]  # Comprehensive tests on PRs to main branches
   release:
     types: [published]
   schedule:
     # Run security scans weekly on Sundays at 3 AM UTC
     - cron: '0 3 * * 0'
 
+# Prevent duplicate runs for PR pushes
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  # Test suite across Python versions - runs on every push
-  test:
+  # Fast quality checks - runs on all triggers
+  quick-checks:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version: ["3.8", "3.9", "3.10", "3.11", "3.12", "3.13"]
     
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
         
-      - name: Set up Python ${{ matrix.python-version }}
+      - name: Set up Python 3.11
         uses: actions/setup-python@v5
         with:
-          python-version: ${{ matrix.python-version }}
+          python-version: "3.11"
           
       - name: Set up uv
         uses: astral-sh/setup-uv@v1
@@ -46,7 +48,41 @@ jobs:
       - name: Install Rust extension
         run: make develop
         
-      - name: Run tests with coverage
+      - name: Run quick tests (core functionality)
+        run: |
+          uv run pytest tests/test_core/test_initialization.py --maxfail=2 --disable-warnings
+
+  # Comprehensive test suite - runs on PRs and main branch pushes
+  test:
+    runs-on: ubuntu-latest
+    needs: quick-checks
+    # Only run comprehensive tests on PRs and main/develop pushes
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop'
+    strategy:
+      matrix:
+        python-version: ["3.8", "3.9", "3.10", "3.11", "3.12", "3.13"]  # Full Python matrix
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v1
+        with:
+          version: "0.6.17"
+          
+      - name: Install dependencies
+        run: uv sync --group dev
+        
+      - name: Install Rust extension
+        run: make develop
+        
+      - name: Run full test suite with coverage
         run: |
           uv run pytest --maxfail=2 --disable-warnings \
             --cov=certmonitor --cov-report=xml --cov-report=html
@@ -66,9 +102,11 @@ jobs:
           make wheel
           echo "✅ Build verification complete"
 
-  # Type checking and code quality
+  # Type checking and code quality - only on PRs and main branches
   quality:
     runs-on: ubuntu-latest
+    needs: quick-checks
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop'
     
     steps:
       - name: Checkout code
@@ -101,20 +139,31 @@ jobs:
           uv run radon cc certmonitor/ --min B
           uv run radon mi certmonitor/ --min B
 
-  # Rust-specific checks when Rust code changes
+  # Rust-specific checks - smart triggering
   rust:
     runs-on: ${{ matrix.os }}
+    needs: quick-checks
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        os: [ubuntu-latest]  # Only Linux for regular checks
         rust: [stable]
+        include:
+          # Cross-platform only on PRs and releases
+          - os: macos-latest
+            rust: stable
+            if: github.event_name == 'pull_request' || github.event_name == 'release'
+          - os: windows-latest
+            rust: stable  
+            if: github.event_name == 'pull_request' || github.event_name == 'release'
         
-    # Only run if Rust files changed
+    # Run if Rust files changed OR it's a PR/main branch push
     if: |
+      github.event_name == 'pull_request' ||
+      github.ref == 'refs/heads/main' ||
+      github.ref == 'refs/heads/develop' ||
       contains(github.event.head_commit.modified, 'rust_certinfo/') ||
       contains(github.event.head_commit.modified, 'Cargo.toml') ||
-      contains(github.event.head_commit.modified, 'Cargo.lock') ||
-      github.event_name == 'pull_request'
+      contains(github.event.head_commit.modified, 'Cargo.lock')
     
     steps:
       - name: Checkout code
