@@ -2,7 +2,7 @@
 
 import re
 from functools import lru_cache
-from typing import Any, Dict, Optional, Pattern, Set, Union
+from typing import Any, Dict, Optional, Pattern, Set, Union, cast
 
 """
 This module defines:
@@ -77,7 +77,8 @@ def parse_cipher_suite(cipher_suite: str) -> Dict[str, str]:
     for category, algorithms in ALL_ALGORITHMS.items():
         for alg, pattern in algorithms.items():
             # At runtime, patterns are compiled regex objects after initialization
-            if hasattr(pattern, "search") and pattern.search(cipher_suite):  # type: ignore
+            compiled_pattern = cast(Pattern[str], pattern)
+            if compiled_pattern.search(cipher_suite):
                 result[category] = alg
                 break
 

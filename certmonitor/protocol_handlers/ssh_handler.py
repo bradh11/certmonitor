@@ -2,7 +2,7 @@
 
 import re
 import socket
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, cast
 
 from .base import BaseProtocolHandler
 
@@ -13,19 +13,28 @@ class SSHHandler(BaseProtocolHandler):
             self.socket = socket.create_connection((self.host, self.port), timeout=10)
             return None
         except socket.error as e:
-            return self.error_handler.handle_error(
-                "SocketError", str(e), self.host, self.port
+            return cast(
+                Optional[Dict[str, Any]],
+                self.error_handler.handle_error(
+                    "SocketError", str(e), self.host, self.port
+                ),
             )
         except Exception as e:
-            return self.error_handler.handle_error(
-                "UnknownError", str(e), self.host, self.port
+            return cast(
+                Optional[Dict[str, Any]],
+                self.error_handler.handle_error(
+                    "UnknownError", str(e), self.host, self.port
+                ),
             )
 
     def fetch_raw_cert(self) -> Dict[str, Any]:
         try:
             if not self.socket:
-                return self.error_handler.handle_error(
-                    "ConnectionError", "Socket not connected", self.host, self.port
+                return cast(
+                    Dict[str, Any],
+                    self.error_handler.handle_error(
+                        "ConnectionError", "Socket not connected", self.host, self.port
+                    ),
                 )
 
             ssh_banner = self.socket.recv(1024).decode("ascii", errors="ignore").strip()
@@ -38,12 +47,18 @@ class SSHHandler(BaseProtocolHandler):
                     "software_version": match.group(2),
                 }
             else:
-                return self.error_handler.handle_error(
-                    "SSHError", "Invalid SSH banner", self.host, self.port
+                return cast(
+                    Dict[str, Any],
+                    self.error_handler.handle_error(
+                        "SSHError", "Invalid SSH banner", self.host, self.port
+                    ),
                 )
         except Exception as e:
-            return self.error_handler.handle_error(
-                "SSHError", str(e), self.host, self.port
+            return cast(
+                Dict[str, Any],
+                self.error_handler.handle_error(
+                    "SSHError", str(e), self.host, self.port
+                ),
             )
 
     def close(self) -> None:
