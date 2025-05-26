@@ -24,7 +24,7 @@ help:
 	@echo "  rust-format  Run Rust-only formatting"
 	@echo "  rust-lint    Run Rust-only linting"
 	@echo "  typecheck    Run mypy type checking"
-	@echo "  security     Run security vulnerability check"
+	@echo "  security     Run security vulnerability check (Rust + Python)"
 	@echo "  ci           Alias for 'test' (full CI checks)"
 	@echo ""
 	@echo "📊 Reporting:"
@@ -83,14 +83,18 @@ test: develop
 	uv run mypy certmonitor/
 	@echo "✅ Type checking complete"
 	@echo ""
-	@echo "🔒 7/9 Security vulnerability check..."
+	@echo "🔒 7/9 Security vulnerability check (Rust)..."
 	cargo audit
-	@echo "✅ Security audit complete"
+	@echo "✅ Rust security audit complete"
 	@echo ""
-	@echo "🏗️  8/9 Build verification..."
+	@echo "🛡️  8/9 Python security scanning..."
+	uv run bandit -r certmonitor/ -f json -o bandit-report.json -c .bandit
+	@echo "✅ Python security scan complete"
+	@echo ""
+	@echo "🏗️  9/9 Build verification..."
 	@$(MAKE) wheel >/dev/null 2>&1 && echo "✅ Build successful" || echo "❌ Build failed"
 	@echo ""
-	@echo "📊 9/9 Generating modularization report..."
+	@echo "📊 10/10 Generating modularization report..."
 	@python scripts/generate_report.py
 	@echo ""
 	@echo "🎉 All checks complete! Ready for PR/push."
@@ -159,8 +163,12 @@ rust-lint:
 
 # Security vulnerability check
 security:
-	@echo "🔒 Running security vulnerability check..."
+	@echo "🔒 Running security vulnerability checks..."
+	@echo "🦀 Rust security audit..."
 	cargo audit
+	@echo "🐍 Python security scan..."
+	uv run bandit -r certmonitor/ -f json -o bandit-report.json -c .bandit
+	@echo "✅ Security scans complete"
 
 # Clean all build artifacts, cache, eggs, and venv
 clean:

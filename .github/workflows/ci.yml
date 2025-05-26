@@ -230,12 +230,24 @@ jobs:
       - name: Run safety check
         run: |
           uv run pip install safety
-          uv run safety check --json --output safety-report.json || true
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            # Fail on PRs to catch issues early
+            uv run safety check --json --output safety-report.json
+          else
+            # Allow on main/develop since PR was already tested
+            uv run safety check --json --output safety-report.json || true
+          fi
           
       - name: Run bandit security linter
         run: |
           uv run pip install bandit
-          uv run bandit -r certmonitor/ -f json -o bandit-report.json || true
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            # Fail on PRs to catch issues early (using bandit config for exceptions)
+            uv run bandit -r certmonitor/ -f json -o bandit-report.json -c .bandit
+          else
+            # Allow on main/develop since PR was already tested
+            uv run bandit -r certmonitor/ -f json -o bandit-report.json -c .bandit || true
+          fi
           
       - name: Run semgrep security scanner
         uses: returntocorp/semgrep-action@v1
@@ -244,19 +256,24 @@ jobs:
             p/security-audit
             p/secrets
             p/python
-
         env:
           # Allow tool to handle legacy TLS for security assessment
           SEMGREP_RULES: "p/security-audit p/secrets p/python"
-        continue-on-error: true  # Don't fail on security findings that are intentional
+        # Fail on PRs to catch issues early, but allow on main/develop since PR was already tested
+        continue-on-error: ${{ github.event_name != 'pull_request' }}
         if: github.actor != 'dependabot[bot]'
       
       - name: Review security findings
         if: github.actor != 'dependabot[bot]'
         run: |
           echo "🔍 Security scan completed."
-          echo "⚠️  Note: Some findings may be intentional for this security assessment tool."
-          echo "📋 Review .semgrepignore for documented exceptions."
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "⚠️  PR Security Check: Any blocking findings must be addressed or documented."
+            echo "📋 Add exceptions to .semgrepignore if findings are intentional for this security tool."
+          else
+            echo "⚠️  Note: Some findings may be intentional for this security assessment tool."
+            echo "📋 Review .semgrepignore for documented exceptions."
+          fi
 
   # Documentation build - runs on PR merges and before releases
   docs:

@@ -1,0 +1,17 @@
+# Bandit configuration for certmonitor
+# This security assessment tool requires some exceptions for legacy protocol support
+
+skips:
+  # SSL/TLS related checks (intentional for security tool)
+  - B501  # ssl_with_bad_version
+  - B503  # ssl_with_bad_defaults
+  - B504  # ssl_with_no_version
+  - B505  # weak_cryptographic_key
+  # Test and validation exceptions
+  - B101  # assert_used
+  - B105  # hardcoded_password_string
+  - B106  # hardcoded_password_funcarg
+
+exclude_dirs:
+  - ./tests
+  - ./test_*

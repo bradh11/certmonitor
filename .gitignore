@@ -105,6 +105,7 @@ cover/
 
 # Coverage artifacts
 coverage.json
+bandit-report.json
 coverage.xml
 htmlcov/
 

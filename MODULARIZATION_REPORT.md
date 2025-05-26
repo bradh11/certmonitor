@@ -25,9 +25,13 @@
 - **Formatting compliant:** ✅ Yes
 
 ### Security & Dependencies
-- **Security scanning:** ✅ Enabled
-- **Vulnerabilities found:** 0
-- **Security status:** 🔒 Clean
+- **Rust security scanning:** ✅ Enabled
+- **Rust vulnerabilities found:** 0
+- **Python security scanning:** ✅ Enabled
+- **Python security issues found:** 0
+- **Files scanned by bandit:** 19
+- **Lines scanned by bandit:** 1,634
+- **Overall security status:** 🔒 Clean
 - **PyO3 version:** 0.24.1
 
 ### Development Workflow

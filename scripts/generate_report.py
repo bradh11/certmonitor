@@ -244,7 +244,43 @@ def get_security_metrics() -> Dict[str, Any]:
         "security_scan_status": "unknown",
         "pyo3_version": "unknown",
         "dependency_scan_enabled": False,
+        "bandit_available": False,
+        "bandit_issues_found": 0,
+        "bandit_scan_status": "unknown",
+        "bandit_scanned_files": 0,
+        "bandit_lines_scanned": 0,
     }
+
+    # Check if bandit is available and run scan
+    bandit_check, bandit_exit = run_command("uv run bandit --version")
+    if bandit_exit == 0:
+        results["bandit_available"] = True
+
+        # Run bandit scan
+        bandit_cmd = (
+            "uv run bandit -r certmonitor/ -f json -o bandit-report.json -c .bandit"
+        )
+        bandit_output, bandit_exit = run_command(bandit_cmd)
+
+        # Read bandit report if it exists
+        bandit_report_path = Path("bandit-report.json")
+        if bandit_report_path.exists():
+            try:
+                with open(bandit_report_path, "r", encoding="utf-8") as f:
+                    bandit_data = json.load(f)
+
+                results["bandit_issues_found"] = len(bandit_data.get("results", []))
+                results["bandit_scanned_files"] = (
+                    len(bandit_data.get("metrics", {})) - 1
+                )  # -1 for _totals
+                results["bandit_lines_scanned"] = (
+                    bandit_data.get("metrics", {}).get("_totals", {}).get("loc", 0)
+                )
+                results["bandit_scan_status"] = (
+                    "clean" if results["bandit_issues_found"] == 0 else "issues_found"
+                )
+            except (json.JSONDecodeError, FileNotFoundError):
+                results["bandit_scan_status"] = "scan_failed"
 
     # Check if cargo audit is available
     audit_check, audit_exit = run_command("cargo audit --version")
@@ -418,9 +454,13 @@ def generate_report() -> str:
 - **Formatting compliant:** {"✅ Yes" if quality_metrics["formatting_compliant"] else "❌ No"}
 
 ### Security & Dependencies
-- **Security scanning:** {"✅ Enabled" if security_metrics["cargo_audit_available"] else "❌ Not available"}
-- **Vulnerabilities found:** {security_metrics["vulnerabilities_found"]}
-- **Security status:** {"🔒 Clean" if security_metrics["security_scan_status"] == "clean" else "⚠️ Issues found" if security_metrics["security_scan_status"] == "vulnerabilities_found" else "❓ Unknown"}
+- **Rust security scanning:** {"✅ Enabled" if security_metrics["cargo_audit_available"] else "❌ Not available"}
+- **Rust vulnerabilities found:** {security_metrics["vulnerabilities_found"]}
+- **Python security scanning:** {"✅ Enabled" if security_metrics["bandit_available"] else "❌ Not available"}
+- **Python security issues found:** {security_metrics["bandit_issues_found"]}
+- **Files scanned by bandit:** {security_metrics["bandit_scanned_files"]}
+- **Lines scanned by bandit:** {security_metrics["bandit_lines_scanned"]:,}
+- **Overall security status:** {"🔒 Clean" if security_metrics["security_scan_status"] == "clean" and security_metrics["bandit_scan_status"] == "clean" else "⚠️ Issues found" if security_metrics["security_scan_status"] == "vulnerabilities_found" or security_metrics["bandit_scan_status"] == "issues_found" else "❓ Unknown"}
 - **PyO3 version:** {security_metrics["pyo3_version"]}
 
 ### Development Workflow

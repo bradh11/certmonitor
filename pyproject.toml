@@ -20,6 +20,7 @@ dev = [
     "pytest-mock>=3.14.0",
     "maturin>=1.8.4",
     "mypy>=1.0.0",
+    "bandit>=1.7.10",
 ]
 
 docs = [

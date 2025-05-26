@@ -31,8 +31,10 @@
    - Cross-platform only for PRs and releases
 
 5. **security** - Security scanning
-   - Runs on main/develop pushes, PRs, and weekly schedule
+   - **Strict on PRs**: Fails CI if security issues found (catches problems early)
+   - **Lenient on main/develop**: Allows documented exceptions (since PR was tested)
    - Safety, bandit, and semgrep scans
+   - Uses `.semgrepignore` and `.bandit` for legitimate exceptions
 
 6. **docs** - Documentation building
    - Only on main/develop pushes and releases
