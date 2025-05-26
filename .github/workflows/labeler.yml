@@ -8,17 +8,25 @@ on:
 permissions:
   contents: read
   pull-requests: write
-  issues: write
 
 jobs:
   label:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: Checkout PR
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
       
-      - name: Run Labeler
+      - name: Auto Label PR
         uses: actions/labeler@v5
         with:
           repo-token: "${{ secrets.GITHUB_TOKEN }}"
           configuration-path: .github/labeler.yml
+          sync-labels: false
+        continue-on-error: true  # Don't fail the workflow if labeling fails
+      
+      - name: Log labeling result
+        if: failure()
+        run: echo "⚠️ Auto-labeling failed - labels may need to be created manually"
