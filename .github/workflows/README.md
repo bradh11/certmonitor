@@ -33,7 +33,7 @@
 5. **security** - Security scanning
    - **Strict on PRs**: Fails CI if security issues found (catches problems early)
    - **Lenient on main/develop**: Allows documented exceptions (since PR was tested)
-   - Safety, bandit, and semgrep scans
+   - Bandit and semgrep scans
    - Uses `.semgrepignore` and `.bandit` for legitimate exceptions
 
 6. **docs** - Documentation building

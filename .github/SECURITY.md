@@ -95,7 +95,7 @@ CertMonitor adheres to current cryptographic best practices:
 Our CI pipeline includes:
 
 - **Bandit**: Python security linter
-- **Safety**: Dependency vulnerability scanning  
+- **Semgrep**: Static analysis security scanning
 - **CodeQL**: Static analysis security testing
 - **Dependabot**: Automated dependency updates
 

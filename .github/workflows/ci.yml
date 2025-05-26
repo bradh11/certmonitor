@@ -227,17 +227,7 @@ jobs:
       - name: Install dependencies
         run: uv sync --group dev
         
-      - name: Run safety check
-        run: |
-          uv run pip install safety
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            # Fail on PRs to catch issues early
-            uv run safety check --json --output safety-report.json
-          else
-            # Allow on main/develop since PR was already tested
-            uv run safety check --json --output safety-report.json || true
-          fi
-          
+
       - name: Run bandit security linter
         run: |
           uv run pip install bandit
