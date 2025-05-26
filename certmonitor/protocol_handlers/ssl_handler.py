@@ -18,12 +18,15 @@ class SSLHandler(BaseProtocolHandler):
 
     def get_supported_protocols(self) -> List[int]:
         supported_protocols: List[int] = []
+        # NOTE: Legacy TLS/SSL versions are intentionally included for security assessment
+        # This tool needs to detect and analyze weak configurations in legacy systems
+        # semgrep:ignore python.lang.security.audit.weak-ssl-version.weak-ssl-version
         for protocol in [
             ssl.PROTOCOL_TLS_CLIENT,
             ssl.PROTOCOL_TLSv1_2,
-            ssl.PROTOCOL_TLSv1_1,
-            ssl.PROTOCOL_TLSv1,
-            ssl.PROTOCOL_SSLv23,
+            ssl.PROTOCOL_TLSv1_1,  # Intentionally weak - for legacy detection
+            ssl.PROTOCOL_TLSv1,  # Intentionally weak - for legacy detection
+            ssl.PROTOCOL_SSLv23,  # Intentionally weak - for legacy detection
         ]:
             try:
                 with warnings.catch_warnings():

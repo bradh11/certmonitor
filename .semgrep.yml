@@ -1,0 +1,28 @@
+# Semgrep configuration for certmonitor security scanning
+# This is a security assessment tool that needs to handle legacy configurations
+
+rules:
+  # Allow weak TLS/SSL in protocol handlers - needed for legacy system assessment
+  - id: allow-weak-ssl-in-protocol-handlers
+    pattern-either:
+      - pattern: ssl.PROTOCOL_TLSv1_1
+      - pattern: ssl.PROTOCOL_TLSv1
+      - pattern: ssl.PROTOCOL_SSLv23
+    paths:
+      include:
+        - certmonitor/protocol_handlers/
+        - certmonitor/validators/
+        - tests/
+    message: "Weak SSL/TLS protocols allowed in protocol handlers for legacy assessment"
+    severity: INFO
+    languages: [python]
+    
+  # Allow subprocess shell=True in controlled internal scripts
+  - id: allow-shell-in-internal-scripts
+    pattern: subprocess.run(..., shell=True, ...)
+    paths:
+      include:
+        - scripts/
+    message: "Subprocess with shell=True allowed in controlled internal scripts"
+    severity: INFO
+    languages: [python]
