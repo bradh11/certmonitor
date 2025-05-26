@@ -1,10 +1,10 @@
 // src/lib.rs
 
+use base64::{engine::general_purpose, Engine as _};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use x509_parser::prelude::*;
 use x509_parser::public_key::PublicKey;
-use base64::{Engine as _, engine::general_purpose};
 
 /// A small struct to hold the parsed key info in Rust
 #[derive(Debug, Clone)]
@@ -88,7 +88,7 @@ fn extract_public_key_der(der_data: Vec<u8>) -> PyResult<Py<PyAny>> {
 
     // Extract SubjectPublicKeyInfo (SPKI) and return its raw DER bytes
     let spki_der = certificate.public_key().raw;
-    
+
     // Convert to Python bytes object
     Python::with_gil(|py| {
         let py_bytes = pyo3::types::PyBytes::new(py, spki_der);
@@ -107,10 +107,10 @@ fn extract_public_key_pem(der_data: Vec<u8>) -> PyResult<String> {
 
     // Extract SubjectPublicKeyInfo (SPKI) DER bytes
     let spki_der = certificate.public_key().raw;
-    
+
     // Encode to base64
     let base64_encoded = general_purpose::STANDARD.encode(spki_der);
-    
+
     // Format as PEM
     let pem_formatted = format!(
         "-----BEGIN PUBLIC KEY-----\n{}\n-----END PUBLIC KEY-----",
@@ -122,7 +122,7 @@ fn extract_public_key_pem(der_data: Vec<u8>) -> PyResult<String> {
             .collect::<Vec<String>>()
             .join("\n")
     );
-    
+
     Ok(pem_formatted)
 }
 

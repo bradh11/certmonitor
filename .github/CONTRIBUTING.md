@@ -57,41 +57,66 @@ Thank you for your interest in contributing to CertMonitor! This guide will help
 4. **Build the Rust extension**:
    ```bash
    make develop
-   # OR manually:
-   uv run maturin develop
    ```
 
 5. **Run tests** to verify setup:
    ```bash
    make test
-   # OR manually:
-   uv run pytest
    ```
 
 ### Development Commands
 
+CertMonitor provides a comprehensive Makefile with unified commands. Run `make help` to see all available commands:
+
 ```bash
-# Run tests
+# 🧪 Primary Development Commands
+
+# Run comprehensive test suite (CI-equivalent)
 make test
-uv run pytest
 
-# Run tests with coverage
-uv run pytest --cov=certmonitor
+# Quick code quality checks (format + lint)
+make check
 
-# Format code
-uv run ruff format .
+# Format code (Python + Rust)
+make format
 
-# Lint code  
-uv run ruff check .
+# Lint code (Python + Rust)  
+make lint
 
-# Build documentation
-make docs
-uv run mkdocs serve
+# Type checking
+make typecheck
 
-# Build the Rust extension
+# 📦 Build and Development
+
+# Build and install for development (Python + Rust)
 make develop
-uv run maturin develop
+
+# Build release wheel
+make wheel
+
+# 📚 Documentation
+
+# Serve documentation locally
+make docs
+
+# 🔍 Individual Commands (when needed)
+
+# Python-only commands
+make python-format    # Format Python code only
+make python-lint      # Lint Python code only
+
+# Rust-only commands  
+make rust-format      # Format Rust code only
+make rust-lint        # Lint Rust code only
+
+# Quick tests (no quality checks)
+make test-quick
 ```
+
+**Recommended Workflow:**
+1. Make your changes
+2. Run `make format lint` to fix code quality
+3. Run `make test` before committing
 
 ## 📏 Code Standards
 
@@ -111,10 +136,13 @@ CertMonitor follows strict coding standards to ensure code quality and consisten
 
 ```bash
 # Before submitting a PR, ensure these pass:
-uv run ruff format .        # Format code
-uv run ruff check .         # Lint code
-uv run pytest              # Run all tests
-uv run pytest --cov=certmonitor  # Check coverage
+make format              # Format all code (Python + Rust)
+make lint                # Lint all code (Python + Rust)  
+make typecheck           # Type checking with mypy
+make test                # Run comprehensive test suite
+
+# Or run everything at once:
+make test                # Includes all quality checks + tests
 ```
 
 ### Certificate and Crypto Standards
@@ -132,17 +160,42 @@ CertMonitor must adhere to the highest standards for certificate and cryptograph
 ### Running Tests
 
 ```bash
-# Run all tests
-uv run pytest
+# Run comprehensive test suite (recommended - CI equivalent)
+make test
 
-# Run specific test file
-uv run pytest tests/test_core.py
+# Quick tests only (no quality checks)
+make test-quick
 
-# Run tests with coverage
-uv run pytest --cov=certmonitor --cov-report=html
+# Individual test commands (if needed)
+uv run pytest                                    # All tests
+uv run pytest tests/test_core.py                # Specific test file
+uv run pytest --cov=certmonitor --cov-report=html  # With coverage report
+uv run pytest tests/test_validators/            # Specific test directory
+```
 
-# Run tests for specific functionality
-uv run pytest tests/test_validators/
+### Comprehensive Testing
+
+The `make test` command runs our full 8-step CI-equivalent test suite:
+
+1. **Python formatting check** - Ensures code is properly formatted
+2. **Python linting check** - Catches code quality issues  
+3. **Rust formatting check** - Ensures Rust code is properly formatted
+4. **Rust linting check** - Runs clippy for Rust code quality
+5. **Pytest with coverage** - Runs all tests with 95%+ coverage requirement
+6. **Type checking** - Ensures zero mypy errors
+7. **Build verification** - Verifies the wheel builds successfully
+8. **Quality reporting** - Generates modularization and quality reports
+
+### Pre-Commit Testing
+
+Before committing, always run:
+```bash
+make test  # Full CI-equivalent testing
+```
+
+For faster development iteration:
+```bash
+make check  # Quick format + lint checks
 ```
 
 ### Test Organization
@@ -177,8 +230,12 @@ Tests are organized into logical modules:
 3. **Make your changes** following the code standards
 4. **Write or update tests** for your changes
 5. **Update documentation** if needed
-6. **Run the full test suite** and ensure it passes
-7. **Run code quality checks** (ruff format, ruff check)
+6. **Run comprehensive quality checks**:
+   ```bash
+   make format lint  # Fix formatting and linting issues
+   make test         # Run full CI-equivalent test suite
+   ```
+7. **Verify your changes work** as expected
 
 ### PR Requirements
 

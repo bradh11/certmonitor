@@ -24,6 +24,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Modularized test suite for better maintainability
 - ReadTheDocs integration with proper configuration
 - Consolidated CI/CD pipeline with conditional job execution
+- **Unified Makefile commands for Python + Rust development workflow**
+  - `make format` - Format both Python and Rust code
+  - `make format-check` - Check formatting for both languages
+  - `make lint` - Lint both Python and Rust code
+  - Individual language commands: `python-format`, `python-lint`, `rust-format`, `rust-lint`
+  - Enhanced `make test` with 8-step CI-equivalent comprehensive testing
+  - Improved `make help` with clear categorized command documentation
 
 ### Changed
 - Improved code organization and structure
@@ -31,6 +38,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Updated all workflows to use develop/main branch strategy
 - Removed redundant CI configurations (quality.yml, security.yml, rust.yml, docs.yml)
 - Streamlined dependency management (removed Dependabot for stdlib-only project)
+- **Enhanced local development experience with unified format/lint commands**
+- **Makefile now provides comprehensive Python + Rust development workflow**
 
 ### Fixed
 - All mypy type errors across 20 source files using proper type annotations and runtime checking
