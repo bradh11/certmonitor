@@ -1,6 +1,7 @@
 # validators/expiration.py
 
 import datetime
+from typing import Any, Dict
 
 from .base import BaseCertValidator
 
@@ -13,9 +14,9 @@ class ExpirationValidator(BaseCertValidator):
         name (str): The name of the validator.
     """
 
-    name = "expiration"
+    name: str = "expiration"
 
-    def validate(self, cert, host, port) -> dict:
+    def validate(self, cert: Dict[str, Any], host: str, port: int) -> Dict[str, Any]:
         """
         Validates the expiration date of the provided SSL certificate.
 
@@ -37,8 +38,6 @@ class ExpirationValidator(BaseCertValidator):
                     "is_valid": true,
                     "days_to_expiry": 120,
                     "expires_on": "2025-09-01T23:59:59",
-                    "leapday_expiry": false,
-                    "weekend_expiry": false,
                     "warnings": []
                 }
                 ```
@@ -51,23 +50,20 @@ class ExpirationValidator(BaseCertValidator):
                     "is_valid": false,
                     "days_to_expiry": -10,
                     "expires_on": "2025-04-30T23:59:59",
-                    "leapday_expiry": false,
-                    "weekend_expiry": false,
                     "warnings": [
                         "Certificate is expired and has been expired for (-10 days)"
                     ]
                 }
                 ```
         """
-        now = datetime.datetime.utcnow()
+        # Use timezone.utc for Python 3.8+ compatibility
+        now = datetime.datetime.now(datetime.timezone.utc)
         not_after = datetime.datetime.strptime(
             cert["cert_info"]["notAfter"], "%b %d %H:%M:%S %Y GMT"
-        )
+        ).replace(tzinfo=datetime.timezone.utc)
 
         is_valid = now < not_after
         days_to_expiry = (not_after - now).days
-        leapday_expiry = not_after.month == 2 and not_after.day == 29
-        weekend_expiry = not_after.weekday() in (5, 6)
 
         warnings = []
         if days_to_expiry < 0:
@@ -87,7 +83,5 @@ class ExpirationValidator(BaseCertValidator):
             "is_valid": is_valid,
             "days_to_expiry": days_to_expiry,
             "expires_on": not_after.isoformat(),
-            "leapday_expiry": leapday_expiry,
-            "weekend_expiry": weekend_expiry,
             "warnings": warnings,
         }
