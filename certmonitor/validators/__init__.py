@@ -5,6 +5,7 @@ from .expiration import ExpirationValidator
 from .hostname import HostnameValidator
 from .key_info import KeyInfoValidator
 from .root_certificate_validator import RootCertificateValidator
+from .sensitive_date import SensitiveDateValidator
 from .subject_alt_names import SubjectAltNamesValidator
 from .tls_version import TLSVersionValidator
 from .weak_cipher import WeakCipherValidator
@@ -19,6 +20,7 @@ VALIDATORS = {
     "key_info": KeyInfoValidator(),
     "subject_alt_names": SubjectAltNamesValidator(),
     "root_certificate": RootCertificateValidator(),
+    "sensitive_date": SensitiveDateValidator(),
     "tls_version": TLSVersionValidator(),
     "weak_cipher": WeakCipherValidator(),
     # ... add any other default validators here
