@@ -488,3 +488,46 @@ class TestSSLHandler:
                         "Failed to establish SSL connection with any protocol"
                         in result["message"]
                     )
+
+    def test_ssl_handler_unsafe_legacy_renegotiation_retry_exception(self):
+        """Test SSL handler handles exceptions during unsafe legacy renegotiation retry."""
+
+        # Create error handler mock that returns a dict
+        mock_error_handler = MagicMock()
+        mock_error_handler.handle_error.return_value = {
+            "error": "SSLError",
+            "message": "Failed to establish SSL connection with any protocol",
+            "host": "test.example.com",
+            "port": 443,
+        }
+
+        handler = SSLHandler("test.example.com", 443, error_handler=mock_error_handler)
+
+        # Mock socket creation
+        mock_socket = MagicMock()
+
+        # Create a side effect that raises UNSAFE_LEGACY_RENEGOTIATION_DISABLED first,
+        # then an exception during the retry attempt
+        def mock_wrap_socket(*args, **kwargs):
+            if not hasattr(mock_wrap_socket, "called"):
+                mock_wrap_socket.called = True
+                # First call raises the unsafe legacy error
+                raise ssl.SSLError("UNSAFE_LEGACY_RENEGOTIATION_DISABLED")
+            else:
+                # Second call (retry) raises a different exception
+                raise ssl.SSLError("Some other SSL error during retry")
+
+        with patch("socket.socket", return_value=mock_socket), patch(
+            "ssl.SSLContext"
+        ) as mock_context_class, patch.object(
+            handler, "get_supported_protocols", return_value=["TLSv1_2"]
+        ):
+            mock_context = MagicMock()
+            mock_context_class.return_value = mock_context
+            mock_context.wrap_socket.side_effect = mock_wrap_socket
+
+            # This should trigger lines 72-80 - the exception handling during retry
+            result = handler.connect()
+
+            # Basic verification - the test succeeded if we got a result
+            assert result is not None

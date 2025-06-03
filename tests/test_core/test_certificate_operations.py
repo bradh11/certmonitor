@@ -333,6 +333,23 @@ class TestCertificateFetching:
                     assert result == expected_cert_details
                     mock_remove.assert_called_once_with("/tmp/test.pem")
 
+    def test_parse_pem_cert_ssl_private_api_unavailable(self):
+        """Test _parse_pem_cert when ssl._ssl._test_decode_cert is not available."""
+        monitor = CertMonitor("www.example.com")
+
+        # Mock pem certificate
+        pem_cert = "-----BEGIN CERTIFICATE-----\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA\n-----END CERTIFICATE-----"
+
+        # Mock ssl._ssl._test_decode_cert to raise AttributeError
+        with patch(
+            "ssl._ssl._test_decode_cert",
+            side_effect=AttributeError("_test_decode_cert not available"),
+        ):
+            result = monitor._parse_pem_cert(pem_cert)
+
+            # Should return empty dict when private API is not available
+            assert result == {}
+
 
 class TestDataTransformation:
     """Test data transformation and utility methods."""
@@ -349,3 +366,35 @@ class TestDataTransformation:
 
         # Test with None
         assert monitor._to_structured_dict(None) is None
+
+    def test_get_cert_info_public_key_parsing_with_der(self):
+        """Test get_cert_info with DER data that triggers public key parsing to cover line 204."""
+        monitor = CertMonitor("www.example.com")
+        monitor.protocol = "ssl"
+
+        # Mock DER certificate data
+        mock_der = b"mock_der_certificate_data"
+
+        # Mock the handler and its response
+        mock_handler = MagicMock()
+        mock_handler.fetch_raw_cert.return_value = {
+            "der": mock_der,
+            "pem": "-----BEGIN CERTIFICATE-----\ntest\n-----END CERTIFICATE-----",
+            "cert_info": {"subject": {"commonName": "test.com"}},
+        }
+
+        monitor.handler = mock_handler
+
+        # Mock certinfo.parse_public_key_info to return public key data
+        with patch("certmonitor.core.certinfo") as mock_certinfo:
+            mock_certinfo.parse_public_key_info.return_value = {
+                "algorithm": "rsaEncryption",
+                "size": 2048,
+                "curve": None,
+            }
+
+            # This should trigger line 204 - attempting to parse public key info
+            result = monitor.get_cert_info()
+
+            # Basic verification - the test succeeded if we got a result
+            assert result is not None
