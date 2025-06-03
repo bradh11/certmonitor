@@ -4,14 +4,14 @@
 
 ### Test Modularization Status
 - **Modular test files:** 8 files
-- **Total test lines:** 1,665 lines
-- **Average file size:** 208 lines
+- **Total test lines:** 1,744 lines
+- **Average file size:** 218 lines
 - **Main test file:** 22 lines
 
 ### Test Coverage
-- **Overall coverage:** 98.0%
-- **Total tests:** 318
-- **Statements covered:** 719/734
+- **Overall coverage:** 98.5%
+- **Total tests:** 323
+- **Statements covered:** 723/734
 - **Files with coverage:** 19
 
 ### Type Hint Coverage
@@ -46,11 +46,11 @@
 ## 🏗️ Test File Organization
 
 ### Modular Test Files
-- **test_certificate_operations.py**: 352 lines, 21 functions
+- **test_certificate_operations.py**: 401 lines, 23 functions
 - **test_validation.py**: 301 lines, 12 functions
 - **test_public_key_operations.py**: 211 lines, 12 functions
 - **test_initialization.py**: 209 lines, 17 functions
-- **test_raw_data_operations.py**: 40 lines, 2 functions
+- **test_raw_data_operations.py**: 70 lines, 4 functions
 - **test_utility_methods.py**: 74 lines, 4 functions
 - **test_connection_management.py**: 315 lines, 20 functions
 - **test_cipher_operations.py**: 163 lines, 9 functions
