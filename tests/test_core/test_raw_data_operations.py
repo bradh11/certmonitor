@@ -9,7 +9,7 @@ class TestRawDataRetrieval:
     """Test raw certificate data retrieval methods."""
 
     def test_get_raw_der_error_from_handler(self):
-        """Test get_raw_der when handler returns an error to cover line 319."""
+        """Test get_raw_der when handler returns an error response."""
         monitor = CertMonitor("example.com")
         monitor.protocol = "ssl"  # Set SSL protocol to avoid protocol error
         monitor.der = None
@@ -24,7 +24,7 @@ class TestRawDataRetrieval:
             assert result == {"error": "Handler error"}
 
     def test_get_raw_pem_error_from_handler(self):
-        """Test get_raw_pem when handler returns an error to cover line 341."""
+        """Test get_raw_pem when handler returns an error response."""
         monitor = CertMonitor("example.com")
         monitor.protocol = "ssl"  # Set SSL protocol to avoid protocol error
         monitor.pem = None

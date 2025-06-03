@@ -256,3 +256,59 @@ class TestConnectionMaintenance:
             assert (
                 cert_monitor.connected is False
             )  # Should be set to False during reconnection
+
+    def test_ensure_connection_with_none_handler(self):
+        """Test _ensure_connection when handler is None."""
+        monitor = CertMonitor("www.example.com")
+        monitor.handler = None
+        monitor.connected = True  # Start as connected but handler is None
+
+        with patch.object(monitor, "connect") as mock_connect:
+            mock_connect.return_value = None  # Successful connection
+
+            result = monitor._ensure_connection()
+
+            assert result is None
+            assert (
+                monitor.connected is False
+            )  # Should be set to False before reconnecting
+            mock_connect.assert_called_once()
+
+    def test_ensure_connection_handler_none_with_error(self):
+        """Test _ensure_connection when handler is None and reconnect fails."""
+        monitor = CertMonitor("www.example.com")
+        monitor.handler = None
+        monitor.connected = True
+
+        error_result = {"error": "ConnectionError", "message": "Failed to connect"}
+
+        with patch.object(monitor, "connect") as mock_connect:
+            mock_connect.return_value = error_result
+
+            result = monitor._ensure_connection()
+
+            assert result == error_result
+            mock_connect.assert_called_once()
+
+    def test_ensure_connection_exception_during_reconnect(self):
+        """Test _ensure_connection when exception occurs during reconnection attempt."""
+        monitor = CertMonitor("www.example.com")
+        monitor.connected = True
+
+        # Create a mock handler that will raise ConnectionError
+        mock_handler = MagicMock()
+        mock_handler.check_connection.side_effect = ConnectionError("Connection lost")
+        monitor.handler = mock_handler
+
+        # Mock connect to return an error when called for reconnection
+        error_result = {"error": "ConnectionError", "message": "Reconnect failed"}
+
+        with patch.object(monitor, "connect") as mock_connect:
+            mock_connect.return_value = error_result
+
+            result = monitor._ensure_connection()
+
+            # Should return the error from the failed reconnection attempt
+            assert result == error_result
+            mock_connect.assert_called_once()
+            assert monitor.connected is False

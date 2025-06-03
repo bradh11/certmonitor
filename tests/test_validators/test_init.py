@@ -95,9 +95,12 @@ def test_list_validators():
 
 def test_get_enabled_validators():
     """Test get_enabled_validators function."""
-    # This is a placeholder function, just test it returns a list
+    # Test that it returns the default validators from config
     result = get_enabled_validators()
     assert isinstance(result, list)
+    # Should return the default validators
+    expected_defaults = ["expiration", "hostname", "root_certificate"]
+    assert result == expected_defaults
 
 
 def test_validators_registry_populated():

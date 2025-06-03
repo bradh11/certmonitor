@@ -60,7 +60,7 @@ class TestStructuredDictConversion:
         assert result["version"] == 3
 
     def test_to_structured_dict_invalid_tuple_length(self):
-        """Test _to_structured_dict with invalid tuple length to cover exception handling."""
+        """Test _to_structured_dict handles invalid tuple structures gracefully."""
         monitor = CertMonitor("www.example.com")
 
         # Test with invalid tuple structure (not key-value pairs)

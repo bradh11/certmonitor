@@ -54,6 +54,41 @@ class TestRawCipherOperations:
             result = monitor._fetch_raw_cipher()
             assert result == connection_error
 
+    def test_fetch_raw_cipher_handler_none(self):
+        """Test _fetch_raw_cipher properly handles missing handler scenarios."""
+        monitor = CertMonitor("example.com")
+        monitor.connected = True
+        monitor.protocol = "ssl"  # Set protocol to ssl first
+        monitor.handler = None  # Handler is None
+
+        # Mock _ensure_connection to return None (no error)
+        with patch.object(monitor, "_ensure_connection", return_value=None):
+            result = monitor._fetch_raw_cipher()
+
+            # Should return error due to missing handler
+            assert "error" in result
+            assert "Handler is not initialized" in result["message"]
+
+    def test_fetch_raw_cipher_non_ssl_handler(self):
+        """Test _fetch_raw_cipher with non-SSL handler that lacks cipher methods."""
+        monitor = CertMonitor("example.com")
+        monitor.protocol = "ssl"  # Set protocol to ssl first
+
+        # Mock an SSH handler (non-SSL)
+        mock_handler = MagicMock()
+        # SSH handler doesn't have fetch_raw_cipher method
+        del mock_handler.fetch_raw_cipher  # Remove the method
+
+        monitor.handler = mock_handler
+        monitor.connected = True
+
+        with patch.object(monitor, "_ensure_connection", return_value=None):
+            result = monitor._fetch_raw_cipher()
+
+            # Should return error for non-SSL handler
+            assert "error" in result
+            assert "fetch_raw_cipher not available" in result["message"]
+
 
 class TestCipherInfoOperations:
     """Test cipher information retrieval and formatting."""
