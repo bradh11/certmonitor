@@ -15,9 +15,22 @@ with CertMonitor("example.com", enabled_validators=["expiration", "hostname"]) a
 
 # Validator Convenience Methods
 
+CertMonitor provides several convenience methods to discover and work with validators. These are available both as module-level functions and as instance methods.
+
+## Summary of Methods
+
+| Method | Purpose | Returns |
+|--------|---------|---------|
+| `certmonitor.validators.list_validators()` | All available validators | All registered validator names |
+| `certmonitor.validators.get_enabled_validators()` | Global config defaults | Default enabled validator names from config |
+| `monitor.list_validators()` | All available validators | All registered validator names |
+| `monitor.get_enabled_validators()` | Instance-specific | Validators enabled for this specific monitor instance |
+
 ## Listing All Validators
 
-You can list all currently registered validators (including built-in and custom ones) using:
+You can list all currently registered validators (including built-in and custom ones) in two ways:
+
+### From the Validators Module
 
 ```python
 from certmonitor.validators import list_validators
@@ -26,14 +39,53 @@ print(list_validators())
 # Output: ['expiration', 'hostname', 'key_info', 'subject_alt_names', 'root_certificate', 'tls_version', 'weak_cipher']
 ```
 
+### From a CertMonitor Instance
+
+```python
+from certmonitor import CertMonitor
+
+monitor = CertMonitor("example.com")
+print(monitor.list_validators())
+# Output: ['expiration', 'hostname', 'key_info', 'subject_alt_names', 'root_certificate', 'tls_version', 'weak_cipher']
+```
+
+Both methods return the same list of all available validators, regardless of which ones are enabled for a specific instance.
+
 ## Getting Enabled Validators
 
-The `get_enabled_validators()` function is a placeholder for retrieving only the enabled validators (for example, if you implement configuration-based enabling/disabling). By default, it returns an empty list:
+You can get enabled validators in two ways:
+
+### Global Configuration Defaults
+
+The `get_enabled_validators()` function returns the global default validators from configuration:
 
 ```python
 from certmonitor.validators import get_enabled_validators
 
 print(get_enabled_validators())
+# Output: ['expiration', 'hostname', 'root_certificate']
+```
+
+### Instance-Specific Validators
+
+To get the validators enabled for a specific CertMonitor instance, use the instance method:
+
+```python
+from certmonitor import CertMonitor
+
+# Default behavior - uses global config defaults
+monitor = CertMonitor("example.com")
+print(monitor.get_enabled_validators())
+# Output: ['expiration', 'hostname', 'root_certificate']
+
+# Custom validators for this instance
+monitor = CertMonitor("example.com", enabled_validators=["hostname", "expiration"])
+print(monitor.get_enabled_validators())
+# Output: ['hostname', 'expiration']
+
+# No validators enabled
+monitor = CertMonitor("example.com", enabled_validators=[])
+print(monitor.get_enabled_validators())
 # Output: []
 ```
 
@@ -60,14 +112,46 @@ print(list_validators())
 
 See the [Custom Validators](../usage/custom_validators.md) usage guide for more details and a template.
 
-## Validator Workflow (Mermaid Diagram)
+## Practical Examples
 
-```mermaid
-flowchart TD
-    A[Start: CertMonitor.validate()] --> B{Enabled Validators}
-    B -->|Expiration| C[Run ExpirationValidator]
-    B -->|Hostname| D[Run HostnameValidator]
-    B -->|Custom| E[Run CustomValidator]
-    C & D & E --> F[Aggregate Results]
-    F --> G[Return Validation Report]
+### Discovering Available vs Enabled Validators
+
+```python
+from certmonitor import CertMonitor
+from certmonitor.validators import list_validators, get_enabled_validators
+
+# See all available validators
+print("All available validators:")
+for validator in list_validators():
+    print(f"  - {validator}")
+
+print("\nGlobal config defaults:")
+for validator in get_enabled_validators():
+    print(f"  - {validator}")
+
+# Create monitors with different validator configurations
+monitor1 = CertMonitor("example.com")  # Uses defaults
+monitor2 = CertMonitor("example.com", enabled_validators=["hostname", "expiration"])
+monitor3 = CertMonitor("example.com", enabled_validators=[])  # No validators
+
+print(f"\nMonitor 1 enabled: {monitor1.get_enabled_validators()}")
+print(f"Monitor 2 enabled: {monitor2.get_enabled_validators()}")
+print(f"Monitor 3 enabled: {monitor3.get_enabled_validators()}")
+```
+
+### Dynamically Enabling All Available Validators
+
+```python
+from certmonitor import CertMonitor
+
+# Enable all available validators for maximum coverage
+monitor = CertMonitor("example.com")
+all_validators = monitor.list_validators()
+monitor_with_all = CertMonitor("example.com", enabled_validators=all_validators)
+
+print(f"Running {len(monitor_with_all.get_enabled_validators())} validators:")
+results = monitor_with_all.validate()
+for validator_name, result in results.items():
+    status = "✓" if result.get("is_valid") else "✗"
+    print(f"  {status} {validator_name}")
 ```
