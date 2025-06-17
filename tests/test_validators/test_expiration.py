@@ -22,7 +22,7 @@ def test_expired_cert(sample_cert):
 
 
 def test_expiration_validator_certificate_too_long():
-    """Test expiration validator with certificate valid for more than 398 days to cover line 72."""
+    """Test expiration validator warns when certificate validity period exceeds industry standards."""
     from datetime import datetime, timedelta
 
     from certmonitor.validators.expiration import ExpirationValidator
@@ -48,7 +48,7 @@ def test_expiration_validator_certificate_too_long():
 
 
 def test_expiration_long_validity_certificate():
-    """Test certificate with validity > 398 days to ensure comprehensive coverage."""
+    """Test certificate with extended validity period produces appropriate warnings."""
     from datetime import timezone
 
     validator = ExpirationValidator()
@@ -76,6 +76,43 @@ def test_expiration_long_validity_certificate():
         "more than industry standard" in warning for warning in result["warnings"]
     )
     assert industry_warning_found
+
+
+def test_expiration_validator_expiring_soon():
+    """Test expiration validator with certificate expiring in less than 1 week."""
+    from datetime import timezone
+
+    validator = ExpirationValidator()
+
+    # Create a certificate expiring in exactly 3 days from now
+    now = datetime.now(timezone.utc)
+    # Add a small buffer to ensure we get exactly 3 days
+    not_after = now.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(
+        days=4
+    )  # 4 days from start of today
+
+    cert_data = {
+        "cert_info": {
+            "notAfter": not_after.strftime("%b %d %H:%M:%S %Y GMT"),
+        }
+    }
+
+    result = validator.validate(cert_data, "example.com", 443)
+
+    # Verify we get the warning about expiring soon
+    assert result["is_valid"] is True  # Still valid but with warning
+    assert "warnings" in result
+    # Accept either 3 or 4 days since calculation depends on exact timing
+    assert result["days_to_expiry"] in [3, 4]
+
+    # Check that we have a warning about expiring soon
+    warning_found = any(
+        "expiring in less than 1 week" in warning for warning in result["warnings"]
+    )
+    assert warning_found, (
+        f"Expected warning about expiring soon, got: {result['warnings']}"
+    )
+    assert warning_found
 
 
 if __name__ == "__main__":

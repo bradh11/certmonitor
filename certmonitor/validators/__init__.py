@@ -51,10 +51,11 @@ def list_validators() -> list:
 
 def get_enabled_validators() -> list:
     """
-    Placeholder function for getting enabled validators.
+    Get enabled validators from configuration.
 
     Returns:
         list: A list of enabled validator names.
     """
-    # Implementation goes here
-    return []
+    from ..config import ENABLED_VALIDATORS
+
+    return ENABLED_VALIDATORS

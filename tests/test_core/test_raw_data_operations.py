@@ -9,7 +9,7 @@ class TestRawDataRetrieval:
     """Test raw certificate data retrieval methods."""
 
     def test_get_raw_der_error_from_handler(self):
-        """Test get_raw_der when handler returns an error to cover line 319."""
+        """Test get_raw_der when handler returns an error response."""
         monitor = CertMonitor("example.com")
         monitor.protocol = "ssl"  # Set SSL protocol to avoid protocol error
         monitor.der = None
@@ -24,7 +24,7 @@ class TestRawDataRetrieval:
             assert result == {"error": "Handler error"}
 
     def test_get_raw_pem_error_from_handler(self):
-        """Test get_raw_pem when handler returns an error to cover line 341."""
+        """Test get_raw_pem when handler returns an error response."""
         monitor = CertMonitor("example.com")
         monitor.protocol = "ssl"  # Set SSL protocol to avoid protocol error
         monitor.pem = None
@@ -37,3 +37,33 @@ class TestRawDataRetrieval:
 
             result = monitor.get_raw_pem()
             assert result == {"error": "Handler error"}
+
+    def test_get_raw_der_handler_none_after_ensure_connection(self):
+        """Test get_raw_der when handler becomes None after _ensure_connection."""
+        monitor = CertMonitor("example.com")
+        monitor.protocol = "ssl"
+        monitor.der = None
+
+        # Mock _ensure_connection to return None (success) but handler stays None
+        with patch.object(monitor, "_ensure_connection", return_value=None):
+            monitor.handler = None  # Explicitly set handler to None
+
+            result = monitor.get_raw_der()
+            assert isinstance(result, dict)
+            assert "error" in result
+            assert "ConnectionError" == result["error"]
+
+    def test_get_raw_pem_handler_none_after_ensure_connection(self):
+        """Test get_raw_pem when handler becomes None after _ensure_connection."""
+        monitor = CertMonitor("example.com")
+        monitor.protocol = "ssl"
+        monitor.pem = None
+
+        # Mock _ensure_connection to return None (success) but handler stays None
+        with patch.object(monitor, "_ensure_connection", return_value=None):
+            monitor.handler = None  # Explicitly set handler to None
+
+            result = monitor.get_raw_pem()
+            assert isinstance(result, dict)
+            assert "error" in result
+            assert "ConnectionError" == result["error"]

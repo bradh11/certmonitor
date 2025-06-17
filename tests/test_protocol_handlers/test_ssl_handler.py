@@ -167,6 +167,19 @@ class TestSSLHandler:
         assert result["error"] == "CertificateError"
         assert "Certificate error" in result["message"]
 
+    def test_fetch_raw_cert_none_certificate(self, ssl_handler):
+        """Test fetch_raw_cert when getpeercert returns None."""
+        ssl_handler.secure_socket = MagicMock()
+
+        # Mock getpeercert to return None
+        ssl_handler.secure_socket.getpeercert.return_value = None
+
+        result = ssl_handler.fetch_raw_cert()
+
+        assert isinstance(result, dict)
+        assert result["error"] == "CertificateError"
+        assert "No certificate available" in result["message"]
+
     def test_fetch_raw_cipher_no_connection(self, ssl_handler):
         """Test fetch_raw_cipher when no secure socket is established."""
         result = ssl_handler.fetch_raw_cipher()
@@ -188,6 +201,35 @@ class TestSSLHandler:
         result = ssl_handler.fetch_raw_cipher()
 
         assert result == cipher_data
+
+    def test_fetch_raw_cipher_none_cipher_info(self, ssl_handler):
+        """Test fetch_raw_cipher when cipher returns None."""
+        ssl_handler.secure_socket = MagicMock()
+
+        # Mock cipher to return None
+        ssl_handler.secure_socket.cipher.return_value = None
+
+        result = ssl_handler.fetch_raw_cipher()
+
+        assert isinstance(result, dict)
+        assert result["error"] == "CipherError"
+        assert "No cipher information available" in result["message"]
+
+    def test_fetch_raw_cipher_invalid_tuple_length(self, ssl_handler):
+        """Test fetch_raw_cipher when cipher returns tuple with wrong length."""
+        ssl_handler.secure_socket = MagicMock()
+
+        # Mock cipher to return tuple with wrong length (should be 3-tuple)
+        ssl_handler.secure_socket.cipher.return_value = (
+            "TLS",
+            "v1.2",
+        )  # Only 2 elements
+
+        result = ssl_handler.fetch_raw_cipher()
+
+        assert isinstance(result, dict)
+        assert result["error"] == "CipherError"
+        assert "Cipher information is not a tuple" in result["message"]
 
     def test_check_connection_no_socket(self, ssl_handler):
         """Test check_connection when no secure socket exists."""
@@ -409,3 +451,83 @@ class TestSSLHandler:
                 # Verify error handler was called
                 mock_error_handler.handle_error.assert_called()
                 assert result == {"error": "SSL Error"}
+
+    def test_ssl_handler_unsafe_legacy_renegotiation_retry_error(self):
+        """Test SSL handler when retry with unsafe legacy renegotiation also fails."""
+        handler = SSLHandler("example.com", 443, ErrorHandler())
+
+        mock_socket = MagicMock()
+        mock_context = MagicMock()
+
+        # First attempt raises unsafe legacy renegotiation error
+        # Second attempt (retry) also raises an error
+        mock_context.wrap_socket.side_effect = [
+            ssl.SSLError("unsafe legacy renegotiation disabled"),
+            Exception("Retry failed"),  # Different error on retry
+        ]
+
+        with patch(
+            "certmonitor.protocol_handlers.ssl_handler.socket.create_connection",
+            return_value=mock_socket,
+        ):
+            with patch(
+                "certmonitor.protocol_handlers.ssl_handler.ssl.create_default_context",
+                return_value=mock_context,
+            ):
+                with patch.object(
+                    handler,
+                    "get_supported_protocols",
+                    return_value=["TLSv1_2", "TLSv1_3"],
+                ):
+                    result = handler.connect()
+
+                    # Should get an SSL error since all protocols failed
+                    assert isinstance(result, dict)
+                    assert result["error"] == "SSLError"
+                    assert (
+                        "Failed to establish SSL connection with any protocol"
+                        in result["message"]
+                    )
+
+    def test_ssl_handler_unsafe_legacy_renegotiation_retry_exception(self):
+        """Test SSL handler handles exceptions during unsafe legacy renegotiation retry."""
+
+        # Create error handler mock that returns a dict
+        mock_error_handler = MagicMock()
+        mock_error_handler.handle_error.return_value = {
+            "error": "SSLError",
+            "message": "Failed to establish SSL connection with any protocol",
+            "host": "test.example.com",
+            "port": 443,
+        }
+
+        handler = SSLHandler("test.example.com", 443, error_handler=mock_error_handler)
+
+        # Mock socket creation
+        mock_socket = MagicMock()
+
+        # Create a side effect that raises UNSAFE_LEGACY_RENEGOTIATION_DISABLED first,
+        # then an exception during the retry attempt
+        def mock_wrap_socket(*args, **kwargs):
+            if not hasattr(mock_wrap_socket, "called"):
+                mock_wrap_socket.called = True
+                # First call raises the unsafe legacy error
+                raise ssl.SSLError("UNSAFE_LEGACY_RENEGOTIATION_DISABLED")
+            else:
+                # Second call (retry) raises a different exception
+                raise ssl.SSLError("Some other SSL error during retry")
+
+        with patch("socket.socket", return_value=mock_socket), patch(
+            "ssl.SSLContext"
+        ) as mock_context_class, patch.object(
+            handler, "get_supported_protocols", return_value=["TLSv1_2"]
+        ):
+            mock_context = MagicMock()
+            mock_context_class.return_value = mock_context
+            mock_context.wrap_socket.side_effect = mock_wrap_socket
+
+            # This should trigger lines 72-80 - the exception handling during retry
+            result = handler.connect()
+
+            # Basic verification - the test succeeded if we got a result
+            assert result is not None

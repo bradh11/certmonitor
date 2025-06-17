@@ -28,9 +28,9 @@ class TestCertMonitorInitialization:
         with patch(
             "certmonitor.core.config.ENABLED_VALIDATORS", ["default1", "default2"]
         ):
-            # Test that empty list triggers fallback to config.ENABLED_VALIDATORS
-            monitor = CertMonitor("www.example.com", enabled_validators=[])
-            # The implementation uses: enabled_validators or config.ENABLED_VALIDATORS
+            # Test that None triggers fallback to config.ENABLED_VALIDATORS
+            monitor = CertMonitor("www.example.com", enabled_validators=None)
+            # The implementation uses: enabled_validators if enabled_validators is not None else config.ENABLED_VALIDATORS
             assert monitor.enabled_validators == ["default1", "default2"]
 
     def test_initialization_with_empty_list(self):
@@ -39,12 +39,12 @@ class TestCertMonitorInitialization:
         assert monitor.enabled_validators == []
 
     def test_initialization_with_default_validators_config_fallback(self):
-        """Test initialization uses default validators when empty list provided with config fallback."""
+        """Test initialization uses default validators when None provided with config fallback."""
         with patch(
             "certmonitor.core.config.ENABLED_VALIDATORS", ["default1", "default2"]
         ):
-            monitor = CertMonitor("www.example.com", enabled_validators=[])
-            # The implementation uses: enabled_validators or config.ENABLED_VALIDATORS
+            monitor = CertMonitor("www.example.com", enabled_validators=None)
+            # The implementation uses: enabled_validators if enabled_validators is not None else config.ENABLED_VALIDATORS
             assert monitor.enabled_validators == ["default1", "default2"]
 
     def test_initialization_with_explicit_empty_list(self):
@@ -59,7 +59,7 @@ class TestCertMonitorInitialization:
         assert CertMonitor("fe80::1").is_ip  # link-local IPv6
 
     def test_is_ip_address_invalid(self):
-        """Test _is_ip_address method with invalid IP addresses to cover line 134."""
+        """Test _is_ip_address method properly rejects invalid IP address formats."""
         monitor = CertMonitor("example.com")
 
         # Test cases that should trigger ValueError exception
@@ -79,7 +79,7 @@ class TestCertMonitorInitialization:
             assert result is False
 
     def test_is_ip_address_exception_coverage(self):
-        """Test _is_ip_address with values that raise ValueError to specifically cover line 134."""
+        """Test _is_ip_address handles ValueError exceptions gracefully for invalid inputs."""
         monitor = CertMonitor("example.com")
 
         # These should all trigger the ValueError exception and return False
@@ -123,13 +123,39 @@ class TestCertMonitorInitialization:
             mock_ip_address.assert_called_once_with("invalid.input")
 
     def test_is_ip_address_with_invalid_input(self):
-        """Test _is_ip_address method with invalid input to cover line 134."""
+        """Test _is_ip_address method returns False for clearly invalid input formats."""
         monitor = CertMonitor("example.com")
 
         # Test with clearly invalid IP inputs that should raise ValueError
         assert monitor._is_ip_address("clearly.not.an.ip") is False
         assert monitor._is_ip_address("999.999.999.999") is False
         assert monitor._is_ip_address("incomplete") is False
+
+    def test_get_enabled_validators_instance_method(self):
+        """Test the get_enabled_validators instance method."""
+        monitor = CertMonitor(
+            "www.example.com", enabled_validators=["hostname", "expiration"]
+        )
+
+        result = monitor.get_enabled_validators()
+
+        assert result == ["hostname", "expiration"]
+        # Ensure it returns a copy (modifying returned list shouldn't affect original)
+        result.append("test")
+        assert monitor.enabled_validators == ["hostname", "expiration"]
+
+    def test_list_validators_instance_method(self):
+        """Test the list_validators instance method."""
+        monitor = CertMonitor("www.example.com")
+
+        result = monitor.list_validators()
+
+        assert isinstance(result, list)
+        assert len(result) > 0
+        # Should contain some expected validators
+        expected_validators = ["expiration", "hostname", "root_certificate"]
+        for validator in expected_validators:
+            assert validator in result
 
 
 class TestContextManager:

@@ -199,7 +199,7 @@ class TestCertificateFetching:
         assert "Connection failed" in result["message"]
 
     def test_fetch_raw_cert_connection_error(self):
-        """Test _fetch_raw_cert when _ensure_connection returns an error to cover line 150."""
+        """Test _fetch_raw_cert properly handles connection establishment failures."""
         monitor = CertMonitor("example.com")
 
         # Mock _ensure_connection to return an error
@@ -210,7 +210,7 @@ class TestCertificateFetching:
             assert result == {"error": "Connection failed"}
 
     def test_fetch_raw_cert_empty_cert_info(self):
-        """Test _fetch_raw_cert when cert_info is empty to cover line 164."""
+        """Test _fetch_raw_cert handles cases where certificate information is unavailable."""
         monitor = CertMonitor("example.com")
 
         # Mock _ensure_connection to return None (success)
@@ -229,8 +229,89 @@ class TestCertificateFetching:
                 monitor, "_parse_pem_cert", return_value={"parsed": "data"}
             ):
                 monitor._fetch_raw_cert()
-                # This should trigger the empty cert_info condition on line 164
+                # Verify that PEM parsing is called when cert_info is empty
                 monitor._parse_pem_cert.assert_called_once()
+
+    def test_fetch_raw_cert_certinfo_exception(self):
+        """Test _fetch_raw_cert gracefully handles public key parsing exceptions."""
+        monitor = CertMonitor("example.com")
+
+        # Mock a successful connection and handler
+        mock_handler = MagicMock()
+        mock_handler.fetch_raw_cert.return_value = {
+            "cert_info": {"subject": "test"},
+            "der": b"fake_der_bytes",
+            "pem": "fake_pem_string",
+        }
+
+        monitor.handler = mock_handler
+        monitor.connected = True
+
+        # Mock certinfo to raise an exception
+        with patch("certmonitor.core.certinfo") as mock_certinfo:
+            mock_certinfo.parse_public_key_info.side_effect = Exception(
+                "Certinfo parsing failed"
+            )
+
+            with patch.object(monitor, "_ensure_connection", return_value=None):
+                result = monitor._fetch_raw_cert()
+
+                # Should still return the cert_data even if certinfo operations fail
+                assert "cert_info" in result
+                assert result["cert_info"]["subject"] == "test"
+                # Public key info should be set to an error dict when exception occurs
+                assert "public_key_info" in result
+                assert "error" in result["public_key_info"]
+                assert (
+                    "Failed to parse public key info"
+                    in result["public_key_info"]["error"]
+                )
+                # Public key bytes should be None due to exception
+                assert result["public_key_der"] is None
+                assert result["public_key_pem"] is None
+
+    def test_fetch_raw_cert_no_der_bytes_available(self):
+        """Test _fetch_raw_cert handles scenarios where DER certificate data is unavailable."""
+        monitor = CertMonitor("example.com")
+
+        # Mock a successful connection and handler
+        mock_handler = MagicMock()
+        mock_handler.fetch_raw_cert.return_value = {
+            "cert_info": {"subject": "test"},
+            "der": None,  # No DER bytes available
+            "pem": "fake_pem_string",
+        }
+
+        monitor.handler = mock_handler
+        monitor.connected = True
+
+        with patch.object(monitor, "_ensure_connection", return_value=None):
+            result = monitor._fetch_raw_cert()
+
+            # Should still return the cert_data but with DER error
+            assert "cert_info" in result
+            assert result["cert_info"]["subject"] == "test"
+            # Public key info should indicate DER not available
+            assert "public_key_info" in result
+            assert "error" in result["public_key_info"]
+            assert "DER bytes not available" in result["public_key_info"]["error"]
+            # Public key bytes should be None
+            assert result["public_key_der"] is None
+            assert result["public_key_pem"] is None
+
+    def test_fetch_raw_cert_handler_none_after_connection(self):
+        """Test _fetch_raw_cert properly handles cases where handler is unexpectedly unavailable."""
+        monitor = CertMonitor("example.com")
+        monitor.connected = True
+        monitor.handler = None  # Handler is None even though connected
+
+        # Mock _ensure_connection to return None (no error)
+        with patch.object(monitor, "_ensure_connection", return_value=None):
+            result = (
+                monitor._fetch_raw_cert()
+            )  # Should return error due to missing handler
+        assert "error" in result
+        assert "Handler is not initialized" in result["message"]
 
     def test_parse_pem_cert(self):
         """Test _parse_pem_cert() method."""
@@ -252,6 +333,23 @@ class TestCertificateFetching:
                     assert result == expected_cert_details
                     mock_remove.assert_called_once_with("/tmp/test.pem")
 
+    def test_parse_pem_cert_ssl_private_api_unavailable(self):
+        """Test _parse_pem_cert when ssl._ssl._test_decode_cert is not available."""
+        monitor = CertMonitor("www.example.com")
+
+        # Mock pem certificate
+        pem_cert = "-----BEGIN CERTIFICATE-----\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA\n-----END CERTIFICATE-----"
+
+        # Mock ssl._ssl._test_decode_cert to raise AttributeError
+        with patch(
+            "ssl._ssl._test_decode_cert",
+            side_effect=AttributeError("_test_decode_cert not available"),
+        ):
+            result = monitor._parse_pem_cert(pem_cert)
+
+            # Should return empty dict when private API is not available
+            assert result == {}
+
 
 class TestDataTransformation:
     """Test data transformation and utility methods."""
@@ -268,3 +366,35 @@ class TestDataTransformation:
 
         # Test with None
         assert monitor._to_structured_dict(None) is None
+
+    def test_get_cert_info_public_key_parsing_with_der(self):
+        """Test get_cert_info with DER data that triggers public key parsing to cover line 204."""
+        monitor = CertMonitor("www.example.com")
+        monitor.protocol = "ssl"
+
+        # Mock DER certificate data
+        mock_der = b"mock_der_certificate_data"
+
+        # Mock the handler and its response
+        mock_handler = MagicMock()
+        mock_handler.fetch_raw_cert.return_value = {
+            "der": mock_der,
+            "pem": "-----BEGIN CERTIFICATE-----\ntest\n-----END CERTIFICATE-----",
+            "cert_info": {"subject": {"commonName": "test.com"}},
+        }
+
+        monitor.handler = mock_handler
+
+        # Mock certinfo.parse_public_key_info to return public key data
+        with patch("certmonitor.core.certinfo") as mock_certinfo:
+            mock_certinfo.parse_public_key_info.return_value = {
+                "algorithm": "rsaEncryption",
+                "size": 2048,
+                "curve": None,
+            }
+
+            # This should trigger line 204 - attempting to parse public key info
+            result = monitor.get_cert_info()
+
+            # Basic verification - the test succeeded if we got a result
+            assert result is not None

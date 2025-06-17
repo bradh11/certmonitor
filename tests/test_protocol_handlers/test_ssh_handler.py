@@ -283,3 +283,15 @@ class TestSSHHandler:
         )
         assert result["protocol_version"] == "2.0"
         assert result["software_version"] == "libssh_0.6.3-complex.version-1.2.3"
+
+    def test_fetch_raw_cert_no_socket_connection(self):
+        """Test fetch_raw_cert when socket is None (not connected)."""
+        error_handler = ErrorHandler()
+        handler = SSHHandler("test.example.com", 22, error_handler)
+        handler.socket = None  # Simulate no connection
+
+        result = handler.fetch_raw_cert()
+
+        assert isinstance(result, dict)
+        assert "error" in result
+        assert "Socket not connected" in result["message"]

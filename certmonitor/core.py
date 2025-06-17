@@ -37,7 +37,11 @@ class CertMonitor:
         self.public_key_der = None
         self.public_key_pem = None
         self.validators = VALIDATORS
-        self.enabled_validators = enabled_validators or config.ENABLED_VALIDATORS
+        self.enabled_validators = (
+            enabled_validators
+            if enabled_validators is not None
+            else config.ENABLED_VALIDATORS
+        )
         self.error_handler = ErrorHandler()
         self.handler: Optional[BaseProtocolHandler] = None
         self.protocol: Optional[str] = None
@@ -629,3 +633,25 @@ class CertMonitor:
                     results[validator.name] = validator.validate(*args)
 
         return results
+
+    def get_enabled_validators(self) -> List[str]:
+        """
+        Get the list of validators enabled for this CertMonitor instance.
+
+        Returns:
+            List[str]: A list of enabled validator names for this instance.
+        """
+        return (
+            self.enabled_validators.copy()
+        )  # Return a copy to prevent external modification
+
+    def list_validators(self) -> List[str]:
+        """
+        Get a list of all available validators that can be used.
+
+        Returns:
+            List[str]: A list of all registered validator names.
+        """
+        from .validators import list_validators as _list_validators
+
+        return _list_validators()

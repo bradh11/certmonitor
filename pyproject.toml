@@ -1,6 +1,6 @@
 [project]
 name = "certmonitor"
-version = "0.1.3"
+version = "0.1.4"
 description = "A simple package to parse certificates"
 authors = [
     { name = "Brad Haas", email = "bradh11@gmail.com" }
