@@ -93,6 +93,63 @@ def test_sensitive_date_no_warning_and_valid(sample_cert):
     assert not result["warnings"]
 
 
+def test_many_sensitive_dates_no_match(sample_cert):
+    """Cert expires on a weekday not in the list of sensitive dates — should be valid."""
+    sample_cert["notAfter"] = "Nov 17 23:59:59 2025 GMT"  # Monday
+    validator = SensitiveDateValidator()
+    sensitive_dates = []
+
+    # Generate nearly 100 sensitive dates leaving out Nov 17
+    for i in range(100):
+        if (i % 30) + 1 != 17:
+            sensitive_dates.append(
+                SensitiveDate(f"Day {i + 1}", date(2025, 11, (i % 30) + 1))
+            )
+
+    result = validator.validate(
+        {"cert_info": sample_cert}, "www.example.com", 443, *sensitive_dates
+    )
+
+    assert result["is_valid"]
+    assert not result["weekend_expiry"]
+    assert not result["leapday_expiry"]
+    assert not result["warnings"]
+
+
+def test_many_sensitive_dates_match(sample_cert):
+    """Cert expires on sensitive date — warning should appear and cert should be invalid."""
+    sample_cert["notAfter"] = "Nov 17 23:59:59 2025 GMT"  # Monday
+    validator = SensitiveDateValidator()
+    sensitive_dates = []
+
+    # Generate 100 sensitive dates including Nov 17
+    for i in range(100):
+        sensitive_dates.append(
+            SensitiveDate(f"Day {i + 1}", date(2025, 11, (i % 30) + 1))
+        )
+
+    result = validator.validate(
+        {"cert_info": sample_cert}, "www.example.com", 443, *sensitive_dates
+    )
+
+    expected_warning_1 = (
+        'Certificate is due to expire on sensitive date "Day 17" (2025-11-17)'
+    )
+    expected_warning_2 = (
+        'Certificate is due to expire on sensitive date "Day 47" (2025-11-17)'
+    )
+    expected_warning_3 = (
+        'Certificate is due to expire on sensitive date "Day 77" (2025-11-17)'
+    )
+
+    assert not result["is_valid"]
+    assert not result["weekend_expiry"]
+    assert not result["leapday_expiry"]
+    assert expected_warning_1 in result["warnings"]
+    assert expected_warning_2 in result["warnings"]
+    assert expected_warning_3 in result["warnings"]
+
+
 def test_sensitive_date_validator_type_check(sample_cert):
     """Passing non-SensitiveDate args raises TypeError."""
     validator = SensitiveDateValidator()

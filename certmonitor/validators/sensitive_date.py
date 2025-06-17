@@ -39,7 +39,7 @@ class SensitiveDateValidator(BaseCertValidator):
         cert: Dict[str, Any],
         host: str,
         port: int,
-        *args,  # Accepts variable number of SensitiveDate objects since validator_args are unpacked
+        *args: SensitiveDate,  # Accepts any number of SensitiveDate objects from unpacked validator_args
     ) -> Dict[str, Any]:
         """
         Validates the sensitivity of the expiry date of the provided SSL certificate.

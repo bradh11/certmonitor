@@ -11,7 +11,7 @@ Available validators:
 - [KeyInfo](key_info.md): Validates the public key type and strength.
 - [TLSVersion](tls_version.md): Validates the negotiated TLS version.
 - [WeakCipher](weak_cipher.md): Validates that the negotiated cipher suite is in the allowed list.
-
+- [SensitiveDate](sensitive_date.md): Validates that the certificate doesn't expire on built-in or user specified sensitive dates.
 See each page for usage and output examples.
 
 ---
