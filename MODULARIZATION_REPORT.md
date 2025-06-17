@@ -9,9 +9,9 @@
 - **Main test file:** 22 lines
 
 ### Test Coverage
-- **Overall coverage:** 95.6%
-- **Total tests:** 305
-- **Statements covered:** 717/750
+- **Overall coverage:** 98.5%
+- **Total tests:** 332
+- **Statements covered:** 747/758
 - **Files with coverage:** 20
 
 ### Type Hint Coverage
@@ -30,7 +30,7 @@
 - **Python security scanning:** ✅ Enabled
 - **Python security issues found:** 0
 - **Files scanned by bandit:** 20
-- **Lines scanned by bandit:** 1,729
+- **Lines scanned by bandit:** 1,752
 - **Overall security status:** 🔒 Clean
 - **PyO3 version:** 0.24.1
 
@@ -47,12 +47,12 @@
 
 ### Modular Test Files
 - **test_validation.py**: 301 lines, 12 functions
-- **test_initialization.py**: 183 lines, 15 functions
+- **test_initialization.py**: 209 lines, 17 functions
 - **test_utility_methods.py**: 74 lines, 4 functions
-- **test_cipher_operations.py**: 128 lines, 7 functions
-- **test_connection_management.py**: 259 lines, 17 functions
-- **test_raw_data_operations.py**: 40 lines, 2 functions
-- **test_certificate_operations.py**: 271 lines, 18 functions
+- **test_cipher_operations.py**: 163 lines, 9 functions
+- **test_connection_management.py**: 315 lines, 20 functions
+- **test_raw_data_operations.py**: 70 lines, 4 functions
+- **test_certificate_operations.py**: 401 lines, 23 functions
 - **test_public_key_operations.py**: 211 lines, 12 functions
 
 ### Main Test File
@@ -64,9 +64,9 @@
 
 ### Files with Type Hints
 - **cipher_algorithms.py**: ✅ (145 lines)
-- **core.py**: ✅ (632 lines)
+- **core.py**: ✅ (658 lines)
 - **error_handlers.py**: ✅ (29 lines)
-- **config.py**: ❌ (15 lines)
+- **config.py**: ❌ (14 lines)
 - **utils/utils.py**: ❌ (1 lines)
 - **protocol_handlers/ssl_handler.py**: ✅ (193 lines)
 - **protocol_handlers/ssh_handler.py**: ✅ (77 lines)
