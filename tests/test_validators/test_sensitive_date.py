@@ -64,7 +64,10 @@ def test_sensitive_date_warning_and_invalid(sample_cert):
     sensitive_date = SensitiveDate("Busy Sunday", date(2025, 11, 16))
 
     result = validator.validate(
-        {"cert_info": sample_cert}, "www.example.com", 443, sensitive_date
+        {"cert_info": sample_cert},
+        "www.example.com",
+        443,
+        dates=[sensitive_date],
     )
 
     expected_warning = (
@@ -84,7 +87,10 @@ def test_sensitive_date_no_warning_and_valid(sample_cert):
     sensitive_date = SensitiveDate("Busy Tuesday", date(2025, 11, 18))
 
     result = validator.validate(
-        {"cert_info": sample_cert}, "www.example.com", 443, sensitive_date
+        {"cert_info": sample_cert},
+        "www.example.com",
+        443,
+        dates=[sensitive_date],
     )
 
     assert result["is_valid"]
@@ -107,7 +113,10 @@ def test_many_sensitive_dates_no_match(sample_cert):
             )
 
     result = validator.validate(
-        {"cert_info": sample_cert}, "www.example.com", 443, *sensitive_dates
+        {"cert_info": sample_cert},
+        "www.example.com",
+        443,
+        dates=sensitive_dates,
     )
 
     assert result["is_valid"]
@@ -129,7 +138,10 @@ def test_many_sensitive_dates_match(sample_cert):
         )
 
     result = validator.validate(
-        {"cert_info": sample_cert}, "www.example.com", 443, *sensitive_dates
+        {"cert_info": sample_cert},
+        "www.example.com",
+        443,
+        dates=sensitive_dates,
     )
 
     expected_warning_1 = (
@@ -159,8 +171,10 @@ def test_sensitive_date_validator_type_check(sample_cert):
             {"cert_info": sample_cert},
             "www.example.com",
             443,
-            SensitiveDate("Valid SensitiveDate", date(2025, 1, 1)),
-            "A string not a SensitiveDate",
+            dates=[
+                SensitiveDate("Valid SensitiveDate", date(2025, 1, 1)),
+                "A string not a SensitiveDate",  # type: ignore[list-item]
+            ],
         )
 
     assert "Expected SensitiveDate, got str" in str(excinfo.value)

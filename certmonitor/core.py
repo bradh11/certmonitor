@@ -6,7 +6,8 @@ import os
 import socket
 import ssl
 import tempfile
-from typing import Any, Dict, List, Optional, Union, cast, Tuple
+import warnings
+from typing import Any, Dict, FrozenSet, List, Mapping, Optional, Union, cast, Tuple
 
 from certmonitor import certinfo, config
 from certmonitor.cipher_algorithms import parse_cipher_suite
@@ -606,15 +607,9 @@ class CertMonitor:
                     }
             else:
                 for validator in cert_validators:
-                    args = [cert_data, self.host, self.port]
-                    # Pass additional arguments if any
-                    if validator_args and validator.name in validator_args:
-                        if validator.name == "subject_alt_names":
-                            args.append(validator_args[validator.name])
-                        else:
-                            args.extend(validator_args[validator.name])
-
-                    results[validator.name] = validator.validate(*args)
+                    results[validator.name] = self._invoke_validator(
+                        validator, (cert_data, self.host, self.port), validator_args
+                    )
 
         # Cipher-based validations
         if cipher_validators:
@@ -625,14 +620,80 @@ class CertMonitor:
                 )
             else:
                 for validator in cipher_validators:
-                    args = [cipher_info, self.host, self.port]
-                    # Pass additional arguments if any
-                    if validator_args and validator.name in validator_args:
-                        args.extend(validator_args[validator.name])
-
-                    results[validator.name] = validator.validate(*args)
+                    results[validator.name] = self._invoke_validator(
+                        validator, (cipher_info, self.host, self.port), validator_args
+                    )
 
         return results
+
+    def _invoke_validator(
+        self,
+        validator: Any,
+        framework_args: Tuple[Any, ...],
+        validator_args: Optional[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        """Resolve user kwargs from ``validator_args`` and call ``validator.validate``.
+
+        Looks up the validator's cached ``_user_param_names`` (built at class
+        definition time by ``BaseCertValidator.__init_subclass__``) and projects
+        the per-validator entry of ``validator_args`` onto them. Returns a
+        structured error dict if the user passed unknown keys; otherwise calls
+        the validator and returns its result.
+        """
+        raw = (validator_args or {}).get(validator.name)
+        kwargs: Mapping[str, Any]
+
+        if raw is None:
+            kwargs = {}
+        elif isinstance(raw, dict):
+            kwargs = raw
+        else:
+            # Backwards-compatibility shim: pre-#18, ``subject_alt_names`` accepted
+            # a bare list of alternate names. Map a bare list to the validator's
+            # single user param if (and only if) it has exactly one. Emit a
+            # ``DeprecationWarning`` so callers can migrate to the named form.
+            user_param_names: FrozenSet[str] = getattr(
+                validator, "_user_param_names", frozenset()
+            )
+            if isinstance(raw, list) and len(user_param_names) == 1:
+                only_param = next(iter(user_param_names))
+                warnings.warn(
+                    (
+                        f"Passing a bare list to validator_args[{validator.name!r}] "
+                        f"is deprecated; use {{'{validator.name}': "
+                        f"{{'{only_param}': [...]}}}} instead."
+                    ),
+                    DeprecationWarning,
+                    stacklevel=3,
+                )
+                kwargs = {only_param: raw}
+            else:
+                return {
+                    "is_valid": False,
+                    "reason": (
+                        f"Invalid args for validator {validator.name!r}: "
+                        f"expected a dict of keyword arguments, got {type(raw).__name__}."
+                    ),
+                }
+
+        user_param_names = getattr(validator, "_user_param_names", frozenset())
+        unknown = set(kwargs) - set(user_param_names)
+        if unknown:
+            return {
+                "is_valid": False,
+                "reason": (
+                    f"Unknown args for validator {validator.name!r}: "
+                    f"{sorted(unknown)}. Accepted args: {sorted(user_param_names)}."
+                ),
+            }
+
+        try:
+            return cast(Dict[str, Any], validator.validate(*framework_args, **kwargs))
+        except TypeError as exc:
+            return {
+                "is_valid": False,
+                "reason": f"Validator {validator.name!r} rejected args: {exc}",
+            }
 
     def get_enabled_validators(self) -> List[str]:
         """
@@ -655,3 +716,56 @@ class CertMonitor:
         from .validators import list_validators as _list_validators
 
         return _list_validators()
+
+    def describe_validators(self) -> Dict[str, Dict[str, Any]]:
+        """Describe every registered validator and the user args it accepts.
+
+        Reads each validator's cached ``_user_params`` (built by
+        ``BaseCertValidator.__init_subclass__`` / ``BaseCipherValidator.__init_subclass__``
+        at class definition time) and renders a serializable description suitable
+        for printing, logging, or feeding into a CLI ``--help`` page.
+
+        Returns:
+            dict: Keyed by validator name. Each value contains:
+
+                - ``validator_type``: ``"cert"`` or ``"cipher"``.
+                - ``doc``: the validator class docstring (first line).
+                - ``args``: dict keyed by user arg name, each with ``annotation``
+                  (string), ``default`` (the literal default value), and
+                  ``required`` (always ``False`` — every user arg must declare a
+                  default).
+
+        Example:
+            ```python
+            with CertMonitor("example.com") as monitor:
+                for name, info in monitor.describe_validators().items():
+                    print(name, info["args"])
+            ```
+        """
+        import inspect
+
+        described: Dict[str, Dict[str, Any]] = {}
+        for name, validator in self.validators.items():
+            user_params = getattr(validator, "_user_params", {}) or {}
+            args_info: Dict[str, Dict[str, Any]] = {}
+            for param_name, param in user_params.items():
+                # ``str()`` renders both plain classes and parameterized
+                # generics; only plain classes need the ``<class 'X'>`` wrapper
+                # unwrapped. Enforcement in __init_subclass__ guarantees every
+                # user param has an annotation, so no empty-annotation path.
+                rendered = str(param.annotation)
+                if rendered.startswith("<class '") and rendered.endswith("'>"):
+                    rendered = rendered[len("<class '") : -len("'>")]
+                args_info[param_name] = {
+                    "annotation": rendered.replace("typing.", ""),
+                    "default": param.default,
+                    "required": False,
+                }
+
+            doc = inspect.getdoc(validator.__class__) or ""
+            described[name] = {
+                "validator_type": getattr(validator, "validator_type", "cert"),
+                "doc": doc.splitlines()[0] if doc else "",
+                "args": args_info,
+            }
+        return described

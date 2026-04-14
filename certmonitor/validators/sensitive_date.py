@@ -5,7 +5,7 @@ Module for validating SSL certificates against specified sensitive dates.
 """
 
 from datetime import datetime, date
-from typing import Any, Dict, List, NamedTuple
+from typing import Any, Dict, List, NamedTuple, Optional
 
 from .base import BaseCertValidator
 
@@ -34,12 +34,13 @@ class SensitiveDateValidator(BaseCertValidator):
 
     name = "sensitive_date"
 
-    def validate(  # pylint: disable=arguments-differ
+    def validate(
         self,
         cert: Dict[str, Any],
         host: str,
         port: int,
-        *args: SensitiveDate,  # Accepts any number of SensitiveDate objects from unpacked validator_args
+        *,
+        dates: Optional[List[SensitiveDate]] = None,
     ) -> Dict[str, Any]:
         """
         Validates the sensitivity of the expiry date of the provided SSL certificate.
@@ -48,18 +49,16 @@ class SensitiveDateValidator(BaseCertValidator):
             cert (dict): The SSL certificate.
             host (str): The hostname (not used in this validator).
             port (int): The port number (not used in this validator).
-            *args (SensitiveDate, optional): Zero or more SensitiveDate objects passed as positional
-                arguments, representing sensitive dates to check against the certificate's
-                expiration date.
+            dates (list, optional): A list of ``SensitiveDate`` objects to check
+                against the certificate's expiration date. Defaults to ``None``
+                (no sensitive-date matching, only weekend/leap-day checks).
 
         Returns:
             dict: A dictionary containing the validation results, including whether the certificate
-                expires on a weekend, a leap day, or on any of the dates passed in as args.
+                expires on a weekend, a leap day, or on any of the passed-in dates.
 
         Examples:
             Example output (success):
-                This example shows a certificate that is valid and does not expire on any of the
-                    passed-in dates, so no warnings are present.
 
                 ```json
                 {
@@ -71,8 +70,6 @@ class SensitiveDateValidator(BaseCertValidator):
                 ```
 
             Example output (failure):
-                This example shows a certificate that expires both on a weekend, and also on one of
-                    the passed-in dates, so validation fails and a warning is included.
 
                 ```json
                 {
@@ -80,18 +77,18 @@ class SensitiveDateValidator(BaseCertValidator):
                     "leapday_expiry": false,
                     "weekend_expiry": true,
                     "warnings": [
-                        'Certificate is due to expire on sensitive date "Busy Sunday" (2025/11/16)'
+                        'Certificate is due to expire on sensitive date "Busy Sunday" (2025-11-16)'
                     ]
                 }
                 ```
         """
-        for sd in args:
+        sensitive_dates: List[SensitiveDate] = list(dates) if dates else []
+
+        for sd in sensitive_dates:
             if not isinstance(sd, SensitiveDate):
                 raise TypeError(
                     f"Expected SensitiveDate, got {type(sd).__name__}: {sd!r}"
                 )
-
-        sensitive_dates: List[SensitiveDate] = list(args)
 
         not_after = datetime.strptime(
             cert["cert_info"]["notAfter"], "%b %d %H:%M:%S %Y GMT"
@@ -101,13 +98,12 @@ class SensitiveDateValidator(BaseCertValidator):
         weekend_expiry = not_after.weekday() in (5, 6)
 
         warnings = []
-        if sensitive_dates:
-            for sensitive_date in sensitive_dates:
-                if not_after.date() == sensitive_date.date:
-                    warnings.append(
-                        f'Certificate is due to expire on sensitive date "{sensitive_date.name}"'
-                        f" ({sensitive_date.date.isoformat()})"
-                    )
+        for sensitive_date in sensitive_dates:
+            if not_after.date() == sensitive_date.date:
+                warnings.append(
+                    f'Certificate is due to expire on sensitive date "{sensitive_date.name}"'
+                    f" ({sensitive_date.date.isoformat()})"
+                )
 
         is_valid = not (leapday_expiry or warnings or weekend_expiry)
 
