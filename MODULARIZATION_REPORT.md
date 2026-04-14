@@ -4,20 +4,20 @@
 
 ### Test Modularization Status
 - **Modular test files:** 8 files
-- **Total test lines:** 1,744 lines
-- **Average file size:** 218 lines
+- **Total test lines:** 1,932 lines
+- **Average file size:** 241 lines
 - **Main test file:** 22 lines
 
 ### Test Coverage
-- **Overall coverage:** 98.5%
-- **Total tests:** 323
-- **Statements covered:** 723/734
-- **Files with coverage:** 19
+- **Overall coverage:** 98.7%
+- **Total tests:** 360
+- **Statements covered:** 852/863
+- **Files with coverage:** 21
 
 ### Type Hint Coverage
-- **Files analyzed:** 16
-- **Files with type hints:** 14
-- **Type hint coverage:** 87.5%
+- **Files analyzed:** 18
+- **Files with type hints:** 16
+- **Type hint coverage:** 88.9%
 
 ### Code Quality
 - **Ruff issues:** 0
@@ -29,8 +29,8 @@
 - **Rust vulnerabilities found:** 0
 - **Python security scanning:** ✅ Enabled
 - **Python security issues found:** 0
-- **Files scanned by bandit:** 19
-- **Lines scanned by bandit:** 1,657
+- **Files scanned by bandit:** 21
+- **Lines scanned by bandit:** 2,002
 - **Overall security status:** 🔒 Clean
 - **PyO3 version:** 0.24.1
 
@@ -47,11 +47,11 @@
 
 ### Modular Test Files
 - **test_certificate_operations.py**: 401 lines, 23 functions
-- **test_validation.py**: 301 lines, 12 functions
+- **test_validation.py**: 424 lines, 17 functions
 - **test_public_key_operations.py**: 211 lines, 12 functions
 - **test_initialization.py**: 209 lines, 17 functions
 - **test_raw_data_operations.py**: 70 lines, 4 functions
-- **test_utility_methods.py**: 74 lines, 4 functions
+- **test_utility_methods.py**: 139 lines, 11 functions
 - **test_connection_management.py**: 315 lines, 20 functions
 - **test_cipher_operations.py**: 163 lines, 9 functions
 
@@ -64,7 +64,7 @@
 
 ### Files with Type Hints
 - **config.py**: ❌ (14 lines)
-- **core.py**: ✅ (658 lines)
+- **core.py**: ✅ (772 lines)
 - **error_handlers.py**: ✅ (29 lines)
 - **cipher_algorithms.py**: ✅ (145 lines)
 - **protocol_handlers/ssl_handler.py**: ✅ (193 lines)
@@ -72,13 +72,15 @@
 - **protocol_handlers/base.py**: ✅ (28 lines)
 - **utils/utils.py**: ❌ (1 lines)
 - **validators/weak_cipher.py**: ✅ (68 lines)
-- **validators/subject_alt_names.py**: ✅ (238 lines)
-- **validators/expiration.py**: ✅ (88 lines)
+- **validators/sensitive_date.py**: ✅ (204 lines)
+- **validators/subject_alt_names.py**: ✅ (239 lines)
+- **validators/expiration.py**: ✅ (87 lines)
 - **validators/root_certificate_validator.py**: ✅ (113 lines)
 - **validators/tls_version.py**: ✅ (70 lines)
 - **validators/key_info.py**: ✅ (106 lines)
-- **validators/base.py**: ✅ (55 lines)
+- **validators/base.py**: ✅ (141 lines)
 - **validators/hostname.py**: ✅ (148 lines)
+- **validators/_utils.py**: ✅ (23 lines)
 
 ---
 
