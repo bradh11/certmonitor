@@ -32,6 +32,7 @@ nav:
       - KeyInfo: validators/key_info.md
       - TLSVersion: validators/tls_version.md
       - WeakCipher: validators/weak_cipher.md
+      - SensitiveDate: validators/sensitive_date.md
   - API Reference:
       - CertMonitor: reference/certmonitor.md
       - Validators: reference/validators.md
