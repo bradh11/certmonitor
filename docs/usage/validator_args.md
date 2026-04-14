@@ -36,6 +36,37 @@ results = monitor.validate(
 # }
 ```
 
+## Example: sensitive_date
+
+The `sensitive_date` validator accepts a `dates` list. Each entry may be a
+`SensitiveDate` named tuple, a plain `date`, an ISO 8601 string, or a
+`(name, date)` tuple — whichever fits your config source best.
+
+```python
+from datetime import date
+from certmonitor import CertMonitor
+from certmonitor.validators.sensitive_date import SensitiveDate
+
+with CertMonitor("example.com") as monitor:
+    results = monitor.validate(
+        validator_args={
+            "sensitive_date": {
+                "dates": [
+                    SensitiveDate("Black Friday", date(2025, 11, 28)),
+                    date(2025, 12, 25),           # name defaults to ISO string
+                    "2026-01-01",                 # ISO string; name defaults to itself
+                    ("Go-live", date(2026, 3, 1)),
+                ]
+            }
+        }
+    )
+    print(results["sensitive_date"])
+```
+
+Every matching date is reported both as a structured entry in
+`sensitive_date_matches` (machine-readable) and as a human-readable line in
+`warnings`. Weekend and leap-day expiry also produce warning strings.
+
 ## Discovering what a validator accepts
 
 Use `describe_validators()` to introspect every registered validator and the
