@@ -187,17 +187,19 @@ def microbench(iterations: int) -> None:
     print("MICROBENCH — certinfo.analyze_chain (3-cert fixture)")
     print("=" * 64)
     print(f"  iterations:     {iterations:,}")
-    print(f"  total time:     {total*1000:.1f} ms")
-    print(f"  min:            {samples[0]*1e6:8.1f} us")
-    print(f"  median:         {samples[len(samples) // 2]*1e6:8.1f} us")
-    print(f"  p95:            {_percentile(samples, 0.95)*1e6:8.1f} us")
-    print(f"  p99:            {_percentile(samples, 0.99)*1e6:8.1f} us")
-    print(f"  max:            {samples[-1]*1e6:8.1f} us")
+    print(f"  total time:     {total * 1000:.1f} ms")
+    print(f"  min:            {samples[0] * 1e6:8.1f} us")
+    print(f"  median:         {samples[len(samples) // 2] * 1e6:8.1f} us")
+    print(f"  p95:            {_percentile(samples, 0.95) * 1e6:8.1f} us")
+    print(f"  p99:            {_percentile(samples, 0.99) * 1e6:8.1f} us")
+    print(f"  max:            {samples[-1] * 1e6:8.1f} us")
     print(f"  throughput:     {iterations / total:,.0f} calls/sec")
     print()
 
 
-def _run_one(host: str, port: int, timeout: float) -> Tuple[str, bool, float, int, bool, str]:
+def _run_one(
+    host: str, port: int, timeout: float
+) -> Tuple[str, bool, float, int, bool, str]:
     """Run CertMonitor synchronously. Returns (host, ok, elapsed_s, chain_len, chain_valid, error)."""
     start = time.perf_counter()
     try:
@@ -246,7 +248,9 @@ async def pipeline_bench(
     hosts: List[str], concurrency: int, port: int, timeout: float, verbose: bool
 ) -> None:
     print("=" * 64)
-    print(f"PIPELINE — {len(hosts)} hosts, concurrency={concurrency}, timeout={timeout}s")
+    print(
+        f"PIPELINE — {len(hosts)} hosts, concurrency={concurrency}, timeout={timeout}s"
+    )
     print("=" * 64)
 
     sem = asyncio.Semaphore(concurrency)
@@ -325,9 +329,7 @@ def main() -> None:
         default=20,
         help="Pipeline max concurrent connections (default: 20)",
     )
-    parser.add_argument(
-        "--port", type=int, default=443, help="Port (default: 443)"
-    )
+    parser.add_argument("--port", type=int, default=443, help="Port (default: 443)")
     parser.add_argument(
         "--timeout",
         type=float,
