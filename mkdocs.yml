@@ -33,6 +33,7 @@ nav:
       - TLSVersion: validators/tls_version.md
       - WeakCipher: validators/weak_cipher.md
       - SensitiveDate: validators/sensitive_date.md
+      - Chain: validators/chain.md
   - API Reference:
       - CertMonitor: reference/certmonitor.md
       - Validators: reference/validators.md

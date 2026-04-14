@@ -270,6 +270,104 @@ class TestCertificateFetching:
                 assert result["public_key_der"] is None
                 assert result["public_key_pem"] is None
 
+    def test_fetch_raw_cert_populates_chain_analysis(self):
+        """When the handler supplies chain_der, core calls analyze_chain once."""
+        monitor = CertMonitor("example.com")
+        mock_handler = MagicMock()
+        mock_handler.fetch_raw_cert.return_value = {
+            "cert_info": {"subject": "test"},
+            "der": b"leaf_der",
+            "pem": "leaf_pem",
+            "chain_der": [b"leaf_der", b"intermediate_der"],
+            "chain_error": None,
+        }
+        monitor.handler = mock_handler
+        monitor.connected = True
+
+        fake_analysis = {
+            "chain_length": 2,
+            "certs": [],
+            "links": [],
+            "ordered": True,
+            "terminates_in_self_signed": False,
+        }
+        with patch("certmonitor.core.certinfo") as mock_certinfo, patch.object(
+            monitor, "_ensure_connection", return_value=None
+        ):
+            mock_certinfo.parse_public_key_info.return_value = {
+                "algorithm": "rsaEncryption",
+                "size": 2048,
+                "curve": None,
+            }
+            mock_certinfo.extract_public_key_der.return_value = b"spki"
+            mock_certinfo.extract_public_key_pem.return_value = "PEM"
+            mock_certinfo.analyze_chain.return_value = fake_analysis
+            result = monitor._fetch_raw_cert()
+
+        mock_certinfo.analyze_chain.assert_called_once_with(
+            [b"leaf_der", b"intermediate_der"]
+        )
+        assert result["chain_analysis"] == fake_analysis
+
+    def test_fetch_raw_cert_chain_analysis_exception(self):
+        """If analyze_chain raises, core traps it and stores an error dict."""
+        monitor = CertMonitor("example.com")
+        mock_handler = MagicMock()
+        mock_handler.fetch_raw_cert.return_value = {
+            "cert_info": {"subject": "test"},
+            "der": b"leaf_der",
+            "pem": "leaf_pem",
+            "chain_der": [b"leaf_der"],
+            "chain_error": None,
+        }
+        monitor.handler = mock_handler
+        monitor.connected = True
+
+        with patch("certmonitor.core.certinfo") as mock_certinfo, patch.object(
+            monitor, "_ensure_connection", return_value=None
+        ):
+            mock_certinfo.parse_public_key_info.return_value = {
+                "algorithm": "rsaEncryption",
+                "size": 2048,
+                "curve": None,
+            }
+            mock_certinfo.extract_public_key_der.return_value = b"spki"
+            mock_certinfo.extract_public_key_pem.return_value = "PEM"
+            mock_certinfo.analyze_chain.side_effect = ValueError("bad der")
+            result = monitor._fetch_raw_cert()
+
+        assert "chain_analysis" in result
+        assert "error" in result["chain_analysis"]
+        assert "bad der" in result["chain_analysis"]["error"]
+
+    def test_fetch_raw_cert_chain_der_missing(self):
+        """If the handler returns no chain_der, chain_analysis is None."""
+        monitor = CertMonitor("example.com")
+        mock_handler = MagicMock()
+        mock_handler.fetch_raw_cert.return_value = {
+            "cert_info": {"subject": "test"},
+            "der": b"leaf_der",
+            "pem": "leaf_pem",
+            # no chain_der, no chain_error
+        }
+        monitor.handler = mock_handler
+        monitor.connected = True
+
+        with patch("certmonitor.core.certinfo") as mock_certinfo, patch.object(
+            monitor, "_ensure_connection", return_value=None
+        ):
+            mock_certinfo.parse_public_key_info.return_value = {
+                "algorithm": "rsaEncryption",
+                "size": 2048,
+                "curve": None,
+            }
+            mock_certinfo.extract_public_key_der.return_value = b"spki"
+            mock_certinfo.extract_public_key_pem.return_value = "PEM"
+            result = monitor._fetch_raw_cert()
+
+        assert result["chain_analysis"] is None
+        mock_certinfo.analyze_chain.assert_not_called()
+
     def test_fetch_raw_cert_no_der_bytes_available(self):
         """Test _fetch_raw_cert handles scenarios where DER certificate data is unavailable."""
         monitor = CertMonitor("example.com")

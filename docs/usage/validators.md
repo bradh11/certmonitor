@@ -36,7 +36,7 @@ You can list all currently registered validators (including built-in and custom 
 from certmonitor.validators import list_validators
 
 print(list_validators())
-# Output: ['expiration', 'hostname', 'key_info', 'subject_alt_names', 'root_certificate', 'tls_version', 'weak_cipher']
+# Output: ['expiration', 'hostname', 'key_info', 'subject_alt_names', 'root_certificate', 'sensitive_date', 'tls_version', 'weak_cipher', 'chain']
 ```
 
 ### From a CertMonitor Instance
@@ -46,7 +46,7 @@ from certmonitor import CertMonitor
 
 monitor = CertMonitor("example.com")
 print(monitor.list_validators())
-# Output: ['expiration', 'hostname', 'key_info', 'subject_alt_names', 'root_certificate', 'tls_version', 'weak_cipher']
+# Output: ['expiration', 'hostname', 'key_info', 'subject_alt_names', 'root_certificate', 'sensitive_date', 'tls_version', 'weak_cipher', 'chain']
 ```
 
 Both methods return the same list of all available validators, regardless of which ones are enabled for a specific instance.

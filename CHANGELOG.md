@@ -8,10 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- TBD
+- **`chain` validator** ([#14](https://github.com/bradh11/certmonitor/issues/14)): structural validation of the full TLS certificate chain the server presents. Flags missing intermediates, out-of-order chains, expired members, weak signature algorithms, and non-CA intermediates. Registered but **disabled by default** — enable via `enabled_validators=["chain"]` or `ENABLED_VALIDATORS=...,chain`. Requires Python 3.10 or newer for chain retrieval; returns a clear error on 3.8/3.9.
+- **`certinfo.analyze_chain`** (Rust): new PyO3 entry point that parses a full `List[bytes]` DER chain in a single call and returns per-cert details plus adjacent-pair subject/issuer and SKI/AKI linkage — no per-cert PyO3 boundary crossings.
+- **`SSLHandler.fetch_raw_cert`** now additionally returns `chain_der` and `chain_error`, populated via `SSLSocket.get_verified_chain()` on Python 3.13+ and the stable `_sslobj.get_unverified_chain()` fallback on 3.10–3.12.
+- **`core._fetch_raw_cert`** parses the chain once on fetch (via `analyze_chain`) and caches the result as `cert_data["chain_analysis"]`, so re-running validators has zero additional cost.
 
 ### Changed
-- TBD
+- **Rust dependency footprint shrunk**: the `base64` crate is gone, replaced by an inlined RFC 4648 encoder in `rust_certinfo/src/lib.rs`. `extract_public_key_pem` output is byte-identical. Final Rust deps: `pyo3` + `x509-parser`.
 
 ### Fixed
 - TBD

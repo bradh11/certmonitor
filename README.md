@@ -150,6 +150,7 @@ You can enable, disable, or extend validators to fit your needs, making CertMoni
 - `tls_version`: Validates the negotiated TLS version.
 - `weak_cipher`: Validates that the negotiated cipher suite is in the allowed list.
 - `sensitive_date`: Validates that the certificate doesn't expire on built-in or user specified sensitive dates.
+- `chain`: Validates the full TLS certificate chain for structural problems (missing intermediates, out-of-order, expired members, weak signatures).
 
 ---
 

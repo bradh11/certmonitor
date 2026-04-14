@@ -4,20 +4,20 @@
 
 ### Test Modularization Status
 - **Modular test files:** 8 files
-- **Total test lines:** 1,932 lines
-- **Average file size:** 241 lines
+- **Total test lines:** 2,030 lines
+- **Average file size:** 253 lines
 - **Main test file:** 22 lines
 
 ### Test Coverage
-- **Overall coverage:** 98.7%
-- **Total tests:** 360
-- **Statements covered:** 852/863
-- **Files with coverage:** 21
+- **Overall coverage:** 98.8%
+- **Total tests:** 407
+- **Statements covered:** 965/977
+- **Files with coverage:** 22
 
 ### Type Hint Coverage
-- **Files analyzed:** 18
-- **Files with type hints:** 16
-- **Type hint coverage:** 88.9%
+- **Files analyzed:** 19
+- **Files with type hints:** 17
+- **Type hint coverage:** 89.5%
 
 ### Code Quality
 - **Ruff issues:** 0
@@ -29,8 +29,8 @@
 - **Rust vulnerabilities found:** 0
 - **Python security scanning:** ✅ Enabled
 - **Python security issues found:** 0
-- **Files scanned by bandit:** 21
-- **Lines scanned by bandit:** 2,002
+- **Files scanned by bandit:** 22
+- **Lines scanned by bandit:** 2,298
 - **Overall security status:** 🔒 Clean
 - **PyO3 version:** 0.24.1
 
@@ -46,7 +46,7 @@
 ## 🏗️ Test File Organization
 
 ### Modular Test Files
-- **test_certificate_operations.py**: 401 lines, 23 functions
+- **test_certificate_operations.py**: 499 lines, 26 functions
 - **test_validation.py**: 424 lines, 17 functions
 - **test_public_key_operations.py**: 211 lines, 12 functions
 - **test_initialization.py**: 209 lines, 17 functions
@@ -64,16 +64,17 @@
 
 ### Files with Type Hints
 - **config.py**: ❌ (14 lines)
-- **core.py**: ✅ (772 lines)
+- **core.py**: ✅ (784 lines)
 - **error_handlers.py**: ✅ (29 lines)
 - **cipher_algorithms.py**: ✅ (145 lines)
-- **protocol_handlers/ssl_handler.py**: ✅ (193 lines)
+- **protocol_handlers/ssl_handler.py**: ✅ (230 lines)
 - **protocol_handlers/ssh_handler.py**: ✅ (77 lines)
 - **protocol_handlers/base.py**: ✅ (28 lines)
 - **utils/utils.py**: ❌ (1 lines)
 - **validators/weak_cipher.py**: ✅ (68 lines)
 - **validators/sensitive_date.py**: ✅ (204 lines)
 - **validators/subject_alt_names.py**: ✅ (239 lines)
+- **validators/chain.py**: ✅ (298 lines)
 - **validators/expiration.py**: ✅ (87 lines)
 - **validators/root_certificate_validator.py**: ✅ (113 lines)
 - **validators/tls_version.py**: ✅ (70 lines)
