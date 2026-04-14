@@ -71,3 +71,68 @@ class TestStructuredDictConversion:
         assert isinstance(result, list)
         assert len(result) == 1
         assert result[0] == ["single_value"]
+
+
+class TestDescribeValidators:
+    """Test CertMonitor.describe_validators() introspection helper."""
+
+    def test_describe_validators_returns_all_registered(self):
+        """Every registered validator appears in the description."""
+        monitor = CertMonitor("www.example.com")
+        described = monitor.describe_validators()
+        assert set(described.keys()) >= {
+            "expiration",
+            "hostname",
+            "key_info",
+            "subject_alt_names",
+            "root_certificate",
+            "sensitive_date",
+            "tls_version",
+            "weak_cipher",
+        }
+
+    def test_describe_validators_subject_alt_names_args(self):
+        """subject_alt_names exposes ``alternate_names`` with annotation and default."""
+        monitor = CertMonitor("www.example.com")
+        described = monitor.describe_validators()
+
+        san = described["subject_alt_names"]
+        assert san["validator_type"] == "cert"
+        assert "alternate_names" in san["args"]
+        arg = san["args"]["alternate_names"]
+        assert arg["default"] is None
+        assert arg["required"] is False
+        assert "List" in arg["annotation"] and "str" in arg["annotation"]
+
+    def test_describe_validators_validator_with_no_args(self):
+        """Validators without user args report an empty args dict."""
+        monitor = CertMonitor("www.example.com")
+        described = monitor.describe_validators()
+
+        assert described["expiration"]["args"] == {}
+        assert described["hostname"]["args"] == {}
+
+    def test_describe_validators_includes_doc(self):
+        """Each entry includes the first line of the validator's class docstring."""
+        monitor = CertMonitor("www.example.com")
+        described = monitor.describe_validators()
+        assert described["subject_alt_names"]["doc"]
+        assert isinstance(described["subject_alt_names"]["doc"], str)
+
+    def test_describe_validators_renders_plain_class_annotations(self):
+        """Plain-class annotations like ``int`` render without ``<class 'int'>``."""
+        from certmonitor.validators.base import BaseCertValidator
+
+        class PlainAnnotationValidator(BaseCertValidator):
+            @property
+            def name(self):
+                return "plain_annotation"
+
+            def validate(self, cert_info, host, port, *, threshold: int = 0):
+                return {"is_valid": True}
+
+        monitor = CertMonitor("www.example.com")
+        monitor.validators = {"plain_annotation": PlainAnnotationValidator()}
+        described = monitor.describe_validators()
+        assert described["plain_annotation"]["args"]["threshold"]["annotation"] == "int"
+        assert described["plain_annotation"]["args"]["threshold"]["default"] == 0

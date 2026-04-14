@@ -22,6 +22,7 @@ class SubjectAltNamesValidator(BaseCertValidator):
         cert: Dict[str, Any],
         host: str,
         port: int,
+        *,
         alternate_names: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         """

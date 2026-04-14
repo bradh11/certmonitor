@@ -15,7 +15,10 @@ class TestSubjectAltNamesValidator:
         """Test SAN validation success with alternate names."""
         validator = SubjectAltNamesValidator()
         result = validator.validate(
-            {"cert_info": sample_cert}, "www.example.com", 443, ["example.com"]
+            {"cert_info": sample_cert},
+            "www.example.com",
+            443,
+            alternate_names=["example.com"],
         )
         assert result["is_valid"] is True
         assert result["contains_host"]["is_valid"] is True
@@ -26,7 +29,10 @@ class TestSubjectAltNamesValidator:
         """Test SAN validation with partial mismatch."""
         validator = SubjectAltNamesValidator()
         result = validator.validate(
-            {"cert_info": sample_cert}, "www.example.com", 443, ["invalid.com"]
+            {"cert_info": sample_cert},
+            "www.example.com",
+            443,
+            alternate_names=["invalid.com"],
         )
         assert result["is_valid"] is True  # Host is valid
         assert result["contains_host"]["is_valid"] is True
@@ -180,7 +186,10 @@ class TestSubjectAltNamesValidator:
         validator = SubjectAltNamesValidator()
         alternate_names = ["www.example.com", "192.168.1.1", "invalid.com"]
         result = validator.validate(
-            {"cert_info": cert_info}, "example.com", 443, alternate_names
+            {"cert_info": cert_info},
+            "example.com",
+            443,
+            alternate_names=alternate_names,
         )
 
         assert result["is_valid"] is True
