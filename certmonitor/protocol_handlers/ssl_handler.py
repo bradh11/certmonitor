@@ -123,10 +123,13 @@ class SSLHandler(BaseProtocolHandler):
                         self.port,
                     ),
                 )
+            chain_der, chain_error = self._fetch_chain_der()
             return {
                 "cert_info": self.secure_socket.getpeercert(),
                 "der": cert,
                 "pem": ssl.DER_cert_to_PEM_cert(cert),
+                "chain_der": chain_der,
+                "chain_error": chain_error,
             }
         except Exception as e:
             return cast(
@@ -135,6 +138,40 @@ class SSLHandler(BaseProtocolHandler):
                     "CertificateError", str(e), self.host, self.port
                 ),
             )
+
+    def _fetch_chain_der(self) -> Tuple[Optional[List[bytes]], Optional[str]]:
+        """Retrieve the peer certificate chain as a list of DER byte strings.
+
+        Python 3.13 exposes ``SSLSocket.get_verified_chain()``, which returns
+        DER bytes directly. Python 3.10–3.12 only exposes the chain through
+        the private ``_sslobj`` attribute as ``_ssl.Certificate`` instances,
+        so we pull those, ask each for its PEM, and convert back to DER using
+        the public ``ssl.PEM_cert_to_DER_cert`` helper. On 3.8/3.9 there is
+        no stdlib-only way to obtain the chain and we return an informative
+        error instead.
+        """
+        if not self.secure_socket:
+            return None, "SSL connection not established"
+        if hasattr(self.secure_socket, "get_verified_chain"):
+            try:
+                chain = self.secure_socket.get_verified_chain()
+                return list(chain), None
+            except Exception as exc:  # noqa: BLE001
+                return None, f"Failed to retrieve certificate chain: {exc}"
+
+        sslobj = getattr(self.secure_socket, "_sslobj", None)
+        if sslobj is not None and hasattr(sslobj, "get_unverified_chain"):
+            try:
+                chain_certs = sslobj.get_unverified_chain()
+                ders = [ssl.PEM_cert_to_DER_cert(c.public_bytes()) for c in chain_certs]
+                return ders, None
+            except Exception as exc:  # noqa: BLE001
+                return None, f"Failed to retrieve certificate chain: {exc}"
+
+        return None, (
+            "Certificate chain retrieval requires Python 3.10 or newer; "
+            "on this interpreter only the leaf certificate is available."
+        )
 
     def fetch_raw_cipher(self) -> Union[Tuple[str, str, Optional[int]], Dict[str, Any]]:
         if not self.secure_socket:

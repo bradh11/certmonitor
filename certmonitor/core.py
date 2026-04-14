@@ -238,6 +238,18 @@ class CertMonitor:
             cert_data["public_key_der"] = None
             cert_data["public_key_pem"] = None
 
+        chain_der = cert_data.get("chain_der")
+        if chain_der:
+            try:
+                cert_data["chain_analysis"] = certinfo.analyze_chain(chain_der)  # type: ignore[attr-defined]
+            except Exception as e:  # noqa: BLE001
+                logging.error(f"Unable to analyze certificate chain: {e}")
+                cert_data["chain_analysis"] = {
+                    "error": f"Failed to analyze certificate chain: {e}"
+                }
+        else:
+            cert_data.setdefault("chain_analysis", None)
+
         self.cert_data = cert_data
         return cert_data
 

@@ -1,6 +1,7 @@
 # validators/__init__.py
 from typing import Any
 
+from .chain import ChainValidator
 from .expiration import ExpirationValidator
 from .hostname import HostnameValidator
 from .key_info import KeyInfoValidator
@@ -13,7 +14,9 @@ from .weak_cipher import WeakCipherValidator
 # ... Import other validators as needed
 
 
-# A global registry of validator instances
+# A global registry of validator instances. The ``chain`` validator is
+# registered here but NOT in ``DEFAULT_VALIDATORS`` — users opt in by
+# naming it in ``enabled_validators=`` or ``ENABLED_VALIDATORS``.
 VALIDATORS = {
     "expiration": ExpirationValidator(),
     "hostname": HostnameValidator(),
@@ -23,6 +26,7 @@ VALIDATORS = {
     "sensitive_date": SensitiveDateValidator(),
     "tls_version": TLSVersionValidator(),
     "weak_cipher": WeakCipherValidator(),
+    "chain": ChainValidator(),
     # ... add any other default validators here
 }
 

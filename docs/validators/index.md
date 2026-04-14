@@ -12,6 +12,7 @@ Available validators:
 - [TLSVersion](tls_version.md): Validates the negotiated TLS version.
 - [WeakCipher](weak_cipher.md): Validates that the negotiated cipher suite is in the allowed list.
 - [SensitiveDate](sensitive_date.md): Validates that the certificate doesn't expire on built-in or user specified sensitive dates.
+- [Chain](chain.md): Inspects the full TLS certificate chain for structural problems (missing intermediates, out-of-order, expired members). Opt-in; requires Python 3.10+.
 
 See each page for usage and output examples.
 
