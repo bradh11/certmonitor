@@ -21,14 +21,8 @@ mod pem;
 mod pyobj;
 mod x509;
 
-// Public Rust API. The Python wheel doesn't use these — the wheel calls
-// the `#[pyfunction]` entry points further down — but the in-repo fuzz
-// crate at `rust_certinfo/fuzz/` does, and any future in-tree Rust
-// consumer (e.g. a CLI) can use the same surface.
-pub use crate::error::ParseError;
-pub use crate::x509::Certificate;
-
 use crate::pyobj::to_py_err;
+use crate::x509::Certificate;
 
 /// Parse an X.509 certificate (DER) and return public key info as a dict
 /// `{"algorithm": str, "size": int, "curve": str | None}`.
