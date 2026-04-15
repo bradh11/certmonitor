@@ -10,4 +10,8 @@ crate-type = ["cdylib"]
 path = "rust_certinfo/src/lib.rs"
 
 [dependencies]
+# pyo3 is the Python extension bridge — required to expose the Rust
+# parser to CertMonitor. Beyond pyo3 the crate has zero third-party
+# dependencies; the X.509 / DER parser under rust_certinfo/src/{der,x509}/
+# is implemented entirely against the Rust standard library.
 pyo3 = { version = "0.24.1", features = ["extension-module", "abi3-py38"] }
