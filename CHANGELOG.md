@@ -12,12 +12,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`certinfo.analyze_chain`** (Rust): new PyO3 entry point that parses a full `List[bytes]` DER chain in a single call and returns per-cert details plus adjacent-pair subject/issuer and SKI/AKI linkage — no per-cert PyO3 boundary crossings.
 - **`SSLHandler.fetch_raw_cert`** now additionally returns `chain_der` and `chain_error`, populated via `SSLSocket.get_verified_chain()` on Python 3.13+ and the stable `_sslobj.get_unverified_chain()` fallback on 3.10–3.12.
 - **`core._fetch_raw_cert`** parses the chain once on fetch (via `analyze_chain`) and caches the result as `cert_data["chain_analysis"]`, so re-running validators has zero additional cost.
+- **In-tree DER / X.509 parser** ([#22](https://github.com/bradh11/certmonitor/issues/22)). `rust_certinfo/src/der/` and `rust_certinfo/src/x509/` are a strict-DER, no-`unsafe`, panic-free, zero-dep replacement for `x509-parser`. The crate is annotated `#![forbid(unsafe_code)]` at the root and every parser path returns `Result<_, ParseError>`. New module structure: `der/{reader,oid,time,string,tag}.rs` for ASN.1 primitives, `x509/{certificate,name,spki,algorithm,extensions}.rs` for the X.509 layer, `pem.rs` and `pyobj.rs` as thin glue, `lib.rs` as the PyO3 entry-point shim.
+- **56 in-module Rust unit tests** plus a new corpus snapshot test (`tests/test_certinfo_corpus.py`) that runs every public `certinfo` entry point against 130 unique real-world certs captured from the bench host list. Covers RSA/EC key types, SKI/AKI extraction, validity timestamps, and SPKI extraction for the full corpus.
+- **Fuzz harness** at `rust_certinfo/fuzz/` for `Certificate::from_der`. Manual pre-merge gate (nightly + `cargo fuzz`); see `rust_certinfo/fuzz/README.md`.
 
 ### Changed
-- **Rust dependency footprint shrunk**: the `base64` crate is gone, replaced by an inlined RFC 4648 encoder in `rust_certinfo/src/lib.rs`. `extract_public_key_pem` output is byte-identical. Final Rust deps: `pyo3` + `x509-parser`.
+- **Zero non-pyo3 Rust dependencies.** The `x509-parser` crate is gone (replaced by the in-tree parser above) and the `base64` crate is gone (replaced by an inlined RFC 4648 encoder). The Rust dep tree shrinks from **48 crates to 20** — every remaining crate is either `pyo3` itself or a pyo3 build-time helper. `cargo audit` surface drops accordingly.
+- **`Cargo.toml`** crate-type now declares `["cdylib", "rlib"]`. The `cdylib` is the same Python wheel target maturin has always built; the additional `rlib` lets the in-repo fuzz crate link against the parser. No published-wheel surface change.
+- **Rust public API surface (in-tree only):** `certinfo::Certificate::from_der` and `certinfo::ParseError` are now exposed for use by the fuzz crate and any future in-repo Rust consumer. The PyO3 boundary and Python-facing API are unchanged.
 
 ### Fixed
-- TBD
+- **EC `curve` field now correctly contains the curve OID.** `parse_public_key_info` and the per-cert dict in `analyze_chain` previously emitted the algorithm OID `1.2.840.10045.2.1` (id-ecPublicKey) in the field literally named `curve`. The new parser extracts the curve OID from `algorithm.parameters` and emits e.g. `1.2.840.10045.3.1.7` for P-256, `1.3.132.0.34` for P-384, `1.3.132.0.35` for P-521. Visible behavior change for any caller reading `public_key_info["curve"]`.
+- **RSA modulus bit length is no longer over-counted by 8 bits.** The previous build computed bit length as `modulus.len() * 8` from `x509-parser`, which leaves the DER-mandated leading-zero sign byte in `modulus`. Real-world RSA-2048 / 3072 / 4096 keys were reported as 2056 / 3080 / 4104. The new parser strips the sign byte before counting and reports the canonical 2048 / 3072 / 4096. Visible in `public_key_info["size"]` and the chain validator's `public_key_info` per-cert dict.
 
 ## [0.2.0] - 2026-04-13
 

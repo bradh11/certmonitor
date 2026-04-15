@@ -10,8 +10,8 @@
 
 ### Test Coverage
 - **Overall coverage:** 98.8%
-- **Total tests:** 407
-- **Statements covered:** 965/977
+- **Total tests:** 425
+- **Statements covered:** 961/973
 - **Files with coverage:** 22
 
 ### Type Hint Coverage
@@ -30,7 +30,7 @@
 - **Python security scanning:** ✅ Enabled
 - **Python security issues found:** 0
 - **Files scanned by bandit:** 22
-- **Lines scanned by bandit:** 2,298
+- **Lines scanned by bandit:** 2,296
 - **Overall security status:** 🔒 Clean
 - **PyO3 version:** 0.24.1
 
@@ -74,7 +74,7 @@
 - **validators/weak_cipher.py**: ✅ (68 lines)
 - **validators/sensitive_date.py**: ✅ (204 lines)
 - **validators/subject_alt_names.py**: ✅ (239 lines)
-- **validators/chain.py**: ✅ (298 lines)
+- **validators/chain.py**: ✅ (302 lines)
 - **validators/expiration.py**: ✅ (87 lines)
 - **validators/root_certificate_validator.py**: ✅ (113 lines)
 - **validators/tls_version.py**: ✅ (70 lines)

@@ -5,10 +5,12 @@ edition = "2021"
 
 [lib]
 name = "certinfo"
-# This is crucial for building a Python extension
-crate-type = ["cdylib"]
+# `cdylib` is the Python extension wheel target. `rlib` lets the fuzz
+# crate at `rust_certinfo/fuzz/` link the same code as a normal Rust
+# library. Maturin still builds the wheel from the `cdylib` artifact;
+# the `rlib` adds no published-wheel surface.
+crate-type = ["cdylib", "rlib"]
 path = "rust_certinfo/src/lib.rs"
 
 [dependencies]
 pyo3 = { version = "0.24.1", features = ["extension-module", "abi3-py38"] }
-x509-parser = "0.16.0"
