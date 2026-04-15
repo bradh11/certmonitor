@@ -35,7 +35,7 @@
 - **PyO3 version:** 0.24.1
 
 ### Development Workflow
-- **Makefile commands:** 22 total
+- **Makefile commands:** 27 total
 - **Unified commands:** 5 (format, lint, test)
 - **Language-specific:** 5 (python-*, rust-*)
 - **Security commands:** 1 (security, audit)
@@ -104,7 +104,7 @@
 
 ### Makefile Configuration
 - **Makefile present:** ✅ Yes
-- **Total commands:** 22
+- **Total commands:** 27
 - **Unified commands:** 5 (test-quick, test, format, format-check, lint)
 - **Language-specific commands:** 5 (python-format, python-lint, rust-format, rust-format-check, rust-lint)
 - **Security commands:** 1 (security)

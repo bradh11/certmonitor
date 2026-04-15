@@ -1,6 +1,6 @@
 # Makefile for certmonitor project
 
-.PHONY: develop build wheel test test-quick docs clean lint format format-check verify-wheel check report ci help typecheck python-lint python-format rust-format rust-format-check rust-lint security
+.PHONY: develop build wheel test test-quick docs clean lint format format-check verify-wheel check report ci help typecheck python-lint python-format rust-format rust-format-check rust-lint security fuzz fuzz-long
 
 # Show available targets and their descriptions
 help:
@@ -36,6 +36,10 @@ help:
 	@echo "🧹 Cleanup:"
 	@echo "  clean        Remove all build artifacts and cache"
 	@echo "  verify-wheel Verify contents of built wheel"
+	@echo ""
+	@echo "🐛 Fuzzing (manual pre-release gate, requires nightly Rust):"
+	@echo "  fuzz         Run the certificate parser fuzz target for 60s"
+	@echo "  fuzz-long    Run the certificate parser fuzz target for 1 hour"
 
 # Install the package in development mode (Python + Rust)
 develop:
@@ -170,6 +174,42 @@ security:
 	uv run bandit -r certmonitor/ -f json -o bandit-report.json -c .bandit
 	@echo "✅ Security scans complete"
 
+# Run the parser fuzz target. Manual pre-release hardening gate; not in
+# CI. Requires nightly Rust + cargo-fuzz; the recipe checks for both
+# and tells you how to install if missing. Seeds the libfuzzer corpus
+# from the captured real-world certs in tests/fixtures/diff_corpus/ so
+# the fuzzer starts with realistic inputs.
+#
+# `fuzz` is a 60-second smoke run for use during development.
+# `fuzz-long` is a 1-hour soak for use before tagging a release.
+# See fuzz/README.md for details.
+fuzz: FUZZ_DURATION ?= 60
+fuzz: _fuzz_run
+
+fuzz-long: FUZZ_DURATION = 3600
+fuzz-long: _fuzz_run
+
+_fuzz_run:
+	@command -v cargo-fuzz >/dev/null 2>&1 || { \
+		echo "❌ cargo-fuzz not installed."; \
+		echo "   Install with: cargo install cargo-fuzz"; \
+		exit 1; \
+	}
+	@rustup toolchain list 2>/dev/null | grep -q nightly || { \
+		echo "❌ nightly Rust toolchain not installed."; \
+		echo "   Install with: rustup toolchain install nightly"; \
+		exit 1; \
+	}
+	@echo "🐛 Seeding fuzz corpus from tests/fixtures/diff_corpus/..."
+	@mkdir -p fuzz/corpus/parse_certificate
+	@cp tests/fixtures/diff_corpus/*.der fuzz/corpus/parse_certificate/ 2>/dev/null || true
+	@CORPUS_COUNT=$$(ls fuzz/corpus/parse_certificate/*.der 2>/dev/null | wc -l | tr -d ' '); \
+		echo "   $$CORPUS_COUNT seed files in corpus"
+	@echo "🐛 Running parse_certificate fuzz target for $(FUZZ_DURATION)s..."
+	@echo "   Crashes (if any) will land in fuzz/artifacts/parse_certificate/"
+	cargo +nightly fuzz run parse_certificate -- -max_total_time=$(FUZZ_DURATION)
+	@echo "✅ Fuzz run complete (no crashes)"
+
 # Clean all build artifacts, cache, eggs, and venv
 clean:
 	rm -rf \
@@ -197,7 +237,11 @@ clean:
 		*.dylib \
 		*.exe \
 		*.a \
-		*.out
+		*.out \
+		fuzz/target/ \
+		fuzz/corpus/ \
+		fuzz/artifacts/ \
+		fuzz/coverage/
 
 # Verify the contents of the built wheel
 verify-wheel:
