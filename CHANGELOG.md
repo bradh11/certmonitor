@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+**Convention:** Each release section uses emoji headers (`## ✨ Added`, `## 🔄 Changed`, etc.)
+so that `.github/workflows/release.yml` can extract them directly into GitHub Releases
+without reformatting. The `[Unreleased]` section uses plain headers for drafting convenience;
+rename the headers to emoji form when cutting a release.
+
 ## [Unreleased]
 
 ### Added
@@ -18,29 +23,71 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.3.0] - 2026-04-15
 
-CertMonitor v0.3.0 is a zero-dependency milestone: the Rust extension's entire X.509 / DER parser is now written in-house against the Rust standard library, dropping the `x509-parser` and `base64` crates and shrinking the Rust dependency tree from 48 crates to 20. The parser is fuzz-tested (1.7 billion iterations, zero crashes) and annotated `#![forbid(unsafe_code)]` at the crate root.
+# 📦 CertMonitor v0.3.0 – Zero-Dependency Milestone & Chain Validator
 
-This release also adds the **`chain` validator** for structural inspection of TLS certificate chains, and fixes two latent bugs in the public key info output.
+**Release Date:** April 15, 2026
+**Repository:** [bradh11/certmonitor](https://github.com/bradh11/certmonitor)
 
-### Added
-- **`chain` validator** ([#14](https://github.com/bradh11/certmonitor/issues/14)): structural validation of the full TLS certificate chain. Flags missing intermediates, out-of-order chains, expired members, weak signature algorithms, and non-CA intermediates. Registered but **disabled by default** — opt in via `enabled_validators=["chain"]` or `ENABLED_VALIDATORS=...,chain`. Chain retrieval requires Python 3.10+; returns a clear error on older interpreters.
+---
+
+## 🚀 Overview
+
+CertMonitor v0.3.0 is a zero-dependency milestone. The Rust extension's entire X.509 / DER parser is now written in-house against the Rust standard library — no third-party parsing crates in the runtime dependency tree. The Rust dependency count drops from **48 crates to 20**, with every remaining crate being `pyo3` or a build-time helper.
+
+The parser is annotated `#![forbid(unsafe_code)]` at the crate root, returns `Result` on every code path (no panics on malformed input), and has been fuzz-tested against **1.7 billion adversarial byte sequences with zero crashes**.
+
+This release also ships the **`chain` validator** for structural inspection of TLS certificate chains, and fixes two latent bugs in the public key info output.
+
+---
+
+## ✨ Added
+
+- **`chain` validator** ([#14](https://github.com/bradh11/certmonitor/issues/14)): structural validation of the full TLS certificate chain. Flags missing intermediates, out-of-order chains, expired members, weak signature algorithms (SHA-1, MD5), non-CA intermediates, and unexpected self-signed leaves. Registered but **disabled by default** — opt in via `enabled_validators=["chain"]` or `ENABLED_VALIDATORS=...,chain`. Chain retrieval requires Python 3.10+; returns a clear error on older interpreters.
 - **`certinfo.analyze_chain`** (Rust): parses a full DER chain in a single PyO3 call and returns per-cert details plus subject/issuer and SKI/AKI linkage.
-- **`SSLHandler.fetch_raw_cert`** now returns `chain_der` and `chain_error`, populated via `SSLSocket.get_verified_chain()` on Python 3.13+ and the stable `_sslobj.get_unverified_chain()` fallback on 3.10–3.12.
-- **In-tree DER / X.509 parser** ([#22](https://github.com/bradh11/certmonitor/issues/22)): a strict-DER, `no_unsafe`, panic-free parser under `rust_certinfo/src/{der,x509}/` replacing the `x509-parser` crate. Every parser path returns `Result<_, ParseError>`. The `der/` layer is reusable for future ASN.1-based capabilities (SANs, AIA, EKU, CRL DPs, OCSP).
-- **Fuzz harness** ([#25](https://github.com/bradh11/certmonitor/issues/25)): `make fuzz` (60s smoke) and `make fuzz-long` (1hr soak) Makefile targets. The parser has been fuzz-tested against 1.7 billion adversarial byte sequences with zero crashes, 310 code-coverage points, and 503 libfuzzer features explored. Requires nightly Rust + `cargo-fuzz`; manual pre-release gate, not CI.
-- **130-cert real-world corpus** (`tests/test_certinfo_corpus.py`): snapshot tests run every public `certinfo` entry point against certs from 101 production hosts on every CI run.
+- **`SSLHandler.fetch_raw_cert`** now additionally returns `chain_der` and `chain_error`, populated via `SSLSocket.get_verified_chain()` on Python 3.13+ and the stable `_sslobj.get_unverified_chain()` fallback on 3.10–3.12.
+- **In-tree DER / X.509 parser** ([#22](https://github.com/bradh11/certmonitor/issues/22)): a strict-DER, no-`unsafe`, panic-free parser under `rust_certinfo/src/{der,x509}/`. The `der/` layer (TLV reader, OID decoder, time parser, string decoders) is reusable for future ASN.1-based capabilities. The `x509/` layer (Certificate, Name, SPKI, AlgorithmIdentifier, Extensions) composes those primitives into RFC 5280 structures.
+- **Fuzz harness** ([#25](https://github.com/bradh11/certmonitor/issues/25)): `make fuzz` (60-second smoke run) and `make fuzz-long` (1-hour soak) Makefile targets. Pre-release soak run results: 1.7 billion iterations, 310 code-coverage points, 503 libfuzzer features explored, zero crashes. Requires nightly Rust + `cargo-fuzz`. Manual pre-release gate, not CI.
+- **130-cert real-world corpus** (`tests/test_certinfo_corpus.py`): snapshot tests run every public `certinfo` entry point against captured certs from 101 production hosts on every CI run.
 - **56 in-module Rust unit tests** covering DER primitives, OID round-trips, time parsing, Name/RDN walking, SPKI dispatch, and extension parsing.
 - **`python` Cargo feature** on the `certinfo` crate (default on). Disabling it drops the PyO3 layer entirely and builds only the pure-Rust parser core — used by the fuzz crate.
-- **`scripts/bench_chain.py`**: opt-in benchmark with a microbench of `analyze_chain` (~400 us/call) and a 101-host pipeline test.
+- **`scripts/bench_chain.py`**: opt-in benchmark with a microbench of `analyze_chain` (~400 µs/call) and a 101-host concurrent pipeline test.
 
-### Changed
-- **Zero non-pyo3 Rust dependencies.** `x509-parser` and `base64` are gone. The Rust dep tree shrinks from **48 crates to 20** — every remaining crate is `pyo3` or a build-time helper. `cargo audit` surface drops accordingly.
-- **`Cargo.toml`** crate-type is now `["cdylib", "rlib"]`. The `cdylib` is the same wheel target; `rlib` lets the fuzz crate link the parser as a normal Rust library.
-- **`certinfo::Certificate::from_der`** and **`certinfo::ParseError`** are now `pub` at the crate root for use by the fuzz crate and future in-tree Rust consumers.
+---
 
-### Fixed
-- **EC `curve` field now correctly contains the curve OID.** Previous builds emitted the algorithm OID `1.2.840.10045.2.1` (id-ecPublicKey) in the field literally named `curve`. The new parser extracts the curve OID from `algorithm.parameters`: `1.2.840.10045.3.1.7` for P-256, `1.3.132.0.34` for P-384, `1.3.132.0.35` for P-521.
-- **RSA modulus bit length is no longer over-counted by 8 bits.** Previous builds reported RSA-2048 / 3072 / 4096 keys as 2056 / 3080 / 4104 due to including the DER sign byte. The new parser reports the canonical sizes.
+## 🔄 Changed
+
+- **Zero non-pyo3 Rust dependencies.** `x509-parser` and `base64` are gone. The Rust dependency tree shrinks from **48 crates to 20** — every remaining crate is `pyo3` or a build-time helper. `cargo audit` surface drops accordingly.
+- **`Cargo.toml`** crate-type is now `["cdylib", "rlib"]`. The `cdylib` is the same Python wheel target; `rlib` lets the fuzz crate link the parser as a normal Rust library. No published-wheel surface change.
+- **`certinfo::Certificate::from_der`** and **`certinfo::ParseError`** are now `pub` at the crate root for use by the fuzz crate and future in-tree Rust consumers. The PyO3 boundary and Python-facing API are unchanged.
+
+---
+
+## 🛠️ Fixed
+
+- **EC `curve` field now correctly contains the curve OID.** Previous builds emitted the algorithm OID `1.2.840.10045.2.1` (id-ecPublicKey) in the field literally named `curve`. The new parser extracts the curve OID from `algorithm.parameters`: `1.2.840.10045.3.1.7` for P-256, `1.3.132.0.34` for P-384, `1.3.132.0.35` for P-521. Visible behavior change for any caller reading `public_key_info["curve"]`.
+- **RSA modulus bit length is no longer over-counted by 8 bits.** Previous builds reported RSA-2048 / 3072 / 4096 keys as 2056 / 3080 / 4104 due to including the DER-mandated leading-zero sign byte. The new parser reports the canonical 2048 / 3072 / 4096. Visible in `public_key_info["size"]`.
+
+---
+
+## 📚 Documentation
+
+- New per-validator docs page: `docs/validators/chain.md`.
+- README: new "Why Trust CertMonitor" section with fuzz results, zero-dep guarantee, `forbid(unsafe_code)`, and coverage numbers.
+- Comprehensive documentation at [certmonitor.readthedocs.io](https://certmonitor.readthedocs.io/).
+
+---
+
+## 🐍 Python Compatibility
+
+Tested with Python 3.8 through 3.13 with 99% code coverage across all supported versions. The `chain` validator requires Python 3.10+ for chain retrieval; all other features work on 3.8+.
+
+---
+
+## 📝 License
+
+This project is licensed under the MIT License. See the [LICENSE](https://github.com/bradh11/certmonitor/blob/main/LICENSE) file for details.
+
+**Full Changelog**: https://github.com/bradh11/certmonitor/compare/v0.2.0...v0.3.0
 
 ## [0.2.0] - 2026-04-13
 
