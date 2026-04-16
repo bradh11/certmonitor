@@ -1,10 +1,13 @@
 # testsconftest.py
 
+from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
 
 from certmonitor import CertMonitor
+
+_FIXTURES_DIR = Path(__file__).parent / "fixtures"
 
 
 @pytest.fixture
@@ -251,6 +254,132 @@ def error_response():
         "host": "example.com",
         "port": 443,
     }
+
+
+@pytest.fixture
+def real_chain_ders():
+    """Real 3-cert DER chain (leaf -> intermediate -> root) captured from a
+    public host. Used by tests that exercise the Rust ``analyze_chain`` path.
+    Tests should only assert time-insensitive properties against this chain
+    so they don't bit-rot when the captured leaf eventually expires.
+    """
+    return [(_FIXTURES_DIR / f"chain_{i}.der").read_bytes() for i in range(3)]
+
+
+def _synthetic_cert(
+    *,
+    position: int,
+    subject_cn: str,
+    issuer_cn: str,
+    not_before: int,
+    not_after: int,
+    is_ca: bool = False,
+    is_self_signed: bool = False,
+    sig_oid: str = "1.2.840.113549.1.1.11",  # sha256WithRSAEncryption
+    ski=None,
+    aki=None,
+):
+    return {
+        "position": position,
+        "subject": {"commonName": subject_cn, "organizationName": "TestOrg"},
+        "issuer": {"commonName": issuer_cn, "organizationName": "TestOrg"},
+        "not_before_unix": not_before,
+        "not_after_unix": not_after,
+        "serial_number": f"{position:016x}",
+        "signature_algorithm_oid": sig_oid,
+        "signature_algorithm_weak": sig_oid
+        in {
+            "1.2.840.113549.1.1.5",
+            "1.2.840.113549.1.1.4",
+            "1.2.840.10045.4.1",
+        },
+        "is_ca": is_ca,
+        "subject_key_identifier": ski,
+        "authority_key_identifier": aki,
+        "is_self_signed": is_self_signed,
+        "public_key_info": {"algorithm": "rsaEncryption", "size": 2048, "curve": None},
+    }
+
+
+def _build_chain_analysis(certs, ordered=None, terminates_in_self_signed=None):
+    links = []
+    computed_ordered = True
+    for i in range(len(certs) - 1):
+        child = certs[i]
+        parent = certs[i + 1]
+        subject_matches_issuer = child["issuer"] == parent["subject"]
+        if not subject_matches_issuer:
+            computed_ordered = False
+        links.append(
+            {
+                "subject_matches_issuer": subject_matches_issuer,
+                "aki_matches_ski": None,
+            }
+        )
+    return {
+        "chain_length": len(certs),
+        "certs": certs,
+        "links": links,
+        "ordered": computed_ordered if ordered is None else ordered,
+        "terminates_in_self_signed": (
+            (bool(certs) and certs[-1]["is_self_signed"])
+            if terminates_in_self_signed is None
+            else terminates_in_self_signed
+        ),
+    }
+
+
+@pytest.fixture
+def synthetic_cert():
+    """Factory for building per-cert dicts in the shape analyze_chain emits."""
+    return _synthetic_cert
+
+
+@pytest.fixture
+def build_chain_analysis():
+    """Factory for building a full chain_analysis dict from synthetic certs."""
+    return _build_chain_analysis
+
+
+@pytest.fixture
+def healthy_chain_analysis():
+    """A well-formed 3-cert chain_analysis with notBefore/notAfter spanning now."""
+    import datetime as _dt
+
+    now = int(_dt.datetime.now(_dt.timezone.utc).timestamp())
+    year = 365 * 24 * 3600
+    leaf = _synthetic_cert(
+        position=0,
+        subject_cn="leaf.example.com",
+        issuer_cn="Intermediate CA",
+        not_before=now - 30 * 24 * 3600,
+        not_after=now + 60 * 24 * 3600,
+        is_ca=False,
+        ski="aa" * 20,
+        aki="bb" * 20,
+    )
+    intermediate = _synthetic_cert(
+        position=1,
+        subject_cn="Intermediate CA",
+        issuer_cn="Root CA",
+        not_before=now - 2 * year,
+        not_after=now + 3 * year,
+        is_ca=True,
+        ski="bb" * 20,
+        aki="cc" * 20,
+    )
+    root = _synthetic_cert(
+        position=2,
+        subject_cn="Root CA",
+        issuer_cn="Root CA",
+        not_before=now - 5 * year,
+        not_after=now + 10 * year,
+        is_ca=True,
+        is_self_signed=True,
+        ski="cc" * 20,
+        aki="cc" * 20,
+    )
+    return _build_chain_analysis([leaf, intermediate, root])
 
 
 @pytest.fixture

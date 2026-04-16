@@ -1,136 +1,90 @@
-// src/lib.rs
+// rust_certinfo/src/lib.rs
+//
+// PyO3 module for the `certinfo` Python extension. This file is a thin
+// shim — the actual parsing lives in `crate::der` (DER primitives) and
+// `crate::x509` (RFC 5280 structures), with the Python-facing dict
+// conversions in `crate::pyobj`.
+//
+// The PyO3 layer is gated behind the `python` feature (on by default).
+// Disabling it (`--no-default-features`) gives you the pure-Rust parser
+// with no Python runtime dependency — that's the mode the in-repo
+// `fuzz/` crate uses to fuzz `Certificate::from_der` as a standalone
+// binary, since the fuzzer isn't loaded by a Python interpreter and
+// can't resolve PyO3 symbols at runtime.
+//
+// Hard guarantees enforced at the crate level:
+//   - No `unsafe` anywhere in our code (`forbid(unsafe_code)`).
+//   - No panics on malformed input (every parser path returns `Result`).
+//   - Zero non-pyo3 runtime dependencies.
 
-use base64::{engine::general_purpose, Engine as _};
-use pyo3::exceptions::PyValueError;
-use pyo3::prelude::*;
-use x509_parser::prelude::*;
-use x509_parser::public_key::PublicKey;
+#![forbid(unsafe_code)]
 
-/// A small struct to hold the parsed key info in Rust
-#[derive(Debug, Clone)]
-struct KeyInfo {
-    algorithm: String,
-    size: usize,
-    curve: Option<String>,
-}
+mod der;
+mod error;
+mod x509;
 
-impl KeyInfo {
-    fn new(algorithm: &str, size: usize, curve: Option<String>) -> Self {
-        KeyInfo {
-            algorithm: algorithm.to_string(),
-            size,
-            curve,
-        }
+// Public Rust API. The Python wheel doesn't use these — the wheel calls
+// the `#[pyfunction]` entry points further down — but the in-repo fuzz
+// crate at `fuzz/` does, and any future in-tree Rust consumer (e.g. a
+// CLI) can use the same surface.
+pub use crate::error::ParseError;
+pub use crate::x509::Certificate;
+
+// Everything below is the PyO3 / Python wheel surface. None of it is
+// compiled when the `python` feature is off.
+#[cfg(feature = "python")]
+mod pem;
+#[cfg(feature = "python")]
+mod pyobj;
+
+#[cfg(feature = "python")]
+mod py {
+    use super::{pem, pyobj, pyobj::to_py_err, Certificate};
+    use pyo3::prelude::*;
+    use pyo3::types::{PyBytes, PyDict};
+
+    /// Parse an X.509 certificate (DER) and return public key info as a dict
+    /// `{"algorithm": str, "size": int, "curve": str | None}`.
+    ///
+    /// For EC keys the `curve` field contains the curve OID (e.g.
+    /// `"1.2.840.10045.3.1.7"` for P-256). Earlier builds incorrectly returned
+    /// the algorithm OID here.
+    #[pyfunction]
+    pub(super) fn parse_public_key_info(py: Python<'_>, der_data: Vec<u8>) -> PyResult<Py<PyAny>> {
+        let cert = Certificate::from_der(&der_data).map_err(to_py_err)?;
+        let dict = pyobj::key_info_dict(py, &cert.spki)?;
+        Ok(dict.into())
     }
-}
 
-/// Parse the DER bytes of an X.509 certificate and extract public key info.
-///
-/// Returns a Python dictionary with:
-///   - "algorithm": "rsaEncryption" or "ecPublicKey" or "unknown"
-///   - "size": the bit length (e.g., 2048 for RSA)
-///   - "curve": the curve OID string if EC, or None for RSA
-#[pyfunction]
-fn parse_public_key_info(der_data: Vec<u8>) -> PyResult<Py<PyAny>> {
-    // Parse the certificate from DER
-    let (_, certificate) = X509Certificate::from_der(&der_data)
-        .map_err(|_| PyValueError::new_err("Failed to parse X.509 certificate"))?;
+    /// Extract the SubjectPublicKeyInfo as raw DER bytes.
+    #[pyfunction]
+    pub(super) fn extract_public_key_der(py: Python<'_>, der_data: Vec<u8>) -> PyResult<Py<PyAny>> {
+        let cert = Certificate::from_der(&der_data).map_err(to_py_err)?;
+        let bytes = PyBytes::new(py, cert.spki.raw);
+        Ok(bytes.into())
+    }
 
-    // Extract SubjectPublicKeyInfo (SPKI)
-    let spki = certificate.public_key();
+    /// Extract the SubjectPublicKeyInfo as a PEM-encoded string.
+    #[pyfunction]
+    pub(super) fn extract_public_key_pem(der_data: Vec<u8>) -> PyResult<String> {
+        let cert = Certificate::from_der(&der_data).map_err(to_py_err)?;
+        Ok(pem::wrap_spki_pem(cert.spki.raw))
+    }
 
-    // spki.parsed() -> Result<PublicKey<'_>, x509_parser::error::X509Error>
-    let parsed_pubkey = match spki.parsed() {
-        // RSA case
-        Ok(PublicKey::RSA(rsa)) => {
-            // The RSA modulus is a &[u8], so we get bit-length = len * 8
-            let bits = rsa.modulus.len() * 8;
-            KeyInfo::new("rsaEncryption", bits, None)
-        }
-        // EC case
-        Ok(PublicKey::EC(ec_point)) => {
-            // The bit length of the EC key
-            let bits = ec_point.key_size();
-            // The EC curve OID is found in spki.algorithm.oid() as a method call
-            let curve_oid = spki.algorithm.oid().to_id_string();
-            KeyInfo::new("ecPublicKey", bits, Some(curve_oid))
-        }
-        // Other cases (DSA, Ed25519, etc.) not explicitly handled
-        Ok(_) => KeyInfo::new("unknown", 0, None),
-        // If the SPKI couldn't be parsed
-        Err(_) => KeyInfo::new("unknown", 0, None),
-    };
+    /// Parse an entire TLS certificate chain in one call. See
+    /// `crate::pyobj::analyze_chain_dict` for the result shape.
+    #[pyfunction]
+    pub(super) fn analyze_chain(py: Python<'_>, chain_ders: Vec<Vec<u8>>) -> PyResult<Py<PyAny>> {
+        let dict: Bound<'_, PyDict> = pyobj::analyze_chain_dict(py, &chain_ders)?;
+        Ok(dict.into())
+    }
 
-    // Convert KeyInfo into a Python dict
-    let py_dict = Python::with_gil(|py| {
-        let dict = pyo3::types::PyDict::new(py);
-        dict.set_item("algorithm", parsed_pubkey.algorithm).unwrap();
-        dict.set_item("size", parsed_pubkey.size).unwrap();
-        if let Some(curve) = parsed_pubkey.curve {
-            dict.set_item("curve", curve).unwrap();
-        } else {
-            dict.set_item("curve", py.None()).unwrap();
-        }
-        dict.into()
-    });
-
-    Ok(py_dict)
-}
-
-/// Extract the public key from a certificate in DER format.
-///
-/// Returns the DER-encoded SubjectPublicKeyInfo as bytes.
-#[pyfunction]
-fn extract_public_key_der(der_data: Vec<u8>) -> PyResult<Py<PyAny>> {
-    // Parse the certificate from DER
-    let (_, certificate) = X509Certificate::from_der(&der_data)
-        .map_err(|_| PyValueError::new_err("Failed to parse X.509 certificate"))?;
-
-    // Extract SubjectPublicKeyInfo (SPKI) and return its raw DER bytes
-    let spki_der = certificate.public_key().raw;
-
-    // Convert to Python bytes object
-    Python::with_gil(|py| {
-        let py_bytes = pyo3::types::PyBytes::new(py, spki_der);
-        Ok(py_bytes.into())
-    })
-}
-
-/// Extract the public key from a certificate in PEM format.
-///
-/// Returns the PEM-encoded SubjectPublicKeyInfo as a string.
-#[pyfunction]
-fn extract_public_key_pem(der_data: Vec<u8>) -> PyResult<String> {
-    // Parse the certificate from DER
-    let (_, certificate) = X509Certificate::from_der(&der_data)
-        .map_err(|_| PyValueError::new_err("Failed to parse X.509 certificate"))?;
-
-    // Extract SubjectPublicKeyInfo (SPKI) DER bytes
-    let spki_der = certificate.public_key().raw;
-
-    // Encode to base64
-    let base64_encoded = general_purpose::STANDARD.encode(spki_der);
-
-    // Format as PEM
-    let pem_formatted = format!(
-        "-----BEGIN PUBLIC KEY-----\n{}\n-----END PUBLIC KEY-----",
-        base64_encoded
-            .chars()
-            .collect::<Vec<char>>()
-            .chunks(64)
-            .map(|chunk| chunk.iter().collect::<String>())
-            .collect::<Vec<String>>()
-            .join("\n")
-    );
-
-    Ok(pem_formatted)
-}
-
-/// The module definition. This tells PyO3 to create a Python module named `certinfo`.
-#[pymodule]
-fn certinfo(m: &Bound<'_, PyModule>) -> PyResult<()> {
-    m.add_function(wrap_pyfunction!(parse_public_key_info, m)?)?;
-    m.add_function(wrap_pyfunction!(extract_public_key_der, m)?)?;
-    m.add_function(wrap_pyfunction!(extract_public_key_pem, m)?)?;
-    Ok(())
+    #[pymodule]
+    fn certinfo(m: &Bound<'_, PyModule>) -> PyResult<()> {
+        m.add_function(wrap_pyfunction!(parse_public_key_info, m)?)?;
+        m.add_function(wrap_pyfunction!(extract_public_key_der, m)?)?;
+        m.add_function(wrap_pyfunction!(extract_public_key_pem, m)?)?;
+        m.add_function(wrap_pyfunction!(analyze_chain, m)?)?;
+        Ok(())
+    }
 }

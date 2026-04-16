@@ -1,0 +1,40 @@
+# fuzz/Cargo.toml
+#
+# Standalone fuzz crate for the in-tree certinfo parser. Lives at the
+# repo root (next to the certinfo crate's Cargo.toml) because that's
+# where `cargo fuzz` expects to find it. NOT part of the main certinfo
+# build — `make fuzz` invokes `cargo +nightly fuzz run` against this
+# crate.
+#
+# Pulls in `libfuzzer-sys` from crates.io (build-time, fuzz-only — does
+# NOT enter the published wheel's runtime tree). The certinfo crate is
+# consumed via path so the fuzz target exercises the exact same parser
+# code the wheel ships.
+
+[package]
+name = "certinfo-fuzz"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+# `default-features = false` drops the `python` feature so the fuzz
+# build links the pure-Rust parser core only — no PyO3, no Python
+# runtime symbols. This is what lets the fuzz binary run as a
+# standalone executable instead of needing to be loaded by a Python
+# interpreter.
+certinfo = { path = "..", default-features = false }
+
+# Each fuzz target is a separate `[[bin]]` so libfuzzer can invoke
+# `cargo run --bin parse_certificate`. Add new targets here for new
+# entry points (e.g. `analyze_chain`).
+[[bin]]
+name = "parse_certificate"
+path = "fuzz_targets/parse_certificate.rs"
+test = false
+doc = false
+bench = false

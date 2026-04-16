@@ -180,6 +180,112 @@ class TestSSLHandler:
         assert result["error"] == "CertificateError"
         assert "No certificate available" in result["message"]
 
+    def test_fetch_raw_cert_chain_via_public_api(self, ssl_handler):
+        """3.13+ path: get_verified_chain returns List[bytes]."""
+        mock_secure_socket = MagicMock(spec=["getpeercert", "get_verified_chain"])
+        ssl_handler.secure_socket = mock_secure_socket
+
+        leaf_der = b"leaf_der_bytes"
+        chain_ders = [leaf_der, b"intermediate_der", b"root_der"]
+        mock_secure_socket.getpeercert.side_effect = [
+            leaf_der,
+            {"subject": {"commonName": "test"}},
+        ]
+        mock_secure_socket.get_verified_chain.return_value = chain_ders
+
+        with patch("ssl.DER_cert_to_PEM_cert", return_value="pem"):
+            result = ssl_handler.fetch_raw_cert()
+
+        assert result["chain_der"] == chain_ders
+        assert result["chain_error"] is None
+        mock_secure_socket.get_verified_chain.assert_called_once()
+
+    def test_fetch_raw_cert_chain_via_sslobj_fallback(self, ssl_handler):
+        """3.10–3.12 path: _sslobj.get_unverified_chain + PEM→DER conversion."""
+        mock_secure_socket = MagicMock(spec=["getpeercert", "_sslobj"])
+        ssl_handler.secure_socket = mock_secure_socket
+
+        leaf_der = b"leaf_der_bytes"
+        mock_secure_socket.getpeercert.side_effect = [
+            leaf_der,
+            {"subject": {"commonName": "test"}},
+        ]
+
+        fake_cert_a = MagicMock()
+        fake_cert_a.public_bytes.return_value = "PEM_A"
+        fake_cert_b = MagicMock()
+        fake_cert_b.public_bytes.return_value = "PEM_B"
+        mock_secure_socket._sslobj = MagicMock(spec=["get_unverified_chain"])
+        mock_secure_socket._sslobj.get_unverified_chain.return_value = [
+            fake_cert_a,
+            fake_cert_b,
+        ]
+
+        with patch("ssl.DER_cert_to_PEM_cert", return_value="pem"), patch(
+            "ssl.PEM_cert_to_DER_cert", side_effect=[b"DER_A", b"DER_B"]
+        ):
+            result = ssl_handler.fetch_raw_cert()
+
+        assert result["chain_der"] == [b"DER_A", b"DER_B"]
+        assert result["chain_error"] is None
+
+    def test_fetch_raw_cert_chain_unavailable_on_old_python(self, ssl_handler):
+        """3.8/3.9 path: neither public API nor _sslobj.get_unverified_chain."""
+        mock_secure_socket = MagicMock(spec=["getpeercert"])
+        ssl_handler.secure_socket = mock_secure_socket
+
+        leaf_der = b"leaf_der_bytes"
+        mock_secure_socket.getpeercert.side_effect = [
+            leaf_der,
+            {"subject": {"commonName": "test"}},
+        ]
+
+        with patch("ssl.DER_cert_to_PEM_cert", return_value="pem"):
+            result = ssl_handler.fetch_raw_cert()
+
+        assert result["chain_der"] is None
+        assert "Python 3.10" in result["chain_error"]
+
+    def test_fetch_raw_cert_chain_public_api_exception(self, ssl_handler):
+        mock_secure_socket = MagicMock(spec=["getpeercert", "get_verified_chain"])
+        ssl_handler.secure_socket = mock_secure_socket
+        mock_secure_socket.getpeercert.side_effect = [
+            b"leaf",
+            {"subject": {"commonName": "test"}},
+        ]
+        mock_secure_socket.get_verified_chain.side_effect = RuntimeError("boom")
+
+        with patch("ssl.DER_cert_to_PEM_cert", return_value="pem"):
+            result = ssl_handler.fetch_raw_cert()
+
+        assert result["chain_der"] is None
+        assert "Failed to retrieve certificate chain" in result["chain_error"]
+        assert "boom" in result["chain_error"]
+
+    def test_fetch_raw_cert_chain_sslobj_exception(self, ssl_handler):
+        mock_secure_socket = MagicMock(spec=["getpeercert", "_sslobj"])
+        ssl_handler.secure_socket = mock_secure_socket
+        mock_secure_socket.getpeercert.side_effect = [
+            b"leaf",
+            {"subject": {"commonName": "test"}},
+        ]
+        mock_secure_socket._sslobj = MagicMock(spec=["get_unverified_chain"])
+        mock_secure_socket._sslobj.get_unverified_chain.side_effect = RuntimeError(
+            "sslobj boom"
+        )
+
+        with patch("ssl.DER_cert_to_PEM_cert", return_value="pem"):
+            result = ssl_handler.fetch_raw_cert()
+
+        assert result["chain_der"] is None
+        assert "sslobj boom" in result["chain_error"]
+
+    def test_fetch_chain_der_no_secure_socket(self, ssl_handler):
+        """Direct call with no connection returns an error tuple."""
+        chain, error = ssl_handler._fetch_chain_der()
+        assert chain is None
+        assert error == "SSL connection not established"
+
     def test_fetch_raw_cipher_no_connection(self, ssl_handler):
         """Test fetch_raw_cipher when no secure socket is established."""
         result = ssl_handler.fetch_raw_cipher()
