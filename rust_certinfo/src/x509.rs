@@ -10,8 +10,15 @@ pub mod extensions;
 pub mod name;
 pub mod spki;
 
-// Re-exports for the `lib.rs` shim and `pyobj.rs` converters. Other types
-// are reachable via their parent module path.
+// `Certificate` is always public — it's the entry point both the PyO3
+// shim and the in-repo fuzz crate use.
 pub use certificate::Certificate;
+
+// These re-exports only serve `pyobj.rs`, which is gated behind the
+// `python` feature. Without the gate, `cargo build --no-default-features`
+// (the fuzz crate's mode) warns they're unused. Gating them matches the
+// gate on their only consumer.
+#[cfg(feature = "python")]
 pub use name::Name;
+#[cfg(feature = "python")]
 pub use spki::{PublicKeyAlgorithm, SubjectPublicKeyInfo};

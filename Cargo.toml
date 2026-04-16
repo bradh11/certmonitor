@@ -2,16 +2,33 @@
 name = "certinfo"
 version = "0.2.0"
 edition = "2021"
+build = "build.rs"
 
 [lib]
 name = "certinfo"
-# This is crucial for building a Python extension
-crate-type = ["cdylib"]
+# `cdylib` is the Python extension wheel target maturin builds. `rlib`
+# lets the in-repo `fuzz/` crate link the parser core as a normal Rust
+# library. The fuzz crate disables the `python` feature (see
+# `fuzz/Cargo.toml`) so its build links the pure-Rust DER / X.509
+# modules only — no PyO3 symbols, no Python runtime dependency, no
+# linker workarounds needed.
+crate-type = ["cdylib", "rlib"]
 path = "rust_certinfo/src/lib.rs"
+
+[features]
+# Default build = full extension module with the PyO3 wheel surface.
+default = ["python"]
+# `python` controls whether the PyO3 layer is compiled. With it OFF
+# (the fuzz crate's mode), the crate is pure Rust against std + the
+# in-tree DER parser; nothing from pyo3 is referenced and no Python
+# symbols need to be available. Lets us fuzz `Certificate::from_der`
+# as a standalone binary.
+python = ["dep:pyo3"]
 
 [dependencies]
 # pyo3 is the Python extension bridge — required to expose the Rust
 # parser to CertMonitor. Beyond pyo3 the crate has zero third-party
 # dependencies; the X.509 / DER parser under rust_certinfo/src/{der,x509}/
 # is implemented entirely against the Rust standard library.
-pyo3 = { version = "0.24.1", features = ["extension-module", "abi3-py38"] }
+pyo3 = { version = "0.24.1", features = ["extension-module", "abi3-py38"], optional = true }
+
