@@ -22,7 +22,7 @@ rename the headers to emoji form when cutting a release.
 - `key_info` validator now recognizes post-quantum keys: certificates using ML-DSA, SLH-DSA, or composite ML-DSA algorithms return `is_valid: true` instead of the misleading `is_valid: null`. PQ strength is judged by algorithm identity (the registry above); RSA/EC behavior is unchanged and unknown algorithms still return `null` (#30).
 
 ### Fixed
-- TBD
+- TLS probe ClientHello random is now guaranteed to vary between calls. The previous time-plus-stack-address seed could collide when the clock did not advance between two calls (observed on macOS's coarse `SystemTime` resolution), producing identical "random" bytes and a flaky test; a monotonic per-call counter now guarantees distinct values (#33).
 
 ## [0.3.0] - 2026-04-15
 

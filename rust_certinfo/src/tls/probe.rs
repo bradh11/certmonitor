@@ -20,6 +20,7 @@
 
 use std::io::{Read, Write};
 use std::net::{TcpStream, ToSocketAddrs};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, SystemTime};
 
 use crate::tls::handshake::{
@@ -63,18 +64,28 @@ pub enum ProbeResult {
     Error { kind: String, message: String },
 }
 
+/// Monotonic per-call counter. Mixed into `client_random` so two calls
+/// can never produce identical output even when the clock does not
+/// advance between them (e.g. macOS's coarse `SystemTime` resolution,
+/// which made a time-only seed collide and flake the unit test).
+static RANDOM_COUNTER: AtomicU64 = AtomicU64::new(0);
+
 /// Fill 32 bytes of ClientHello random without a CSPRNG dependency.
 /// A fixed value would make every probe trivially fingerprintable
-/// (the WAF-evasion concern in #28); this is per-call varying, which
-/// is all that's needed — the bytes are never used cryptographically.
+/// (the WAF-evasion concern in #28); this only needs to vary per call,
+/// which the counter guarantees — the bytes are never used
+/// cryptographically.
 fn client_random() -> [u8; 32] {
     let nanos = SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
         .map(|d| d.as_nanos() as u64)
         .unwrap_or(0);
-    // Mix the clock with the stack address of a local for extra
-    // per-call variation, then expand with splitmix64.
-    let mut state = nanos ^ (&nanos as *const u64 as u64);
+    // A strictly-increasing counter (times an odd constant, a bijection
+    // mod 2^64) guarantees distinct seeds across calls; the clock and a
+    // stack address add cross-run variation. Expanded with splitmix64.
+    let counter = RANDOM_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let mut state =
+        nanos ^ (&nanos as *const u64 as u64) ^ counter.wrapping_mul(0x9E37_79B9_7F4A_7C15);
     let mut out = [0u8; 32];
     for chunk in out.chunks_mut(8) {
         state = state.wrapping_add(0x9E37_79B9_7F4A_7C15);
@@ -325,7 +336,12 @@ mod tests {
 
     #[test]
     fn client_random_varies_between_calls() {
-        assert_ne!(client_random(), client_random());
+        // The monotonic counter guarantees distinctness even when the
+        // clock does not advance between calls; assert it over many
+        // consecutive calls, not just two.
+        use std::collections::HashSet;
+        let seen: HashSet<[u8; 32]> = (0..256).map(|_| client_random()).collect();
+        assert_eq!(seen.len(), 256, "client_random produced a collision");
     }
 
     #[test]
