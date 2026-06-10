@@ -146,6 +146,20 @@ class TestPqKeyExchangeDispatch:
         assert result["pq_key_exchange"]["is_valid"] is False
         assert result["pq_key_exchange"]["kem_kind"] == "n/a"
 
+    def test_non_ssl_protocol_never_probes(self):
+        """An SSH host must never receive the TLS probe, regardless of
+        which validators are enabled."""
+        m = self._monitor("Unknown")
+        m.protocol = "ssh"
+        with patch.object(
+            m, "get_cipher_info", return_value={"protocol_version": None}
+        ):
+            with patch("certmonitor.core.certinfo.probe_tls_handshake") as probe_fn:
+                result = m.validate()
+        probe_fn.assert_not_called()
+        assert result["pq_key_exchange"]["is_valid"] is False
+        assert result["pq_key_exchange"]["kem_kind"] == "n/a"
+
     def test_tls13_runs_probe_and_reports_pq(self):
         m = self._monitor("TLSv1.3")
         probe = {

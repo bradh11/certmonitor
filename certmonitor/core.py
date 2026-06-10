@@ -666,6 +666,14 @@ class CertMonitor:
         the probe's structured ``{"result": "error", ...}`` dict; this
         never raises.
         """
+        # The probe speaks TLS; never run it against non-SSL protocols
+        # (e.g. SSH hosts), regardless of validator configuration.
+        if self.protocol is not None and self.protocol != "ssl":
+            return {
+                "result": "n/a",
+                "protocol": self.protocol,
+                "reason": f"{self.protocol} is not a TLS endpoint",
+            }
         version = (
             self.handler.get_protocol_version()
             if self.handler is not None
