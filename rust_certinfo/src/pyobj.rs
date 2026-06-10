@@ -18,9 +18,9 @@ pub fn to_py_err(err: ParseError) -> PyErr {
 }
 
 /// Build the `{"algorithm": ..., "size": ..., "curve": ...}` dict that
-/// `parse_public_key_info` returns. Mirrors the previous shape exactly,
-/// **except** the `curve` field for EC keys now correctly contains the
-/// curve OID (e.g. `1.2.840.10045.3.1.7`) instead of the algorithm OID.
+/// `parse_public_key_info` returns. The shape is stable Python-facing
+/// API. For EC keys `curve` carries the curve OID (e.g.
+/// `1.2.840.10045.3.1.7`), not the algorithm OID.
 pub fn key_info_dict<'py>(
     py: Python<'py>,
     spki: &SubjectPublicKeyInfo<'_>,
@@ -40,6 +40,19 @@ pub fn key_info_dict<'py>(
             dict.set_item("size", key_bits)?;
             dict.set_item("curve", curve_oid.to_id_string())?;
         }
+        PublicKeyAlgorithm::PostQuantum {
+            algorithm,
+            key_bits,
+        } => {
+            // Same {algorithm, size, curve} shape as RSA/EC. For PQ keys
+            // `size` is the subjectPublicKey bit length — informational
+            // only; PQ strength is judged by algorithm identity, never by
+            // size. Consumers (key_info / pq_signature validators) key off
+            // the `algorithm` string.
+            dict.set_item("algorithm", algorithm.name)?;
+            dict.set_item("size", key_bits)?;
+            dict.set_item("curve", py.None())?;
+        }
         PublicKeyAlgorithm::Unknown => {
             dict.set_item("algorithm", "unknown")?;
             dict.set_item("size", 0usize)?;
@@ -49,9 +62,8 @@ pub fn key_info_dict<'py>(
     Ok(dict)
 }
 
-/// Build the per-cert dict used by `analyze_chain`. Mirrors the previous
-/// shape exactly so the chain validator and its tests do not need to
-/// change.
+/// Build the per-cert dict used by `analyze_chain`. The shape is stable
+/// Python-facing API consumed by the chain validator.
 fn cert_dict<'py>(
     py: Python<'py>,
     position: usize,
@@ -143,8 +155,8 @@ pub fn is_weak_signature(oid: &str) -> bool {
     )
 }
 
-/// Build the top-level `analyze_chain` result dict. Mirrors the previous
-/// shape so the Python chain validator tests pass unchanged.
+/// Build the top-level `analyze_chain` result dict. The shape is stable
+/// Python-facing API consumed by the chain validator.
 pub fn analyze_chain_dict<'py>(
     py: Python<'py>,
     chain_ders: &[Vec<u8>],
