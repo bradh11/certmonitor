@@ -648,10 +648,47 @@ class CertMonitor:
             return getattr(self, "cert_data", None)
         if source_name == "cipher_info":
             return self.get_cipher_info()
+        if source_name == "tls_probe":
+            return self._fetch_tls_probe()
         return {
             "error": "UnknownSource",
             "message": f"No fetcher registered for data source {source_name!r}.",
         }
+
+    def _fetch_tls_probe(self) -> Dict[str, Any]:
+        """Probe the negotiated TLS 1.3 key-exchange group via the Rust probe.
+
+        Skip-for-legacy short-circuit: the *primary* connection has already
+        negotiated a TLS version, so if it is below TLS 1.3 there is no PQ
+        KEM to find — we return an ``n/a`` result without opening the
+        probe's second TCP connection. Only TLS 1.3 (or an unknown version,
+        out of caution) actually triggers the probe. Errors come back as
+        the probe's structured ``{"result": "error", ...}`` dict; this
+        never raises.
+        """
+        version = (
+            self.handler.get_protocol_version()
+            if self.handler is not None
+            and hasattr(self.handler, "get_protocol_version")
+            else None
+        )
+        if version is not None and version not in ("TLSv1.3", "Unknown"):
+            return {
+                "result": "n/a",
+                "protocol": version,
+                "reason": f"{version} has no post-quantum key exchange",
+            }
+        try:
+            return cast(
+                Dict[str, Any],
+                certinfo.probe_tls_handshake(self.host, self.port),  # type: ignore[attr-defined]
+            )
+        except Exception as exc:  # noqa: BLE001 — never let the probe raise into dispatch
+            return {
+                "result": "error",
+                "error": "ProbeError",
+                "message": f"TLS probe failed: {exc}",
+            }
 
     def _source_error(self, source_name: str, value: Any) -> Optional[Dict[str, Any]]:
         """Return a structured error result if ``value`` is unusable.
@@ -670,6 +707,11 @@ class CertMonitor:
                     "is_valid": False,
                     "reason": f"Certificate-based validation could not be performed: {reason}",
                 }
+            return None
+        if source_name == "tls_probe":
+            # The probe always returns a usable result dict (group / n/a /
+            # error); the consuming validator interprets it, so it is never
+            # a "source failure" that skips the validator.
             return None
         if isinstance(value, dict) and "error" in value:
             label = "Cipher" if source_name == "cipher_info" else source_name
