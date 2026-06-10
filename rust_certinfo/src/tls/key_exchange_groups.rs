@@ -55,7 +55,10 @@ pub enum GroupKind {
     ClassicalEcdh,
     /// Classical finite-field Diffie-Hellman — no PQ protection.
     ClassicalFfdh,
-    /// Hybrid: classical + ML-KEM/Kyber combined. Counts as PQ.
+    /// Hybrid: classical ECDH + ML-KEM/Kyber combined. Counts as PQ.
+    /// ("Hybrid" is the key-exchange term for classical + PQ together;
+    /// the certificate-signature analogue is called "composite" — see
+    /// `crate::pq_algorithms`.)
     HybridPq,
     /// Pure post-quantum KEM.
     PurePq,

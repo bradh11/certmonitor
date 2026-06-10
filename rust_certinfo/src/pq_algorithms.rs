@@ -31,11 +31,18 @@
 // form is well-formed, there are no duplicate OIDs or names, and every
 // entry is findable from its wire encoding).
 //
-// `composite` distinguishes the two kinds of PQ algorithm OIDs in the
-// wild: `false` for a standalone PQ algorithm (ML-DSA, SLH-DSA), `true`
-// for a hybrid "composite" — a single OID that stands for a PQ and a
-// classical algorithm used together (e.g. ML-DSA-65 + ECDSA P-256), the
-// transitional form CAs use while classical crypto is still trusted.
+// `composite` distinguishes the two kinds of PQ certificate-signature
+// OIDs in the wild: `false` for a standalone PQ algorithm (ML-DSA,
+// SLH-DSA), `true` for a "composite" — a single OID that stands for a
+// PQ and a classical signature algorithm used together (e.g. ML-DSA-65
+// + ECDSA P-256), the transitional form CAs use while classical crypto
+// is still trusted.
+//
+// Terminology note: "composite" is the signature term (draft-ietf-lamps-
+// pq-composite-sigs). The TLS key-exchange side uses a DIFFERENT word —
+// "hybrid" — for the same belt-and-suspenders idea (e.g. X25519MLKEM768
+// in `tls/key_exchange_groups.rs`). Composite = signatures, hybrid =
+// key exchange; both mean classical + PQ combined.
 //
 // ## Sources (every OID below is copy-checkable against these)
 //
@@ -83,9 +90,10 @@ pub struct PqAlgorithm {
     pub dotted: &'static str,
     /// Python-facing lowercase name (the `algorithm` dict field).
     pub name: &'static str,
-    /// `true` for hybrid composite signatures — one OID standing for a
-    /// PQ and a classical algorithm used together. `false` for a
-    /// standalone PQ algorithm.
+    /// `true` for a composite signature — one OID standing for a PQ and
+    /// a classical signature algorithm used together. `false` for a
+    /// standalone PQ algorithm. (The key-exchange analogue is called a
+    /// "hybrid" group; see `tls/key_exchange_groups.rs`.)
     pub composite: bool,
 }
 
