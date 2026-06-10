@@ -20,6 +20,7 @@ rename the headers to emoji form when cutting a release.
 
 ### Changed
 - `key_info` validator now recognizes post-quantum keys: certificates using ML-DSA, SLH-DSA, or composite ML-DSA algorithms return `is_valid: true` instead of the misleading `is_valid: null`. PQ strength is judged by algorithm identity (the registry above); RSA/EC behavior is unchanged and unknown algorithms still return `null` (#30).
+- Validator dispatcher generalized to a declared data-source model: validators name the data they need via `requires` (e.g. `("cert_data",)`, `("cipher_info", "tls_probe")`); the dispatcher fetches and memoizes each source once per scan and injects them in declaration order. Existing validators are unchanged. A source-fetch failure now produces a uniform structured error result for every dependent validator — fixing a latent bug where a cipher-info fetch error silently dropped cipher validators from the results dict.
 
 ### Fixed
 - TLS probe ClientHello random is now guaranteed to vary between calls. The previous time-plus-stack-address seed could collide when the clock did not advance between two calls (observed on macOS's coarse `SystemTime` resolution), producing identical "random" bytes and a flaky test; a monotonic per-call counter now guarantees distinct values (#33).

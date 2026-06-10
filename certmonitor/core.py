@@ -577,7 +577,7 @@ class CertMonitor:
             print(results["expiration"])      # Output for expiration validator
             print(results["weak_cipher"])     # Output for weak cipher validator
         """
-        results = {}
+        results: Dict[str, Any] = {}
 
         # Check for unknown validators
         for requested_validator in self.enabled_validators:
@@ -587,56 +587,97 @@ class CertMonitor:
                     "reason": f"Validator '{requested_validator}' is not implemented.",
                 }
 
-        cert_validators = [
+        # Active validators: enabled, implemented, and not already flagged
+        # unknown above. Order follows the registry.
+        active = [
             validator
             for name, validator in self.validators.items()
-            if name in self.enabled_validators
-            and getattr(validator, "validator_type", "cert") == "cert"
-            and name not in results  # exclude already marked unknown validators
+            if name in self.enabled_validators and name not in results
         ]
 
-        cipher_validators = [
-            validator
-            for name, validator in self.validators.items()
-            if name in self.enabled_validators
-            and getattr(validator, "validator_type", "cert") == "cipher"
-            and name not in results
-        ]
+        # Each named data source is fetched at most once per call and
+        # shared across every validator that requires it (e.g. cipher_info
+        # and a future tls_probe).
+        source_cache: Dict[str, Any] = {}
 
-        # Certificate-based validations
-        if cert_validators:
-            cert_data = getattr(self, "cert_data", None)
-            if not cert_data or (isinstance(cert_data, dict) and "error" in cert_data):
-                error_reason = (
-                    cert_data["error"]
-                    if isinstance(cert_data, dict) and "error" in cert_data
-                    else "Certificate data is missing due to a connection or retrieval error."
-                )
-                for validator in cert_validators:
-                    results[validator.name] = {
-                        "is_valid": False,
-                        "reason": f"Certificate-based validation could not be performed: {error_reason}",
-                    }
-            else:
-                for validator in cert_validators:
-                    results[validator.name] = self._invoke_validator(
-                        validator, (cert_data, self.host, self.port), validator_args
-                    )
+        def resolve_source(source_name: str) -> Any:
+            if source_name not in source_cache:
+                source_cache[source_name] = self._fetch_source(source_name)
+            return source_cache[source_name]
 
-        # Cipher-based validations
-        if cipher_validators:
-            cipher_info = self.get_cipher_info()
-            if isinstance(cipher_info, dict) and "error" in cipher_info:
-                logging.error(
-                    "Skipping cipher-based validations due to cipher info retrieval error."
-                )
-            else:
-                for validator in cipher_validators:
-                    results[validator.name] = self._invoke_validator(
-                        validator, (cipher_info, self.host, self.port), validator_args
-                    )
+        for validator in active:
+            # ``requires`` is authoritative when a validator declares it as
+            # a real tuple; otherwise fall back to the legacy
+            # ``validator_type`` mapping (also what test doubles use).
+            requires = getattr(validator, "requires", None)
+            if not isinstance(requires, tuple):
+                vtype = getattr(validator, "validator_type", "cert")
+                requires = ("cipher_info",) if vtype == "cipher" else ("cert_data",)
+
+            resolved: List[Any] = []
+            source_error: Optional[Dict[str, Any]] = None
+            for source_name in requires:
+                value = resolve_source(source_name)
+                source_error = self._source_error(source_name, value)
+                if source_error is not None:
+                    break
+                resolved.append(value)
+
+            # Uniform rule: if any required source could not be obtained,
+            # the validator still appears in the results with a structured
+            # error — never silently omitted.
+            if source_error is not None:
+                results[validator.name] = source_error
+                continue
+
+            results[validator.name] = self._invoke_validator(
+                validator, (*resolved, self.host, self.port), validator_args
+            )
 
         return results
+
+    def _fetch_source(self, source_name: str) -> Any:
+        """Fetch one named data source for the validator dispatcher.
+
+        Sources are intentionally small and registry-like so new ones
+        (e.g. ``tls_probe``) are a single ``elif`` rather than a new
+        dispatch branch. Each may return its normal value or a structured
+        error dict; ``_source_error`` decides which.
+        """
+        if source_name == "cert_data":
+            return getattr(self, "cert_data", None)
+        if source_name == "cipher_info":
+            return self.get_cipher_info()
+        return {
+            "error": "UnknownSource",
+            "message": f"No fetcher registered for data source {source_name!r}.",
+        }
+
+    def _source_error(self, source_name: str, value: Any) -> Optional[Dict[str, Any]]:
+        """Return a structured error result if ``value`` is unusable.
+
+        Returns ``None`` when the source is good. The messages preserve the
+        historical wording so existing callers and tests keep working.
+        """
+        if source_name == "cert_data":
+            if not value or (isinstance(value, dict) and "error" in value):
+                reason = (
+                    value["error"]
+                    if isinstance(value, dict) and "error" in value
+                    else "Certificate data is missing due to a connection or retrieval error."
+                )
+                return {
+                    "is_valid": False,
+                    "reason": f"Certificate-based validation could not be performed: {reason}",
+                }
+            return None
+        if isinstance(value, dict) and "error" in value:
+            label = "Cipher" if source_name == "cipher_info" else source_name
+            return {
+                "is_valid": False,
+                "reason": f"{label}-based validation could not be performed: {value['error']}",
+            }
+        return None
 
     def _invoke_validator(
         self,

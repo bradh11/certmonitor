@@ -331,7 +331,8 @@ class TestCipherValidators:
                 )
 
     def test_validate_cipher_validators_cipher_error(self):
-        """Test validate() handles cipher info errors for cipher validators."""
+        """A cipher-info fetch error yields a structured result for the
+        validator (not a silent omission) — uniform with the cert path."""
         monitor = CertMonitor("www.example.com")
         monitor.enabled_validators = ["weak_cipher"]
 
@@ -349,8 +350,13 @@ class TestCipherValidators:
             with patch.object(monitor, "get_cipher_info", return_value=cipher_error):
                 result = monitor.validate()
 
-                # Cipher validators should be skipped when cipher info has errors
-                assert "weak_cipher" not in result or len(result) == 0
+                # Present with a structured error — never dropped from the
+                # results dict (regression: monitoring pipelines that index
+                # results["weak_cipher"] must not KeyError).
+                assert "weak_cipher" in result
+                assert result["weak_cipher"]["is_valid"] is False
+                assert "ConnectionError" in result["weak_cipher"]["reason"]
+                mock_validator.validate.assert_not_called()
 
     def test_validate_cipher_validators_with_args(self):
         """Cipher validators receive args as kwargs from the canonical dict form."""
@@ -381,6 +387,89 @@ class TestCipherValidators:
                     monitor.port,
                     min_strength=256,
                 )
+
+
+class TestRequiresModel:
+    """The dispatcher resolves declared data sources, memoizes them per
+    call, and fails uniformly when a source is unavailable."""
+
+    def test_multi_source_validator_receives_sources_in_order(self):
+        """A validator declaring requires=(cipher_info, tls_probe) gets both
+        injected, in order, before host/port."""
+        monitor = CertMonitor("www.example.com")
+        monitor.enabled_validators = ["multi"]
+
+        mock_validator = MagicMock()
+        mock_validator.name = "multi"
+        mock_validator.requires = ("cipher_info", "tls_probe")
+        mock_validator._user_param_names = frozenset()
+        mock_validator.validate.return_value = {"is_valid": True}
+
+        cipher_info = {"protocol_version": "TLSv1.3"}
+        probe = {"result": "group", "is_pq": True}
+
+        with patch.object(monitor, "validators", {"multi": mock_validator}):
+            with patch.object(monitor, "get_cipher_info", return_value=cipher_info):
+                with patch.object(
+                    monitor, "_fetch_source", wraps=monitor._fetch_source
+                ) as fetch:
+                    # Route tls_probe through the cache without a real socket.
+                    def fake_fetch(name):
+                        if name == "tls_probe":
+                            return probe
+                        return monitor.get_cipher_info()
+
+                    fetch.side_effect = fake_fetch
+                    result = monitor.validate()
+
+        assert result["multi"]["is_valid"] is True
+        mock_validator.validate.assert_called_once_with(
+            cipher_info, probe, monitor.host, monitor.port
+        )
+
+    def test_source_fetched_once_and_shared(self):
+        """Two validators requiring the same source trigger a single fetch."""
+        monitor = CertMonitor("www.example.com")
+        monitor.enabled_validators = ["a", "b"]
+
+        def make(name):
+            v = MagicMock()
+            v.name = name
+            v.validator_type = "cipher"
+            v._user_param_names = frozenset()
+            v.validate.return_value = {"is_valid": True}
+            return v
+
+        cipher_info = {"protocol_version": "TLSv1.3"}
+        with patch.object(monitor, "validators", {"a": make("a"), "b": make("b")}):
+            with patch.object(
+                monitor, "get_cipher_info", return_value=cipher_info
+            ) as gci:
+                result = monitor.validate()
+
+        assert result["a"]["is_valid"] is True
+        assert result["b"]["is_valid"] is True
+        gci.assert_called_once()  # memoized across both validators
+
+    def test_multi_source_validator_source_failure_is_structured(self):
+        """If one required source errors, the validator gets a structured
+        error and is not called."""
+        monitor = CertMonitor("www.example.com")
+        monitor.enabled_validators = ["multi"]
+
+        mock_validator = MagicMock()
+        mock_validator.name = "multi"
+        mock_validator.requires = ("cipher_info", "tls_probe")
+        mock_validator._user_param_names = frozenset()
+
+        cipher_error = {"error": "ConnectionError", "message": "no cipher"}
+        with patch.object(monitor, "validators", {"multi": mock_validator}):
+            with patch.object(monitor, "get_cipher_info", return_value=cipher_error):
+                result = monitor.validate()
+
+        assert result["multi"]["is_valid"] is False
+        assert "ConnectionError" in result["multi"]["reason"]
+        mock_validator.validate.assert_not_called()
 
 
 class TestMixedValidators:
