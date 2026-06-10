@@ -6,7 +6,7 @@ from .base import BaseCipherValidator
 
 
 class PqKeyExchangeValidator(BaseCipherValidator):
-    """Judge the TLS key exchange's post-quantum posture (issue #34).
+    """Judge the TLS key exchange's post-quantum posture.
 
     This validator answers the *harvest-now-decrypt-later* (HNDL)
     question: is the session key protected against a future quantum
@@ -19,7 +19,7 @@ class PqKeyExchangeValidator(BaseCipherValidator):
     would fail every real-world server. ``is_valid`` is a strict ``bool``:
     the HNDL question is binary at the protocol level.
 
-    Behavior matrix (issue #28 amendment / #34):
+    Behavior matrix:
 
     | Server | Result |
     |---|---|
