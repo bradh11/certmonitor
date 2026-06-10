@@ -250,6 +250,25 @@ class CertMonitor:
         else:
             cert_data.setdefault("chain_analysis", None)
 
+        # Leaf-only fallback: when the chain could not be retrieved
+        # (Python 3.8/3.9, or a chain fetch/parse failure) but the leaf
+        # DER is in hand, analyze just the leaf so leaf-scoped validators
+        # (e.g. pq_signature, which needs the leaf's signature algorithm)
+        # work on every interpreter instead of inheriting the chain's
+        # availability constraints.
+        chain_ok = (
+            isinstance(cert_data.get("chain_analysis"), dict)
+            and "error" not in cert_data["chain_analysis"]
+        )
+        if not chain_ok and self.der:
+            try:
+                cert_data["leaf_analysis"] = certinfo.analyze_chain([self.der])  # type: ignore[attr-defined]
+            except Exception as e:  # noqa: BLE001
+                logging.error(f"Unable to analyze leaf certificate: {e}")
+                cert_data["leaf_analysis"] = {
+                    "error": f"Failed to analyze leaf certificate: {e}"
+                }
+
         self.cert_data = cert_data
         return cert_data
 

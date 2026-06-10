@@ -36,6 +36,7 @@ nav:
       - Chain: validators/chain.md
       - PqKeyExchange: validators/pq_key_exchange.md
       - PqChain: validators/pq_chain.md
+      - PqSignature: validators/pq_signature.md
   - API Reference:
       - CertMonitor: reference/certmonitor.md
       - Validators: reference/validators.md
