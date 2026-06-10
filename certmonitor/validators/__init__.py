@@ -5,6 +5,7 @@ from .chain import ChainValidator
 from .expiration import ExpirationValidator
 from .hostname import HostnameValidator
 from .key_info import KeyInfoValidator
+from .pq_key_exchange import PqKeyExchangeValidator
 from .root_certificate_validator import RootCertificateValidator
 from .sensitive_date import SensitiveDateValidator
 from .subject_alt_names import SubjectAltNamesValidator
@@ -27,6 +28,8 @@ VALIDATORS = {
     "tls_version": TLSVersionValidator(),
     "weak_cipher": WeakCipherValidator(),
     "chain": ChainValidator(),
+    # Opt-in (not in DEFAULT_VALIDATORS): post-quantum key-exchange posture.
+    "pq_key_exchange": PqKeyExchangeValidator(),
     # ... add any other default validators here
 }
 
