@@ -17,6 +17,49 @@ pub fn to_py_err(err: ParseError) -> PyErr {
     pyo3::exceptions::PyValueError::new_err(format!("X.509 parse error: {}", err))
 }
 
+/// Translate a [`crate::tls::probe::ProbeResult`] into the single dict
+/// shape the Python `pq_key_exchange` validator consumes. Every variant
+/// carries `result` so callers can branch without key-probing:
+///   - group:          {result, id, name, kind, is_pq, protocol, via_hello_retry_request}
+///   - not applicable: {result: "n/a", reason, protocol}
+///   - error:          {result: "error", error, message}
+pub fn probe_result_dict<'py>(
+    py: Python<'py>,
+    result: &crate::tls::probe::ProbeResult,
+) -> PyResult<Bound<'py, PyDict>> {
+    use crate::tls::probe::ProbeResult;
+    let d = PyDict::new(py);
+    match result {
+        ProbeResult::Group {
+            id,
+            name,
+            kind,
+            is_pq,
+            protocol,
+            via_hello_retry_request,
+        } => {
+            d.set_item("result", "group")?;
+            d.set_item("id", id)?;
+            d.set_item("name", name)?;
+            d.set_item("kind", kind)?;
+            d.set_item("is_pq", is_pq)?;
+            d.set_item("protocol", protocol)?;
+            d.set_item("via_hello_retry_request", via_hello_retry_request)?;
+        }
+        ProbeResult::NotApplicable { reason, protocol } => {
+            d.set_item("result", "n/a")?;
+            d.set_item("reason", reason)?;
+            d.set_item("protocol", protocol)?;
+        }
+        ProbeResult::Error { kind, message } => {
+            d.set_item("result", "error")?;
+            d.set_item("error", kind)?;
+            d.set_item("message", message)?;
+        }
+    }
+    Ok(d)
+}
+
 /// Build the list-of-dicts view of the PQ algorithm registry for the
 /// `pq_algorithms` Python function. Each entry is
 /// `{"dotted": str, "name": str, "composite": bool}`.

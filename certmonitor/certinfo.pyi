@@ -23,3 +23,15 @@ def pq_algorithms() -> List[Dict[str, Any]]:
     """Return the post-quantum algorithm registry as
     [{"dotted": str, "name": str, "composite": bool}, ...]."""
     ...
+
+def probe_tls_handshake(
+    host: str, port: int = 443, timeout_ms: int = 10000
+) -> Dict[str, Any]:
+    """Probe a TLS 1.3 server's key-exchange group. Returns a dict in
+    every terminal state:
+      - {"result": "group", "id", "name", "kind", "is_pq", "protocol",
+         "via_hello_retry_request"}
+      - {"result": "n/a", "reason", "protocol"}
+      - {"result": "error", "error", "message"}
+    """
+    ...

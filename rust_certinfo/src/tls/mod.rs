@@ -1,19 +1,22 @@
 // rust_certinfo/src/tls/mod.rs
 //
-// TLS 1.3 handshake building blocks for the post-quantum key-exchange
-// probe (#28 / #32). Purely deterministic byte construction and parsing
-// — no sockets, no crypto, no PyO3. The networking probe that drives
-// these parsers lands separately (`tls/probe.rs`, #33), which is also
-// where this module becomes reachable from Python.
+// TLS 1.3 post-quantum key-exchange probe (#28 / #32 / #33). The
+// parsers are pure byte construction; `probe.rs` is the only part that
+// touches a socket. PyO3 exposure lives in `crate::lib` /
+// `crate::pyobj`.
 //
 // Layout follows the issue #28 plan:
 //   key_exchange_groups.rs — IANA Supported Groups registry
 //                            (contributor data file)
 //   records.rs   — TLS record framing (read + write)
 //   handshake.rs — ClientHello builder + ServerHello / HRR parser
+//   mlkem_kat.rs — a real ML-KEM-768 KAT public key for the probe share
+//   probe.rs     — socket orchestration (the only part that does I/O)
 
 pub mod handshake;
 pub mod key_exchange_groups;
+pub mod mlkem_kat;
+pub mod probe;
 pub mod records;
 
 /// Errors from TLS record / handshake parsing. Deliberately separate
