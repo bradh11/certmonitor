@@ -1,4 +1,4 @@
-// rust_certinfo/src/tls/groups.rs
+// rust_certinfo/src/tls/key_exchange_groups.rs
 //
 // The TLS Supported Groups registry: which named group IDs CertMonitor
 // recognizes in a TLS 1.3 key exchange, and how each is classified for

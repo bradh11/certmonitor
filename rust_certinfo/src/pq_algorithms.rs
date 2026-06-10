@@ -11,7 +11,7 @@
 // (signature/key OIDs from NIST CSOR / IETF LAMPS). TLS *key-exchange
 // groups* (ML-KEM hybrids etc., 16-bit IANA codepoints seen in
 // handshakes) live in their own independent registry at
-// `rust_certinfo/src/tls/groups.rs` — different namespace, different
+// `rust_certinfo/src/tls/key_exchange_groups.rs` — different namespace, different
 // algorithm families, so adding an entry to one never requires
 // touching the other.
 //

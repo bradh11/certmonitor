@@ -7,12 +7,13 @@
 // where this module becomes reachable from Python.
 //
 // Layout follows the issue #28 plan:
-//   groups.rs    — IANA Supported Groups registry (contributor data file)
+//   key_exchange_groups.rs — IANA Supported Groups registry
+//                            (contributor data file)
 //   records.rs   — TLS record framing (read + write)
 //   handshake.rs — ClientHello builder + ServerHello / HRR parser
 
-pub mod groups;
 pub mod handshake;
+pub mod key_exchange_groups;
 pub mod records;
 
 /// Errors from TLS record / handshake parsing. Deliberately separate
