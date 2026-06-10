@@ -1,14 +1,37 @@
 # validators/key_info.py
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict, FrozenSet, Optional
+
+from certmonitor import certinfo
 
 from .base import BaseCertValidator
 
+# Post-quantum algorithm names, sourced from the Rust registry
+# (rust_certinfo/src/pq_algorithms.rs) via certinfo.pq_algorithms() so
+# Python never carries its own copy of the table — a new algorithm added
+# there is recognized here automatically.
+_PQ_ALGORITHM_NAMES: FrozenSet[str] = frozenset(
+    alg["name"]
+    for alg in certinfo.pq_algorithms()  # type: ignore[attr-defined]
+)
 
-# TODO: Implement the KeyInfoValidator - work in progress
+
 class KeyInfoValidator(BaseCertValidator):
     """
-    A validator for checking the key information of an SSL certificate.
+    A validator for checking the public key of an SSL certificate.
+
+    Judges key strength per algorithm family:
+
+    - **RSA**: modulus must be at least 2048 bits.
+    - **EC**: curve must be one of secp256r1 / secp384r1 / secp521r1.
+    - **Post-quantum** (ML-DSA, SLH-DSA, and hybrid composite ML-DSA):
+      always strong — PQ strength is judged by algorithm identity, since
+      the FIPS 204/205 parameter sets have no weak sizes or curves. The
+      recognized set comes from the Rust registry exposed via
+      ``certinfo.pq_algorithms()``.
+
+    Unrecognized algorithms return ``is_valid: None`` ("can't judge"),
+    never ``False``.
 
     Attributes:
         name (str): The name of the validator.
@@ -27,7 +50,9 @@ class KeyInfoValidator(BaseCertValidator):
 
         Returns:
             dict: A dictionary containing the validation results, including key type, key size,
-                  whether the key is considered strong enough, and curve information if applicable.
+                  whether the key is considered strong enough (see the class docstring for the
+                  per-family rules, including post-quantum algorithms), and curve information
+                  if applicable.
 
         Examples:
             Example output (success):
@@ -39,6 +64,19 @@ class KeyInfoValidator(BaseCertValidator):
                     "key_size": 2048,
                     "is_valid": true,
                     "curve": null
+                }
+                ```
+
+            Example output (post-quantum key):
+                This example shows a certificate with an ML-DSA-65 (FIPS 204) key. Post-quantum
+                keys are valid by algorithm identity; ``key_size`` reports the subjectPublicKey
+                bit length and is informational only.
+
+                ```json
+                {
+                    "key_type": "ml-dsa-65",
+                    "key_size": 15616,
+                    "is_valid": true
                 }
                 ```
 
@@ -85,14 +123,26 @@ class KeyInfoValidator(BaseCertValidator):
         """
         Checks if the key is strong enough based on its type, size, and curve.
 
+        Post-quantum algorithms (any name in the Rust registry exposed by
+        ``certinfo.pq_algorithms()``) are always strong; RSA requires a
+        modulus of at least 2048 bits; EC requires a strong named curve.
+
         Args:
-            key_type (str): The type of the key.
-            key_size (int): The size of the key.
-            curve (str): The curve of the key (if applicable).
+            key_type (str): The key algorithm name (e.g. ``"rsaEncryption"``,
+                ``"ecPublicKey"``, ``"ml-dsa-65"``).
+            key_size (int): The size of the key. Ignored for PQ algorithms.
+            curve (str): The curve of the key (EC only).
 
         Returns:
             bool: True if the key is considered strong enough, False if not.
+            None when the key type is unrecognized or required details are
+            missing.
         """
+        if key_type in _PQ_ALGORITHM_NAMES:
+            # Post-quantum strength is judged by algorithm identity: the
+            # FIPS 204/205 parameter sets and the composite variants have
+            # no weak sizes or curves to check.
+            return True
         if "rsaEncryption" in key_type:
             if key_size is None:
                 return None

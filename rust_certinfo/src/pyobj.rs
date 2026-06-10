@@ -17,6 +17,21 @@ pub fn to_py_err(err: ParseError) -> PyErr {
     pyo3::exceptions::PyValueError::new_err(format!("X.509 parse error: {}", err))
 }
 
+/// Build the list-of-dicts view of the PQ algorithm registry for the
+/// `pq_algorithms` Python function. Each entry is
+/// `{"dotted": str, "name": str, "composite": bool}`.
+pub fn pq_algorithms_list(py: Python<'_>) -> PyResult<Bound<'_, PyList>> {
+    let list = PyList::empty(py);
+    for alg in crate::pq_algorithms::PQ_ALGORITHMS {
+        let d = PyDict::new(py);
+        d.set_item("dotted", alg.dotted)?;
+        d.set_item("name", alg.name)?;
+        d.set_item("composite", alg.composite)?;
+        list.append(d)?;
+    }
+    Ok(list)
+}
+
 /// Build the `{"algorithm": ..., "size": ..., "curve": ...}` dict that
 /// `parse_public_key_info` returns. The shape is stable Python-facing
 /// API. For EC keys `curve` carries the curve OID (e.g.
