@@ -117,5 +117,25 @@ class TestAnalyzeChainPq:
         assert info == {"algorithm": "unknown", "size": 0, "curve": None}
 
 
+class TestPqAlgorithmsRegistry:
+    """certinfo.pq_algorithms() mirrors the Rust registry."""
+
+    def test_shape_and_count(self):
+        algs = certinfo.pq_algorithms()
+        # 3 ML-DSA + 12 SLH-DSA + 18 composite ML-DSA
+        assert len(algs) == 33
+        for alg in algs:
+            assert set(alg.keys()) == {"dotted", "name", "composite"}
+            assert isinstance(alg["dotted"], str)
+            assert isinstance(alg["name"], str)
+            assert isinstance(alg["composite"], bool)
+
+    def test_known_entries(self):
+        by_name = {alg["name"]: alg for alg in certinfo.pq_algorithms()}
+        assert by_name["ml-dsa-65"]["dotted"] == "2.16.840.1.101.3.4.3.18"
+        assert by_name["ml-dsa-65"]["composite"] is False
+        assert by_name["mldsa44-rsa2048-pss-sha256"]["composite"] is True
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

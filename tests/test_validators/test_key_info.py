@@ -2,6 +2,7 @@
 
 import pytest
 
+from certmonitor import certinfo
 from certmonitor.validators.key_info import KeyInfoValidator
 
 
@@ -239,6 +240,39 @@ class TestKeyInfoValidator:
         cert_2047 = {"public_key_info": {"algorithm": "rsaEncryption", "size": 2047}}
         result = validator.validate(cert_2047, "example.com", 443)
         assert result["is_valid"] is False
+
+
+class TestKeyInfoPostQuantum:
+    """PQ algorithms are valid by algorithm identity (issue #30).
+
+    Parametrized over the live Rust registry (certinfo.pq_algorithms())
+    so an algorithm added there is covered here with no test changes.
+    """
+
+    @pytest.mark.parametrize(
+        "alg", certinfo.pq_algorithms(), ids=lambda alg: alg["name"]
+    )
+    def test_pq_algorithm_is_valid(self, alg):
+        cert = {"public_key_info": {"algorithm": alg["name"], "size": 15616}}
+        validator = KeyInfoValidator()
+        result = validator.validate(cert, "example.com", 443)
+
+        assert result["key_type"] == alg["name"]
+        assert result["is_valid"] is True
+
+    def test_unknown_pq_like_name_still_returns_none(self):
+        """A PQ-looking name that is not in the registry stays None."""
+        cert = {"public_key_info": {"algorithm": "ml-dsa-99", "size": 1024}}
+        validator = KeyInfoValidator()
+        result = validator.validate(cert, "example.com", 443)
+
+        assert result["is_valid"] is None
+
+    def test_pq_size_is_irrelevant(self):
+        """PQ strength is judged by identity — size 0 must still pass."""
+        validator = KeyInfoValidator()
+        assert validator._is_key_strong_enough("ml-dsa-65", 0, None) is True
+        assert validator._is_key_strong_enough("ml-dsa-65", None, None) is True
 
 
 if __name__ == "__main__":

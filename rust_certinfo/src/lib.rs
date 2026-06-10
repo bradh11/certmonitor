@@ -79,12 +79,23 @@ mod py {
         Ok(dict.into())
     }
 
+    /// Return the post-quantum algorithm registry as a list of dicts
+    /// `{"dotted": str, "name": str, "composite": bool}`. Python-side
+    /// consumers (e.g. the `key_info` validator) derive their PQ name
+    /// sets from this, so the table in `pq_algorithms.rs` stays the
+    /// single source of truth.
+    #[pyfunction]
+    pub(super) fn pq_algorithms(py: Python<'_>) -> PyResult<Py<PyAny>> {
+        Ok(pyobj::pq_algorithms_list(py)?.into())
+    }
+
     #[pymodule]
     fn certinfo(m: &Bound<'_, PyModule>) -> PyResult<()> {
         m.add_function(wrap_pyfunction!(parse_public_key_info, m)?)?;
         m.add_function(wrap_pyfunction!(extract_public_key_der, m)?)?;
         m.add_function(wrap_pyfunction!(extract_public_key_pem, m)?)?;
         m.add_function(wrap_pyfunction!(analyze_chain, m)?)?;
+        m.add_function(wrap_pyfunction!(pq_algorithms, m)?)?;
         Ok(())
     }
 }

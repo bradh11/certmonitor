@@ -1,11 +1,21 @@
 # validators/key_info.py
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict, FrozenSet, Optional
+
+from certmonitor import certinfo
 
 from .base import BaseCertValidator
 
+# Post-quantum algorithm names, sourced from the Rust registry
+# (rust_certinfo/src/pq_algorithms.rs) via certinfo.pq_algorithms() so
+# Python never carries its own copy of the table — a new algorithm added
+# there is recognized here automatically.
+_PQ_ALGORITHM_NAMES: FrozenSet[str] = frozenset(
+    alg["name"]
+    for alg in certinfo.pq_algorithms()  # type: ignore[attr-defined]
+)
 
-# TODO: Implement the KeyInfoValidator - work in progress
+
 class KeyInfoValidator(BaseCertValidator):
     """
     A validator for checking the key information of an SSL certificate.
@@ -92,7 +102,14 @@ class KeyInfoValidator(BaseCertValidator):
 
         Returns:
             bool: True if the key is considered strong enough, False if not.
+            None when the key type is unrecognized or required details are
+            missing.
         """
+        if key_type in _PQ_ALGORITHM_NAMES:
+            # Post-quantum strength is judged by algorithm identity: the
+            # FIPS 204/205 parameter sets and the composite variants have
+            # no weak sizes or curves to check.
+            return True
         if "rsaEncryption" in key_type:
             if key_size is None:
                 return None
