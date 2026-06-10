@@ -11,12 +11,14 @@
 // **previous** code used `algorithm.oid()` here by mistake — that's
 // id-ecPublicKey, not the curve — and this rewrite is the place we fix
 // the bug). Post-quantum algorithms (ML-DSA, SLH-DSA, composite ML-DSA)
-// are recognized via the table in `der::oid` — for those the OID alone
-// identifies the parameter set, and we report the subjectPublicKey bit
-// length as `key_bits`. Anything else collapses to `Unknown`.
+// are recognized via the registry in `crate::pq_algorithms` — for those
+// the OID alone identifies the parameter set, and we report the
+// subjectPublicKey bit length as `key_bits`. Anything else collapses to
+// `Unknown`.
 
 use crate::der::{oid, tag, DerReader, Oid};
 use crate::error::ParseError;
+use crate::pq_algorithms;
 use crate::x509::algorithm::AlgorithmIdentifier;
 
 #[derive(Debug, Clone, Copy)]
@@ -40,13 +42,13 @@ pub enum PublicKeyAlgorithm<'a> {
         curve_oid: Oid<'a>,
         key_bits: usize,
     },
-    /// Post-quantum algorithm from the `der::oid::PQ_ALGORITHMS` table.
+    /// Post-quantum algorithm from the `crate::pq_algorithms` registry.
     /// The OID alone identifies the parameter set (no parameters, no
     /// curve), so strength is judged by algorithm identity — `key_bits`
     /// is the raw subjectPublicKey bit length, reported for information
     /// only (e.g. ML-DSA-65 → 15616).
     PostQuantum {
-        algorithm: &'static oid::PqAlgorithm,
+        algorithm: &'static pq_algorithms::PqAlgorithm,
         key_bits: usize,
     },
     Unknown,
@@ -95,7 +97,7 @@ impl<'a> SubjectPublicKeyInfo<'a> {
         if alg_bytes == oid::OID_EC_PUBLIC_KEY {
             return parse_ec(self);
         }
-        if let Some(algorithm) = oid::pq_algorithm(alg_bytes) {
+        if let Some(algorithm) = pq_algorithms::lookup(self.algorithm.algorithm) {
             return PublicKeyAlgorithm::PostQuantum {
                 algorithm,
                 key_bits: self.subject_public_key.len() * 8,
@@ -352,8 +354,9 @@ mod tests {
 
     #[test]
     fn every_pq_table_entry_parses_to_its_name() {
-        for entry in oid::PQ_ALGORITHMS {
-            let bytes = synthetic_spki(entry.oid(), 64);
+        for entry in pq_algorithms::PQ_ALGORITHMS {
+            let wire = pq_algorithms::encode_dotted_for_tests(entry.dotted);
+            let bytes = synthetic_spki(&wire, 64);
             match parse_spki(&bytes) {
                 PublicKeyAlgorithm::PostQuantum {
                     algorithm,

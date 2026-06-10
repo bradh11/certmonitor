@@ -21,6 +21,7 @@
 
 mod der;
 mod error;
+mod pq_algorithms;
 mod x509;
 
 // Public Rust API. The Python wheel doesn't use these — the wheel calls
