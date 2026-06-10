@@ -341,7 +341,9 @@ class TestCertificateFetching:
         assert "bad der" in result["chain_analysis"]["error"]
 
     def test_fetch_raw_cert_chain_der_missing(self):
-        """If the handler returns no chain_der, chain_analysis is None."""
+        """If the handler returns no chain_der, chain_analysis is None and
+        the leaf-only fallback analyzes just the leaf DER (so leaf-scoped
+        validators like pq_signature work without the chain)."""
         monitor = CertMonitor("example.com")
         mock_handler = MagicMock()
         mock_handler.fetch_raw_cert.return_value = {
@@ -363,10 +365,16 @@ class TestCertificateFetching:
             }
             mock_certinfo.extract_public_key_der.return_value = b"spki"
             mock_certinfo.extract_public_key_pem.return_value = "PEM"
+            mock_certinfo.analyze_chain.return_value = {
+                "chain_length": 1,
+                "certs": [{"position": 0}],
+            }
             result = monitor._fetch_raw_cert()
 
         assert result["chain_analysis"] is None
-        mock_certinfo.analyze_chain.assert_not_called()
+        # The fallback analyzes the leaf alone, never a full chain.
+        mock_certinfo.analyze_chain.assert_called_once_with([b"leaf_der"])
+        assert result["leaf_analysis"]["chain_length"] == 1
 
     def test_fetch_raw_cert_no_der_bytes_available(self):
         """Test _fetch_raw_cert handles scenarios where DER certificate data is unavailable."""

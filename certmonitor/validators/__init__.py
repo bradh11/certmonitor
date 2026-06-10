@@ -7,6 +7,7 @@ from .hostname import HostnameValidator
 from .key_info import KeyInfoValidator
 from .pq_chain import PqChainValidator
 from .pq_key_exchange import PqKeyExchangeValidator
+from .pq_signature import PqSignatureValidator
 from .root_certificate_validator import RootCertificateValidator
 from .sensitive_date import SensitiveDateValidator
 from .subject_alt_names import SubjectAltNamesValidator
@@ -32,6 +33,7 @@ VALIDATORS = {
     # Opt-in (not in DEFAULT_VALIDATORS): post-quantum key-exchange posture.
     "pq_key_exchange": PqKeyExchangeValidator(),
     "pq_chain": PqChainValidator(),
+    "pq_signature": PqSignatureValidator(),
     # ... add any other default validators here
 }
 
