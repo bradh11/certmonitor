@@ -93,6 +93,29 @@ mod py {
         Ok(pyobj::pq_algorithms_list(py)?.into())
     }
 
+    /// Probe a TLS 1.3 server for its key-exchange group. Opens a TCP
+    /// connection, sends one ClientHello offering X25519MLKEM768, reads
+    /// the ServerHello, extracts the negotiated (or HRR-requested)
+    /// group, and closes — no crypto, no certificate validation.
+    ///
+    /// Returns a dict in every terminal state (never raises for network
+    /// or protocol conditions); see `pyobj::probe_result_dict` for the
+    /// shape. The socket work runs with the GIL released.
+    #[pyfunction]
+    #[pyo3(signature = (host, port=443, timeout_ms=10000))]
+    pub(super) fn probe_tls_handshake(
+        py: Python<'_>,
+        host: &str,
+        port: u16,
+        timeout_ms: u64,
+    ) -> PyResult<Py<PyAny>> {
+        let timeout = std::time::Duration::from_millis(timeout_ms);
+        // Release the GIL for the blocking socket work so concurrent
+        // scans don't serialize on the probe.
+        let result = py.allow_threads(|| crate::tls::probe::probe(host, port, timeout));
+        Ok(pyobj::probe_result_dict(py, &result)?.into())
+    }
+
     #[pymodule]
     fn certinfo(m: &Bound<'_, PyModule>) -> PyResult<()> {
         m.add_function(wrap_pyfunction!(parse_public_key_info, m)?)?;
@@ -100,6 +123,7 @@ mod py {
         m.add_function(wrap_pyfunction!(extract_public_key_pem, m)?)?;
         m.add_function(wrap_pyfunction!(analyze_chain, m)?)?;
         m.add_function(wrap_pyfunction!(pq_algorithms, m)?)?;
+        m.add_function(wrap_pyfunction!(probe_tls_handshake, m)?)?;
         Ok(())
     }
 }
