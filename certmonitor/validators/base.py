@@ -28,8 +28,15 @@ class BaseValidator(ABC):
         """Return the name used to register and look up this validator."""
 
     @abstractmethod
-    def validate(self, *args: Any, **kwargs: Any) -> Dict[str, Any]:
-        """Run the validator and return a result dict."""
+    def validate(self, *args: Any, **kwargs: Any) -> Mapping[str, Any]:
+        """Run the validator and return a result dict.
+
+        The result must conform to the standard envelope — see
+        :class:`certmonitor.validators.results.ValidationResult`. The
+        return type is ``Mapping`` (not ``Dict``) so overrides may
+        annotate a precise ``TypedDict``; at runtime every result is a
+        plain dict.
+        """
 
 
 class _ValidatorBase(BaseValidator):
@@ -130,7 +137,7 @@ class BaseCertValidator(_ValidatorBase):
 
     def validate(
         self, cert_info: Dict[str, Any], host: str, port: int
-    ) -> Dict[str, Any]:
+    ) -> Mapping[str, Any]:
         # Default implementation — subclasses override.
         return None  # type: ignore[return-value]
 
@@ -143,6 +150,6 @@ class BaseCipherValidator(_ValidatorBase):
 
     def validate(
         self, cipher_info: Dict[str, Any], host: str, port: int
-    ) -> Dict[str, Any]:
+    ) -> Mapping[str, Any]:
         # Default implementation — subclasses override.
         return None  # type: ignore[return-value]

@@ -5,6 +5,7 @@ from typing import Any, ClassVar, Dict, FrozenSet, Optional
 from certmonitor import certinfo
 
 from .base import BaseCertValidator
+from .results import ValidationResult
 
 # Post-quantum algorithm identities, sourced from the Rust registry
 # (rust_certinfo/src/pq_algorithms.rs) so Python never carries its own
@@ -29,6 +30,17 @@ _COMPOSITE_SIG_OIDS: FrozenSet[str] = frozenset(
     for alg in certinfo.pq_algorithms()  # type: ignore[attr-defined]
     if alg["composite"]
 )
+
+
+class PqSignatureResult(ValidationResult, total=False):
+    """Result shape for :class:`PqSignatureValidator` (envelope + data)."""
+
+    key_algorithm: str
+    key_is_pq: bool
+    signature_algorithm_oid: str
+    signature_is_pq: bool
+    is_hybrid_composite: bool
+    is_pq: bool
 
 
 class PqSignatureValidator(BaseCertValidator):
@@ -68,7 +80,7 @@ class PqSignatureValidator(BaseCertValidator):
         port: int,
         *,
         require_pq_signature: bool = False,
-    ) -> Dict[str, Any]:
+    ) -> PqSignatureResult:
         """Judge the leaf certificate's post-quantum posture.
 
         Args:
@@ -138,7 +150,7 @@ class PqSignatureValidator(BaseCertValidator):
 
         is_valid = key_is_pq and (signature_is_pq or not require_pq_signature)
 
-        result: Dict[str, Any] = {
+        result: PqSignatureResult = {
             "key_algorithm": key_algorithm,
             "key_is_pq": key_is_pq,
             "signature_algorithm_oid": sig_oid,

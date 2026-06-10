@@ -1,6 +1,8 @@
 # validators/__init__.py
 from typing import Any
 
+from .results import ValidationResult as ValidationResult
+
 from .chain import ChainValidator
 from .expiration import ExpirationValidator
 from .hostname import HostnameValidator

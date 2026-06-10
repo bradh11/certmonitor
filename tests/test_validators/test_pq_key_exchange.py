@@ -106,6 +106,8 @@ class TestPqKeyExchangeValidator:
         assert r["is_valid"] is False
         assert r["error"] == "ConnectError"
         assert "could not connect" in r["message"]
+        # Envelope contract: reason accompanies every is_valid: False.
+        assert r["reason"] == r["message"]
 
     def test_unrecognized_probe_shape_is_invalid(self):
         r = self.v.validate(TLS13, {"result": "weird"}, "h", 443)
