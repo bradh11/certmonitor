@@ -48,8 +48,7 @@ mod py {
     /// `{"algorithm": str, "size": int, "curve": str | None}`.
     ///
     /// For EC keys the `curve` field contains the curve OID (e.g.
-    /// `"1.2.840.10045.3.1.7"` for P-256). Earlier builds incorrectly returned
-    /// the algorithm OID here.
+    /// `"1.2.840.10045.3.1.7"` for P-256).
     #[pyfunction]
     pub(super) fn parse_public_key_info(py: Python<'_>, der_data: Vec<u8>) -> PyResult<Py<PyAny>> {
         let cert = Certificate::from_der(&der_data).map_err(to_py_err)?;

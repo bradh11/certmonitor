@@ -7,14 +7,12 @@
 //
 // Two key types matter for the public web today: RSA and EC. For RSA we
 // extract the modulus bit length from the inner SubjectPublicKey contents.
-// For EC we extract the curve OID from `algorithm.parameters` (the
-// **previous** code used `algorithm.oid()` here by mistake — that's
-// id-ecPublicKey, not the curve — and this rewrite is the place we fix
-// the bug). Post-quantum algorithms (ML-DSA, SLH-DSA, composite ML-DSA)
-// are recognized via the registry in `crate::pq_algorithms` — for those
-// the OID alone identifies the parameter set, and we report the
-// subjectPublicKey bit length as `key_bits`. Anything else collapses to
-// `Unknown`.
+// For EC the curve OID lives in `algorithm.parameters` — the algorithm
+// OID itself is always id-ecPublicKey, never the curve. Post-quantum
+// algorithms (ML-DSA, SLH-DSA, composite ML-DSA) are recognized via the
+// registry in `crate::pq_algorithms` — for those the OID alone
+// identifies the parameter set, and we report the subjectPublicKey bit
+// length as `key_bits`. Anything else collapses to `Unknown`.
 
 use crate::der::{oid, tag, DerReader, Oid};
 use crate::error::ParseError;
