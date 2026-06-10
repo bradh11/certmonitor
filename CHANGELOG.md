@@ -13,7 +13,7 @@ rename the headers to emoji form when cutting a release.
 ## [Unreleased]
 
 ### Added
-- TBD
+- Rust SPKI parser now recognizes post-quantum algorithm OIDs instead of collapsing them to `Unknown`: ML-DSA-44/65/87 (FIPS 204, RFC 9881), all twelve SLH-DSA parameter sets (FIPS 205, RFC 9909), and the eighteen composite ML-DSA signature OIDs from draft-ietf-lamps-pq-composite-sigs-19. `parse_public_key_info` and `analyze_chain` report e.g. `algorithm: "ml-dsa-65"` with `size` set to the subjectPublicKey bit length (PQ strength is judged by algorithm identity, not size). Dict shape is unchanged; existing RSA/EC behavior is regression-tested. Foundation for the upcoming PQ validators (#28, #29).
 
 ### Changed
 - TBD

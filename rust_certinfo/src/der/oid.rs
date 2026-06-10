@@ -125,6 +125,89 @@ pub const OID_AT_ORGANIZATION_NAME: &[u8] = &[0x55, 0x04, 0x0a];
 /// 2.5.4.11 — id-at-organizationalUnitName
 pub const OID_AT_ORGANIZATIONAL_UNIT_NAME: &[u8] = &[0x55, 0x04, 0x0b];
 
+// ---- Post-quantum signature/key algorithm OIDs ------------------------------
+//
+// Contributor-facing data table: adding a new PQ algorithm is one entry
+// here plus nothing else — `x509::spki` and the chain analysis pick it up
+// automatically. Every entry is verified by the `pq_table_*` tests below
+// (byte encoding round-trips to the dotted form, no duplicates).
+//
+// Sources:
+//   - ML-DSA  (FIPS 204): NIST CSOR sigAlgs arc, RFC 9881.
+//   - SLH-DSA (FIPS 205): NIST CSOR sigAlgs arc, RFC 9909.
+//   - Composite ML-DSA: draft-ietf-lamps-pq-composite-sigs-19 (IANA-assigned
+//     PKIX arc 1.3.6.1.5.5.7.6). NOTE: earlier drafts used Entrust's
+//     prototyping arc 2.16.840.1.114027.80.8.1 — those codepoints were
+//     abandoned and are intentionally NOT listed. If the draft renumbers
+//     again before RFC, this block is the only place to update.
+//   - Falcon / FN-DSA (future FIPS 206): no stable OID codepoints as of
+//     June 2026. TODO: add once NIST CSOR assigns them.
+//
+// These OIDs identify both the SubjectPublicKeyInfo algorithm and the
+// certificate signatureAlgorithm — ML-DSA/SLH-DSA use the same OID for
+// the key and the signature, with absent parameters.
+
+/// One post-quantum algorithm the parser recognizes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PqAlgorithm {
+    /// OID body bytes (value field only, no tag/length).
+    pub oid: &'static [u8],
+    /// Dotted-decimal form; cross-checked against `oid` by unit tests.
+    pub dotted: &'static str,
+    /// Python-facing lowercase name (the `algorithm` dict field).
+    pub name: &'static str,
+    /// True for hybrid composite signatures (PQ + classical in one OID).
+    pub composite: bool,
+}
+
+// NIST CSOR sigAlgs arc 2.16.840.1.101.3.4.3 encodes as
+// 60 86 48 01 65 03 04 03 + final arc.
+// IANA PKIX arc 1.3.6.1.5.5.7.6 encodes as 2b 06 01 05 05 07 06 + final arc.
+#[rustfmt::skip]
+pub const PQ_ALGORITHMS: &[PqAlgorithm] = &[
+    // ML-DSA (FIPS 204)
+    PqAlgorithm { oid: &[0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x03, 0x11], dotted: "2.16.840.1.101.3.4.3.17", name: "ml-dsa-44", composite: false },
+    PqAlgorithm { oid: &[0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x03, 0x12], dotted: "2.16.840.1.101.3.4.3.18", name: "ml-dsa-65", composite: false },
+    PqAlgorithm { oid: &[0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x03, 0x13], dotted: "2.16.840.1.101.3.4.3.19", name: "ml-dsa-87", composite: false },
+    // SLH-DSA (FIPS 205) — all twelve parameter sets
+    PqAlgorithm { oid: &[0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x03, 0x14], dotted: "2.16.840.1.101.3.4.3.20", name: "slh-dsa-sha2-128s", composite: false },
+    PqAlgorithm { oid: &[0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x03, 0x15], dotted: "2.16.840.1.101.3.4.3.21", name: "slh-dsa-sha2-128f", composite: false },
+    PqAlgorithm { oid: &[0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x03, 0x16], dotted: "2.16.840.1.101.3.4.3.22", name: "slh-dsa-sha2-192s", composite: false },
+    PqAlgorithm { oid: &[0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x03, 0x17], dotted: "2.16.840.1.101.3.4.3.23", name: "slh-dsa-sha2-192f", composite: false },
+    PqAlgorithm { oid: &[0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x03, 0x18], dotted: "2.16.840.1.101.3.4.3.24", name: "slh-dsa-sha2-256s", composite: false },
+    PqAlgorithm { oid: &[0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x03, 0x19], dotted: "2.16.840.1.101.3.4.3.25", name: "slh-dsa-sha2-256f", composite: false },
+    PqAlgorithm { oid: &[0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x03, 0x1a], dotted: "2.16.840.1.101.3.4.3.26", name: "slh-dsa-shake-128s", composite: false },
+    PqAlgorithm { oid: &[0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x03, 0x1b], dotted: "2.16.840.1.101.3.4.3.27", name: "slh-dsa-shake-128f", composite: false },
+    PqAlgorithm { oid: &[0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x03, 0x1c], dotted: "2.16.840.1.101.3.4.3.28", name: "slh-dsa-shake-192s", composite: false },
+    PqAlgorithm { oid: &[0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x03, 0x1d], dotted: "2.16.840.1.101.3.4.3.29", name: "slh-dsa-shake-192f", composite: false },
+    PqAlgorithm { oid: &[0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x03, 0x1e], dotted: "2.16.840.1.101.3.4.3.30", name: "slh-dsa-shake-256s", composite: false },
+    PqAlgorithm { oid: &[0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x03, 0x1f], dotted: "2.16.840.1.101.3.4.3.31", name: "slh-dsa-shake-256f", composite: false },
+    // Composite ML-DSA (draft-ietf-lamps-pq-composite-sigs-19)
+    PqAlgorithm { oid: &[0x2b, 0x06, 0x01, 0x05, 0x05, 0x07, 0x06, 0x25], dotted: "1.3.6.1.5.5.7.6.37", name: "mldsa44-rsa2048-pss-sha256", composite: true },
+    PqAlgorithm { oid: &[0x2b, 0x06, 0x01, 0x05, 0x05, 0x07, 0x06, 0x26], dotted: "1.3.6.1.5.5.7.6.38", name: "mldsa44-rsa2048-pkcs15-sha256", composite: true },
+    PqAlgorithm { oid: &[0x2b, 0x06, 0x01, 0x05, 0x05, 0x07, 0x06, 0x27], dotted: "1.3.6.1.5.5.7.6.39", name: "mldsa44-ed25519-sha512", composite: true },
+    PqAlgorithm { oid: &[0x2b, 0x06, 0x01, 0x05, 0x05, 0x07, 0x06, 0x28], dotted: "1.3.6.1.5.5.7.6.40", name: "mldsa44-ecdsa-p256-sha256", composite: true },
+    PqAlgorithm { oid: &[0x2b, 0x06, 0x01, 0x05, 0x05, 0x07, 0x06, 0x29], dotted: "1.3.6.1.5.5.7.6.41", name: "mldsa65-rsa3072-pss-sha512", composite: true },
+    PqAlgorithm { oid: &[0x2b, 0x06, 0x01, 0x05, 0x05, 0x07, 0x06, 0x2a], dotted: "1.3.6.1.5.5.7.6.42", name: "mldsa65-rsa3072-pkcs15-sha512", composite: true },
+    PqAlgorithm { oid: &[0x2b, 0x06, 0x01, 0x05, 0x05, 0x07, 0x06, 0x2b], dotted: "1.3.6.1.5.5.7.6.43", name: "mldsa65-rsa4096-pss-sha512", composite: true },
+    PqAlgorithm { oid: &[0x2b, 0x06, 0x01, 0x05, 0x05, 0x07, 0x06, 0x2c], dotted: "1.3.6.1.5.5.7.6.44", name: "mldsa65-rsa4096-pkcs15-sha512", composite: true },
+    PqAlgorithm { oid: &[0x2b, 0x06, 0x01, 0x05, 0x05, 0x07, 0x06, 0x2d], dotted: "1.3.6.1.5.5.7.6.45", name: "mldsa65-ecdsa-p256-sha512", composite: true },
+    PqAlgorithm { oid: &[0x2b, 0x06, 0x01, 0x05, 0x05, 0x07, 0x06, 0x2e], dotted: "1.3.6.1.5.5.7.6.46", name: "mldsa65-ecdsa-p384-sha512", composite: true },
+    PqAlgorithm { oid: &[0x2b, 0x06, 0x01, 0x05, 0x05, 0x07, 0x06, 0x2f], dotted: "1.3.6.1.5.5.7.6.47", name: "mldsa65-ecdsa-brainpoolp256r1-sha512", composite: true },
+    PqAlgorithm { oid: &[0x2b, 0x06, 0x01, 0x05, 0x05, 0x07, 0x06, 0x30], dotted: "1.3.6.1.5.5.7.6.48", name: "mldsa65-ed25519-sha512", composite: true },
+    PqAlgorithm { oid: &[0x2b, 0x06, 0x01, 0x05, 0x05, 0x07, 0x06, 0x31], dotted: "1.3.6.1.5.5.7.6.49", name: "mldsa87-ecdsa-p384-sha512", composite: true },
+    PqAlgorithm { oid: &[0x2b, 0x06, 0x01, 0x05, 0x05, 0x07, 0x06, 0x32], dotted: "1.3.6.1.5.5.7.6.50", name: "mldsa87-ecdsa-brainpoolp384r1-sha512", composite: true },
+    PqAlgorithm { oid: &[0x2b, 0x06, 0x01, 0x05, 0x05, 0x07, 0x06, 0x33], dotted: "1.3.6.1.5.5.7.6.51", name: "mldsa87-ed448-shake256", composite: true },
+    PqAlgorithm { oid: &[0x2b, 0x06, 0x01, 0x05, 0x05, 0x07, 0x06, 0x34], dotted: "1.3.6.1.5.5.7.6.52", name: "mldsa87-rsa3072-pss-sha512", composite: true },
+    PqAlgorithm { oid: &[0x2b, 0x06, 0x01, 0x05, 0x05, 0x07, 0x06, 0x35], dotted: "1.3.6.1.5.5.7.6.53", name: "mldsa87-rsa4096-pss-sha512", composite: true },
+    PqAlgorithm { oid: &[0x2b, 0x06, 0x01, 0x05, 0x05, 0x07, 0x06, 0x36], dotted: "1.3.6.1.5.5.7.6.54", name: "mldsa87-ecdsa-p521-sha512", composite: true },
+];
+
+/// Look up a recognized PQ algorithm by OID body bytes.
+pub fn pq_algorithm(oid_bytes: &[u8]) -> Option<&'static PqAlgorithm> {
+    PQ_ALGORITHMS.iter().find(|alg| alg.oid == oid_bytes)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -200,5 +283,40 @@ mod tests {
             Oid::from_bytes(&[0x2a, 0x80, 0x01]).unwrap_err(),
             ParseError::InvalidOid
         );
+    }
+
+    #[test]
+    fn pq_table_roundtrips_and_has_no_duplicates() {
+        use std::collections::HashSet;
+        let mut oids: HashSet<&[u8]> = HashSet::new();
+        let mut names: HashSet<&str> = HashSet::new();
+        for alg in PQ_ALGORITHMS {
+            let oid = Oid::from_bytes(alg.oid).unwrap();
+            assert_eq!(
+                oid.to_id_string(),
+                alg.dotted,
+                "byte encoding does not match dotted form for {}",
+                alg.name
+            );
+            assert!(oids.insert(alg.oid), "duplicate OID for {}", alg.name);
+            assert!(names.insert(alg.name), "duplicate name {}", alg.name);
+        }
+        // 3 ML-DSA + 12 SLH-DSA + 18 composite ML-DSA
+        assert_eq!(PQ_ALGORITHMS.len(), 33);
+    }
+
+    #[test]
+    fn pq_lookup_hits_and_misses() {
+        let ml_dsa_65 = &[0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x03, 0x12];
+        assert_eq!(pq_algorithm(ml_dsa_65).unwrap().name, "ml-dsa-65");
+        assert!(!pq_algorithm(ml_dsa_65).unwrap().composite);
+
+        let composite = &[0x2b, 0x06, 0x01, 0x05, 0x05, 0x07, 0x06, 0x2d];
+        let info = pq_algorithm(composite).unwrap();
+        assert_eq!(info.name, "mldsa65-ecdsa-p256-sha512");
+        assert!(info.composite);
+
+        assert!(pq_algorithm(OID_RSA_ENCRYPTION).is_none());
+        assert!(pq_algorithm(OID_EC_PUBLIC_KEY).is_none());
     }
 }

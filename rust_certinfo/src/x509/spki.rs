@@ -10,8 +10,10 @@
 // For EC we extract the curve OID from `algorithm.parameters` (the
 // **previous** code used `algorithm.oid()` here by mistake — that's
 // id-ecPublicKey, not the curve — and this rewrite is the place we fix
-// the bug). Other key types collapse to `Unknown`, matching the prior
-// behavior so the Python-facing dict shape doesn't change.
+// the bug). Post-quantum algorithms (ML-DSA, SLH-DSA, composite ML-DSA)
+// are recognized via the table in `der::oid` — for those the OID alone
+// identifies the parameter set, and we report the subjectPublicKey bit
+// length as `key_bits`. Anything else collapses to `Unknown`.
 
 use crate::der::{oid, tag, DerReader, Oid};
 use crate::error::ParseError;
@@ -31,8 +33,22 @@ pub struct SubjectPublicKeyInfo<'a> {
 
 #[derive(Debug, Clone)]
 pub enum PublicKeyAlgorithm<'a> {
-    Rsa { modulus_bits: usize },
-    Ec { curve_oid: Oid<'a>, key_bits: usize },
+    Rsa {
+        modulus_bits: usize,
+    },
+    Ec {
+        curve_oid: Oid<'a>,
+        key_bits: usize,
+    },
+    /// Post-quantum algorithm from the `der::oid::PQ_ALGORITHMS` table.
+    /// The OID alone identifies the parameter set (no parameters, no
+    /// curve), so strength is judged by algorithm identity — `key_bits`
+    /// is the raw subjectPublicKey bit length, reported for information
+    /// only (e.g. ML-DSA-65 → 15616).
+    PostQuantum {
+        algorithm: &'static oid::PqAlgorithm,
+        key_bits: usize,
+    },
     Unknown,
 }
 
@@ -78,6 +94,12 @@ impl<'a> SubjectPublicKeyInfo<'a> {
         }
         if alg_bytes == oid::OID_EC_PUBLIC_KEY {
             return parse_ec(self);
+        }
+        if let Some(algorithm) = oid::pq_algorithm(alg_bytes) {
+            return PublicKeyAlgorithm::PostQuantum {
+                algorithm,
+                key_bits: self.subject_public_key.len() * 8,
+            };
         }
         PublicKeyAlgorithm::Unknown
     }
@@ -236,6 +258,123 @@ mod tests {
         match spki.parsed() {
             PublicKeyAlgorithm::Rsa { modulus_bits } => assert_eq!(modulus_bits, 2048),
             other => panic!("expected RSA, got {:?}", other),
+        }
+    }
+
+    /// Minimal DER length encoding (short and long form) for test builders.
+    fn der_len(len: usize) -> Vec<u8> {
+        if len < 0x80 {
+            vec![len as u8]
+        } else if len < 0x100 {
+            vec![0x81, len as u8]
+        } else {
+            vec![0x82, (len >> 8) as u8, (len & 0xff) as u8]
+        }
+    }
+
+    fn der_tlv(tag_byte: u8, body: &[u8]) -> Vec<u8> {
+        let mut out = vec![tag_byte];
+        out.extend(der_len(body.len()));
+        out.extend(body);
+        out
+    }
+
+    /// Build a minimal SPKI: `AlgorithmIdentifier { OID, no parameters }`
+    /// followed by a BIT STRING wrapping `key_len` zero bytes. This is
+    /// the shape ML-DSA / SLH-DSA / composite keys use — absent parameters.
+    fn synthetic_spki(alg_oid: &[u8], key_len: usize) -> Vec<u8> {
+        let alg = der_tlv(
+            tag::TAG_SEQUENCE,
+            &der_tlv(tag::TAG_OBJECT_IDENTIFIER, alg_oid),
+        );
+        let mut bs_body = vec![0x00]; // unused-bits byte
+        bs_body.extend(vec![0u8; key_len]);
+        let bit_string = der_tlv(tag::TAG_BIT_STRING, &bs_body);
+        let mut body = alg;
+        body.extend(bit_string);
+        der_tlv(tag::TAG_SEQUENCE, &body)
+    }
+
+    fn parse_spki(bytes: &[u8]) -> PublicKeyAlgorithm<'_> {
+        let mut r = DerReader::new(bytes);
+        let spki = SubjectPublicKeyInfo::parse(&mut r).unwrap();
+        spki.parsed()
+    }
+
+    #[test]
+    fn ml_dsa_65_parses_with_key_bits() {
+        // ML-DSA-65 public keys are 1952 bytes (FIPS 204 table 2).
+        let ml_dsa_65 = &[0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x03, 0x12];
+        let bytes = synthetic_spki(ml_dsa_65, 1952);
+        match parse_spki(&bytes) {
+            PublicKeyAlgorithm::PostQuantum {
+                algorithm,
+                key_bits,
+            } => {
+                assert_eq!(algorithm.name, "ml-dsa-65");
+                assert!(!algorithm.composite);
+                assert_eq!(key_bits, 1952 * 8);
+            }
+            other => panic!("expected PostQuantum, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn slh_dsa_sha2_128s_parses() {
+        // SLH-DSA-SHA2-128s public keys are 32 bytes (FIPS 205 table 2).
+        let slh = &[0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x03, 0x14];
+        let bytes = synthetic_spki(slh, 32);
+        match parse_spki(&bytes) {
+            PublicKeyAlgorithm::PostQuantum {
+                algorithm,
+                key_bits,
+            } => {
+                assert_eq!(algorithm.name, "slh-dsa-sha2-128s");
+                assert_eq!(key_bits, 256);
+            }
+            other => panic!("expected PostQuantum, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn composite_mldsa_parses_as_composite() {
+        // id-MLDSA44-ECDSA-P256-SHA256 = 1.3.6.1.5.5.7.6.40
+        let composite = &[0x2b, 0x06, 0x01, 0x05, 0x05, 0x07, 0x06, 0x28];
+        let bytes = synthetic_spki(composite, 1312 + 65);
+        match parse_spki(&bytes) {
+            PublicKeyAlgorithm::PostQuantum { algorithm, .. } => {
+                assert_eq!(algorithm.name, "mldsa44-ecdsa-p256-sha256");
+                assert!(algorithm.composite);
+            }
+            other => panic!("expected PostQuantum, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn every_pq_table_entry_parses_to_its_name() {
+        for entry in oid::PQ_ALGORITHMS {
+            let bytes = synthetic_spki(entry.oid, 64);
+            match parse_spki(&bytes) {
+                PublicKeyAlgorithm::PostQuantum {
+                    algorithm,
+                    key_bits,
+                } => {
+                    assert_eq!(algorithm.name, entry.name);
+                    assert_eq!(algorithm.composite, entry.composite);
+                    assert_eq!(key_bits, 512);
+                }
+                other => panic!("expected PostQuantum for {}, got {:?}", entry.name, other),
+            }
+        }
+    }
+
+    #[test]
+    fn unrecognized_oid_still_collapses_to_unknown() {
+        // 1.2.3.4 — not RSA, not EC, not in the PQ table.
+        let bytes = synthetic_spki(&[0x2a, 0x03, 0x04], 16);
+        match parse_spki(&bytes) {
+            PublicKeyAlgorithm::Unknown => {}
+            other => panic!("expected Unknown, got {:?}", other),
         }
     }
 

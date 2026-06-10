@@ -40,6 +40,19 @@ pub fn key_info_dict<'py>(
             dict.set_item("size", key_bits)?;
             dict.set_item("curve", curve_oid.to_id_string())?;
         }
+        PublicKeyAlgorithm::PostQuantum {
+            algorithm,
+            key_bits,
+        } => {
+            // Same {algorithm, size, curve} shape as RSA/EC. For PQ keys
+            // `size` is the subjectPublicKey bit length — informational
+            // only; PQ strength is judged by algorithm identity, never by
+            // size. Consumers (key_info / pq_signature validators) key off
+            // the `algorithm` string.
+            dict.set_item("algorithm", algorithm.name)?;
+            dict.set_item("size", key_bits)?;
+            dict.set_item("curve", py.None())?;
+        }
         PublicKeyAlgorithm::Unknown => {
             dict.set_item("algorithm", "unknown")?;
             dict.set_item("size", 0usize)?;
