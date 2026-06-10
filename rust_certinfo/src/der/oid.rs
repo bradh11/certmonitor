@@ -160,86 +160,179 @@ pub const OID_AT_ORGANIZATIONAL_UNIT_NAME: &[u8] = &[0x55, 0x04, 0x0b];
 // certificate signatureAlgorithm — ML-DSA/SLH-DSA use the same OID for
 // the key and the signature, with absent parameters.
 //
-// Where the hex bytes come from: the registries publish OIDs in dotted
-// decimal, but certificates carry them DER-encoded (X.690 §8.19), and the
-// parser compares those raw bytes — so the table stores the encoded form.
-// The rule:
+// Adding an entry takes exactly the two things the registries publish —
+// the dotted-decimal OID and the algorithm name:
 //
-//   - First byte = 40 × arc1 + arc2.        2.16 → 96 → 0x60;  1.3 → 43 → 0x2b
-//   - Every later arc is base-128, big-endian, high bit set on every byte
-//     except its last.                       840 = 6×128 + 72 → 0x86 0x48
-//   - Arcs under 128 are one literal byte.   101 → 0x65;  17 → 0x11;  37 → 0x25
+//     PqAlgorithm::standalone("2.16.840.1.101.3.4.3.17", "ml-dsa-44"),
 //
-//   Worked example — id-ml-dsa-44 = 2.16.840.1.101.3.4.3.17:
-//     2.16 → 0x60 · 840 → 0x86 0x48 · 1 → 0x01 · 101 → 0x65
-//     · 3 → 0x03 · 4 → 0x04 · 3 → 0x03 · 17 → 0x11
-//
-// You never need to encode by hand: to add an entry, fill in `dotted` and
-// `name` from the registry and leave `oid: &[]`. `cargo test` fails with
-// the correct byte encoding to paste — the `pq_table_*` test derives it
-// from `dotted` and prints it in the assertion message.
+// (use `::composite(...)` for hybrid composite algorithms). Certificates
+// carry OIDs DER-encoded (X.690 §8.19) and the parser matches those raw
+// bytes, but that encoding is derived from the dotted string AT COMPILE
+// TIME by `encode_dotted` below — never written by hand. A malformed
+// dotted string fails the build, and the `pq_table_*` test round-trips
+// every derived encoding through the independent runtime decoder.
 
 /// One post-quantum algorithm the parser recognizes.
+///
+/// Construct with [`PqAlgorithm::standalone`] or
+/// [`PqAlgorithm::composite`]; the DER byte encoding is derived from
+/// `dotted` at compile time.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PqAlgorithm {
-    /// OID body bytes (value field only, no tag/length).
-    pub oid: &'static [u8],
-    /// Dotted-decimal form; cross-checked against `oid` by unit tests.
+    /// Dotted-decimal form as published in the source registry.
     pub dotted: &'static str,
     /// Python-facing lowercase name (the `algorithm` dict field).
     pub name: &'static str,
     /// True for hybrid composite signatures (PQ + classical in one OID).
     pub composite: bool,
+    oid_bytes: [u8; MAX_OID_LEN],
+    oid_len: usize,
 }
 
-// NIST CSOR sigAlgs arc 2.16.840.1.101.3.4.3 encodes as
-// 60 86 48 01 65 03 04 03 + final arc.
-// IANA PKIX arc 1.3.6.1.5.5.7.6 encodes as 2b 06 01 05 05 07 06 + final arc.
-#[rustfmt::skip]
+/// Generous upper bound for an encoded OID (every entry today is ≤ 9
+/// bytes; the const assert in `encode_dotted` catches overflow).
+const MAX_OID_LEN: usize = 24;
+
+impl PqAlgorithm {
+    /// OID body bytes (value field only, no tag/length), derived from
+    /// `dotted` at construction.
+    pub fn oid(&self) -> &[u8] {
+        &self.oid_bytes[..self.oid_len]
+    }
+
+    /// A standalone PQ algorithm (ML-DSA, SLH-DSA, ...).
+    const fn standalone(dotted: &'static str, name: &'static str) -> Self {
+        Self::new(dotted, name, false)
+    }
+
+    /// A hybrid composite algorithm (PQ + classical under one OID).
+    const fn composite(dotted: &'static str, name: &'static str) -> Self {
+        Self::new(dotted, name, true)
+    }
+
+    const fn new(dotted: &'static str, name: &'static str, composite: bool) -> Self {
+        let (oid_bytes, oid_len) = encode_dotted(dotted);
+        Self {
+            dotted,
+            name,
+            composite,
+            oid_bytes,
+            oid_len,
+        }
+    }
+}
+
+/// DER-encode a dotted-decimal OID at compile time (X.690 §8.19): the
+/// first byte combines the first two arcs as `40 × arc1 + arc2` (`2.16`
+/// → 0x60, `1.3` → 0x2b); every later arc is base-128, big-endian, with
+/// the high bit set on every byte except its last (`840` → `0x86 0x48`;
+/// arcs under 128 are one literal byte, `17` → `0x11`).
+///
+/// Runs in const context, so a malformed dotted string is a build error
+/// rather than a runtime surprise.
+const fn encode_dotted(dotted: &str) -> ([u8; MAX_OID_LEN], usize) {
+    let bytes = dotted.as_bytes();
+    let mut out = [0u8; MAX_OID_LEN];
+    let mut out_len = 0;
+    let mut arcs_done = 0u32;
+    let mut first_arc = 0u64;
+    let mut value = 0u64;
+    let mut has_digit = false;
+    let mut i = 0;
+    // One extra iteration with a virtual trailing '.' flushes the last arc.
+    while i <= bytes.len() {
+        let c = if i == bytes.len() { b'.' } else { bytes[i] };
+        if c == b'.' {
+            assert!(has_digit, "empty arc in dotted OID");
+            if arcs_done == 0 {
+                assert!(value <= 2, "first OID arc must be 0, 1, or 2");
+                first_arc = value;
+            } else if arcs_done == 1 {
+                let combined = first_arc * 40 + value;
+                assert!(
+                    combined < 0x80,
+                    "second OID arc too large for the single-byte form"
+                );
+                out[0] = combined as u8;
+                out_len = 1;
+            } else {
+                // Base-128: most significant 7-bit group first,
+                // continuation bit on all bytes except the last.
+                let mut n = 1;
+                let mut tmp = value;
+                while tmp >= 0x80 {
+                    tmp >>= 7;
+                    n += 1;
+                }
+                assert!(out_len + n <= MAX_OID_LEN, "OID longer than MAX_OID_LEN");
+                let mut k = n;
+                let mut v = value;
+                while k > 0 {
+                    k -= 1;
+                    let group = (v & 0x7f) as u8;
+                    out[out_len + k] = if k == n - 1 { group } else { group | 0x80 };
+                    v >>= 7;
+                }
+                out_len += n;
+            }
+            arcs_done += 1;
+            value = 0;
+            has_digit = false;
+        } else {
+            assert!(c.is_ascii_digit(), "non-digit character in dotted OID");
+            value = value * 10 + (c - b'0') as u64;
+            has_digit = true;
+        }
+        i += 1;
+    }
+    assert!(arcs_done >= 2, "dotted OID needs at least two arcs");
+    (out, out_len)
+}
+
 pub const PQ_ALGORITHMS: &[PqAlgorithm] = &[
     // ML-DSA (FIPS 204) — RFC 9881 §3: https://www.rfc-editor.org/rfc/rfc9881.html
-    PqAlgorithm { oid: &[0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x03, 0x11], dotted: "2.16.840.1.101.3.4.3.17", name: "ml-dsa-44", composite: false },
-    PqAlgorithm { oid: &[0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x03, 0x12], dotted: "2.16.840.1.101.3.4.3.18", name: "ml-dsa-65", composite: false },
-    PqAlgorithm { oid: &[0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x03, 0x13], dotted: "2.16.840.1.101.3.4.3.19", name: "ml-dsa-87", composite: false },
+    PqAlgorithm::standalone("2.16.840.1.101.3.4.3.17", "ml-dsa-44"),
+    PqAlgorithm::standalone("2.16.840.1.101.3.4.3.18", "ml-dsa-65"),
+    PqAlgorithm::standalone("2.16.840.1.101.3.4.3.19", "ml-dsa-87"),
     // SLH-DSA (FIPS 205) — all twelve parameter sets, RFC 9909:
     // https://www.rfc-editor.org/rfc/rfc9909.html
-    PqAlgorithm { oid: &[0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x03, 0x14], dotted: "2.16.840.1.101.3.4.3.20", name: "slh-dsa-sha2-128s", composite: false },
-    PqAlgorithm { oid: &[0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x03, 0x15], dotted: "2.16.840.1.101.3.4.3.21", name: "slh-dsa-sha2-128f", composite: false },
-    PqAlgorithm { oid: &[0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x03, 0x16], dotted: "2.16.840.1.101.3.4.3.22", name: "slh-dsa-sha2-192s", composite: false },
-    PqAlgorithm { oid: &[0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x03, 0x17], dotted: "2.16.840.1.101.3.4.3.23", name: "slh-dsa-sha2-192f", composite: false },
-    PqAlgorithm { oid: &[0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x03, 0x18], dotted: "2.16.840.1.101.3.4.3.24", name: "slh-dsa-sha2-256s", composite: false },
-    PqAlgorithm { oid: &[0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x03, 0x19], dotted: "2.16.840.1.101.3.4.3.25", name: "slh-dsa-sha2-256f", composite: false },
-    PqAlgorithm { oid: &[0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x03, 0x1a], dotted: "2.16.840.1.101.3.4.3.26", name: "slh-dsa-shake-128s", composite: false },
-    PqAlgorithm { oid: &[0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x03, 0x1b], dotted: "2.16.840.1.101.3.4.3.27", name: "slh-dsa-shake-128f", composite: false },
-    PqAlgorithm { oid: &[0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x03, 0x1c], dotted: "2.16.840.1.101.3.4.3.28", name: "slh-dsa-shake-192s", composite: false },
-    PqAlgorithm { oid: &[0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x03, 0x1d], dotted: "2.16.840.1.101.3.4.3.29", name: "slh-dsa-shake-192f", composite: false },
-    PqAlgorithm { oid: &[0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x03, 0x1e], dotted: "2.16.840.1.101.3.4.3.30", name: "slh-dsa-shake-256s", composite: false },
-    PqAlgorithm { oid: &[0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x03, 0x1f], dotted: "2.16.840.1.101.3.4.3.31", name: "slh-dsa-shake-256f", composite: false },
+    PqAlgorithm::standalone("2.16.840.1.101.3.4.3.20", "slh-dsa-sha2-128s"),
+    PqAlgorithm::standalone("2.16.840.1.101.3.4.3.21", "slh-dsa-sha2-128f"),
+    PqAlgorithm::standalone("2.16.840.1.101.3.4.3.22", "slh-dsa-sha2-192s"),
+    PqAlgorithm::standalone("2.16.840.1.101.3.4.3.23", "slh-dsa-sha2-192f"),
+    PqAlgorithm::standalone("2.16.840.1.101.3.4.3.24", "slh-dsa-sha2-256s"),
+    PqAlgorithm::standalone("2.16.840.1.101.3.4.3.25", "slh-dsa-sha2-256f"),
+    PqAlgorithm::standalone("2.16.840.1.101.3.4.3.26", "slh-dsa-shake-128s"),
+    PqAlgorithm::standalone("2.16.840.1.101.3.4.3.27", "slh-dsa-shake-128f"),
+    PqAlgorithm::standalone("2.16.840.1.101.3.4.3.28", "slh-dsa-shake-192s"),
+    PqAlgorithm::standalone("2.16.840.1.101.3.4.3.29", "slh-dsa-shake-192f"),
+    PqAlgorithm::standalone("2.16.840.1.101.3.4.3.30", "slh-dsa-shake-256s"),
+    PqAlgorithm::standalone("2.16.840.1.101.3.4.3.31", "slh-dsa-shake-256f"),
     // Composite ML-DSA (draft-ietf-lamps-pq-composite-sigs-19) — name→OID table:
     // https://github.com/lamps-wg/draft-composite-sigs/blob/main/src/algParams.md
-    PqAlgorithm { oid: &[0x2b, 0x06, 0x01, 0x05, 0x05, 0x07, 0x06, 0x25], dotted: "1.3.6.1.5.5.7.6.37", name: "mldsa44-rsa2048-pss-sha256", composite: true },
-    PqAlgorithm { oid: &[0x2b, 0x06, 0x01, 0x05, 0x05, 0x07, 0x06, 0x26], dotted: "1.3.6.1.5.5.7.6.38", name: "mldsa44-rsa2048-pkcs15-sha256", composite: true },
-    PqAlgorithm { oid: &[0x2b, 0x06, 0x01, 0x05, 0x05, 0x07, 0x06, 0x27], dotted: "1.3.6.1.5.5.7.6.39", name: "mldsa44-ed25519-sha512", composite: true },
-    PqAlgorithm { oid: &[0x2b, 0x06, 0x01, 0x05, 0x05, 0x07, 0x06, 0x28], dotted: "1.3.6.1.5.5.7.6.40", name: "mldsa44-ecdsa-p256-sha256", composite: true },
-    PqAlgorithm { oid: &[0x2b, 0x06, 0x01, 0x05, 0x05, 0x07, 0x06, 0x29], dotted: "1.3.6.1.5.5.7.6.41", name: "mldsa65-rsa3072-pss-sha512", composite: true },
-    PqAlgorithm { oid: &[0x2b, 0x06, 0x01, 0x05, 0x05, 0x07, 0x06, 0x2a], dotted: "1.3.6.1.5.5.7.6.42", name: "mldsa65-rsa3072-pkcs15-sha512", composite: true },
-    PqAlgorithm { oid: &[0x2b, 0x06, 0x01, 0x05, 0x05, 0x07, 0x06, 0x2b], dotted: "1.3.6.1.5.5.7.6.43", name: "mldsa65-rsa4096-pss-sha512", composite: true },
-    PqAlgorithm { oid: &[0x2b, 0x06, 0x01, 0x05, 0x05, 0x07, 0x06, 0x2c], dotted: "1.3.6.1.5.5.7.6.44", name: "mldsa65-rsa4096-pkcs15-sha512", composite: true },
-    PqAlgorithm { oid: &[0x2b, 0x06, 0x01, 0x05, 0x05, 0x07, 0x06, 0x2d], dotted: "1.3.6.1.5.5.7.6.45", name: "mldsa65-ecdsa-p256-sha512", composite: true },
-    PqAlgorithm { oid: &[0x2b, 0x06, 0x01, 0x05, 0x05, 0x07, 0x06, 0x2e], dotted: "1.3.6.1.5.5.7.6.46", name: "mldsa65-ecdsa-p384-sha512", composite: true },
-    PqAlgorithm { oid: &[0x2b, 0x06, 0x01, 0x05, 0x05, 0x07, 0x06, 0x2f], dotted: "1.3.6.1.5.5.7.6.47", name: "mldsa65-ecdsa-brainpoolp256r1-sha512", composite: true },
-    PqAlgorithm { oid: &[0x2b, 0x06, 0x01, 0x05, 0x05, 0x07, 0x06, 0x30], dotted: "1.3.6.1.5.5.7.6.48", name: "mldsa65-ed25519-sha512", composite: true },
-    PqAlgorithm { oid: &[0x2b, 0x06, 0x01, 0x05, 0x05, 0x07, 0x06, 0x31], dotted: "1.3.6.1.5.5.7.6.49", name: "mldsa87-ecdsa-p384-sha512", composite: true },
-    PqAlgorithm { oid: &[0x2b, 0x06, 0x01, 0x05, 0x05, 0x07, 0x06, 0x32], dotted: "1.3.6.1.5.5.7.6.50", name: "mldsa87-ecdsa-brainpoolp384r1-sha512", composite: true },
-    PqAlgorithm { oid: &[0x2b, 0x06, 0x01, 0x05, 0x05, 0x07, 0x06, 0x33], dotted: "1.3.6.1.5.5.7.6.51", name: "mldsa87-ed448-shake256", composite: true },
-    PqAlgorithm { oid: &[0x2b, 0x06, 0x01, 0x05, 0x05, 0x07, 0x06, 0x34], dotted: "1.3.6.1.5.5.7.6.52", name: "mldsa87-rsa3072-pss-sha512", composite: true },
-    PqAlgorithm { oid: &[0x2b, 0x06, 0x01, 0x05, 0x05, 0x07, 0x06, 0x35], dotted: "1.3.6.1.5.5.7.6.53", name: "mldsa87-rsa4096-pss-sha512", composite: true },
-    PqAlgorithm { oid: &[0x2b, 0x06, 0x01, 0x05, 0x05, 0x07, 0x06, 0x36], dotted: "1.3.6.1.5.5.7.6.54", name: "mldsa87-ecdsa-p521-sha512", composite: true },
+    PqAlgorithm::composite("1.3.6.1.5.5.7.6.37", "mldsa44-rsa2048-pss-sha256"),
+    PqAlgorithm::composite("1.3.6.1.5.5.7.6.38", "mldsa44-rsa2048-pkcs15-sha256"),
+    PqAlgorithm::composite("1.3.6.1.5.5.7.6.39", "mldsa44-ed25519-sha512"),
+    PqAlgorithm::composite("1.3.6.1.5.5.7.6.40", "mldsa44-ecdsa-p256-sha256"),
+    PqAlgorithm::composite("1.3.6.1.5.5.7.6.41", "mldsa65-rsa3072-pss-sha512"),
+    PqAlgorithm::composite("1.3.6.1.5.5.7.6.42", "mldsa65-rsa3072-pkcs15-sha512"),
+    PqAlgorithm::composite("1.3.6.1.5.5.7.6.43", "mldsa65-rsa4096-pss-sha512"),
+    PqAlgorithm::composite("1.3.6.1.5.5.7.6.44", "mldsa65-rsa4096-pkcs15-sha512"),
+    PqAlgorithm::composite("1.3.6.1.5.5.7.6.45", "mldsa65-ecdsa-p256-sha512"),
+    PqAlgorithm::composite("1.3.6.1.5.5.7.6.46", "mldsa65-ecdsa-p384-sha512"),
+    PqAlgorithm::composite("1.3.6.1.5.5.7.6.47", "mldsa65-ecdsa-brainpoolp256r1-sha512"),
+    PqAlgorithm::composite("1.3.6.1.5.5.7.6.48", "mldsa65-ed25519-sha512"),
+    PqAlgorithm::composite("1.3.6.1.5.5.7.6.49", "mldsa87-ecdsa-p384-sha512"),
+    PqAlgorithm::composite("1.3.6.1.5.5.7.6.50", "mldsa87-ecdsa-brainpoolp384r1-sha512"),
+    PqAlgorithm::composite("1.3.6.1.5.5.7.6.51", "mldsa87-ed448-shake256"),
+    PqAlgorithm::composite("1.3.6.1.5.5.7.6.52", "mldsa87-rsa3072-pss-sha512"),
+    PqAlgorithm::composite("1.3.6.1.5.5.7.6.53", "mldsa87-rsa4096-pss-sha512"),
+    PqAlgorithm::composite("1.3.6.1.5.5.7.6.54", "mldsa87-ecdsa-p521-sha512"),
 ];
 
 /// Look up a recognized PQ algorithm by OID body bytes.
 pub fn pq_algorithm(oid_bytes: &[u8]) -> Option<&'static PqAlgorithm> {
-    PQ_ALGORITHMS.iter().find(|alg| alg.oid == oid_bytes)
+    PQ_ALGORITHMS.iter().find(|alg| alg.oid() == oid_bytes)
 }
 
 #[cfg(test)]
@@ -319,61 +412,23 @@ mod tests {
         );
     }
 
-    /// DER-encode a dotted-decimal OID (X.690 §8.19). Test-only: lets the
-    /// table test derive the expected bytes from the human-readable
-    /// `dotted` field, so contributors copy dotted OIDs from the registry
-    /// and never hand-encode — on mismatch the assertion prints the
-    /// correct encoding to paste into the table.
-    fn encode_dotted_oid(dotted: &str) -> Vec<u8> {
-        let arcs: Vec<u64> = dotted
-            .split('.')
-            .map(|a| a.parse().expect("dotted OID arcs must be numeric"))
-            .collect();
-        assert!(arcs.len() >= 2, "OID needs at least two arcs: {}", dotted);
-        let mut out = vec![(arcs[0] * 40 + arcs[1]) as u8];
-        for &arc in &arcs[2..] {
-            // Base-128, big-endian, continuation bit on all but the last byte.
-            let mut chunks = [0u8; 10];
-            let mut i = chunks.len();
-            let mut v = arc;
-            loop {
-                i -= 1;
-                chunks[i] = (v & 0x7f) as u8;
-                v >>= 7;
-                if v == 0 {
-                    break;
-                }
-            }
-            let last = chunks.len() - 1;
-            for (j, b) in chunks.iter().enumerate().skip(i) {
-                out.push(if j == last { *b } else { b | 0x80 });
-            }
-        }
-        out
-    }
-
     #[test]
-    fn pq_table_matches_dotted_form_and_has_no_duplicates() {
+    fn pq_table_roundtrips_and_has_no_duplicates() {
         use std::collections::HashSet;
         let mut oids: HashSet<&[u8]> = HashSet::new();
         let mut names: HashSet<&str> = HashSet::new();
         for alg in PQ_ALGORITHMS {
-            // Derive the expected encoding from the dotted form. This
-            // assertion comes first so a placeholder `oid: &[]` entry
-            // fails with the bytes to paste rather than a decode panic.
-            let expected = encode_dotted_oid(alg.dotted);
+            // The compile-time encoder produced alg.oid() from alg.dotted;
+            // round-trip through the independent runtime decoder to verify
+            // they agree.
+            let oid = Oid::from_bytes(alg.oid()).unwrap();
             assert_eq!(
-                alg.oid,
-                expected.as_slice(),
-                "OID bytes for {} do not match {} — correct encoding: {:#04x?}",
-                alg.name,
+                oid.to_id_string(),
                 alg.dotted,
-                expected
+                "derived bytes for {} do not decode back to its dotted form",
+                alg.name
             );
-            // And round-trip through the decoder for good measure.
-            let oid = Oid::from_bytes(alg.oid).unwrap();
-            assert_eq!(oid.to_id_string(), alg.dotted);
-            assert!(oids.insert(alg.oid), "duplicate OID for {}", alg.name);
+            assert!(oids.insert(alg.oid()), "duplicate OID for {}", alg.name);
             assert!(names.insert(alg.name), "duplicate name {}", alg.name);
         }
         // 3 ML-DSA + 12 SLH-DSA + 18 composite ML-DSA
@@ -381,16 +436,30 @@ mod tests {
     }
 
     #[test]
-    fn encoder_agrees_with_decoder_on_classic_oids() {
-        // Sanity-check the test-only encoder against the well-known
-        // constants that long predate the PQ table.
-        assert_eq!(
-            encode_dotted_oid("1.2.840.113549.1.1.1"),
-            OID_RSA_ENCRYPTION
-        );
-        assert_eq!(encode_dotted_oid("1.2.840.10045.2.1"), OID_EC_PUBLIC_KEY);
-        assert_eq!(encode_dotted_oid("1.3.132.0.34"), OID_SECP384R1);
-        assert_eq!(encode_dotted_oid("2.5.29.14"), OID_EXT_SKI);
+    fn compile_time_encoder_agrees_with_classic_constants() {
+        // Cross-check `encode_dotted` against the long-standing
+        // hand-written constants above — an independent fixed point that
+        // guards against the encoder and decoder being wrong in
+        // compensating ways.
+        fn enc(dotted: &str) -> Vec<u8> {
+            let (buf, len) = encode_dotted(dotted);
+            buf[..len].to_vec()
+        }
+        assert_eq!(enc("1.2.840.113549.1.1.1"), OID_RSA_ENCRYPTION);
+        assert_eq!(enc("1.2.840.10045.2.1"), OID_EC_PUBLIC_KEY);
+        assert_eq!(enc("1.3.132.0.34"), OID_SECP384R1);
+        assert_eq!(enc("2.5.29.14"), OID_EXT_SKI);
+    }
+
+    #[test]
+    fn pq_wire_bytes_pinned() {
+        // Pin the exact wire bytes for one entry per arc, independent of
+        // both the encoder and the decoder, so a shared bug in the two
+        // cannot silently shift what the parser matches on.
+        let ml_dsa_65 = pq_algorithm(&[0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x03, 0x12]);
+        assert_eq!(ml_dsa_65.unwrap().name, "ml-dsa-65");
+        let composite = pq_algorithm(&[0x2b, 0x06, 0x01, 0x05, 0x05, 0x07, 0x06, 0x25]);
+        assert_eq!(composite.unwrap().name, "mldsa44-rsa2048-pss-sha256");
     }
 
     #[test]

@@ -353,7 +353,7 @@ mod tests {
     #[test]
     fn every_pq_table_entry_parses_to_its_name() {
         for entry in oid::PQ_ALGORITHMS {
-            let bytes = synthetic_spki(entry.oid, 64);
+            let bytes = synthetic_spki(entry.oid(), 64);
             match parse_spki(&bytes) {
                 PublicKeyAlgorithm::PostQuantum {
                     algorithm,
