@@ -132,14 +132,27 @@ pub const OID_AT_ORGANIZATIONAL_UNIT_NAME: &[u8] = &[0x55, 0x04, 0x0b];
 // automatically. Every entry is verified by the `pq_table_*` tests below
 // (byte encoding round-trips to the dotted form, no duplicates).
 //
-// Sources:
-//   - ML-DSA  (FIPS 204): NIST CSOR sigAlgs arc, RFC 9881.
-//   - SLH-DSA (FIPS 205): NIST CSOR sigAlgs arc, RFC 9909.
-//   - Composite ML-DSA: draft-ietf-lamps-pq-composite-sigs-19 (IANA-assigned
-//     PKIX arc 1.3.6.1.5.5.7.6). NOTE: earlier drafts used Entrust's
-//     prototyping arc 2.16.840.1.114027.80.8.1 — those codepoints were
-//     abandoned and are intentionally NOT listed. If the draft renumbers
-//     again before RFC, this block is the only place to update.
+// Sources (every OID below is copy-checkable against these):
+//
+//   - NIST CSOR algorithm registry (the authority for the sigAlgs arc
+//     2.16.840.1.101.3.4.3 used by ML-DSA and SLH-DSA):
+//     https://csrc.nist.gov/projects/computer-security-objects-register/algorithm-registration
+//   - ML-DSA (FIPS 204, https://csrc.nist.gov/pubs/fips/204/final):
+//     X.509 algorithm identifiers per RFC 9881 §3
+//     (https://www.rfc-editor.org/rfc/rfc9881.html) — sigAlgs .17/.18/.19.
+//   - SLH-DSA (FIPS 205, https://csrc.nist.gov/pubs/fips/205/final):
+//     X.509 algorithm identifiers per RFC 9909
+//     (https://www.rfc-editor.org/rfc/rfc9909.html) — sigAlgs .20–.31,
+//     ordered sha2-128s/f, 192s/f, 256s/f, then shake-128s/f, 192s/f, 256s/f.
+//   - Composite ML-DSA: draft-ietf-lamps-pq-composite-sigs-19
+//     (https://datatracker.ietf.org/doc/draft-ietf-lamps-pq-composite-sigs/19/),
+//     name→OID table maintained at
+//     https://github.com/lamps-wg/draft-composite-sigs/blob/main/src/algParams.md
+//     — IANA-assigned PKIX arc 1.3.6.1.5.5.7.6.37–.54. NOTE: drafts ≤ -12
+//     used Entrust's prototyping arc 2.16.840.1.114027.80.8.1; those
+//     codepoints were abandoned and are intentionally NOT listed. If the
+//     draft renumbers again before RFC, this block is the only place to
+//     update.
 //   - Falcon / FN-DSA (future FIPS 206): no stable OID codepoints as of
 //     June 2026. TODO: add once NIST CSOR assigns them.
 //
@@ -165,11 +178,12 @@ pub struct PqAlgorithm {
 // IANA PKIX arc 1.3.6.1.5.5.7.6 encodes as 2b 06 01 05 05 07 06 + final arc.
 #[rustfmt::skip]
 pub const PQ_ALGORITHMS: &[PqAlgorithm] = &[
-    // ML-DSA (FIPS 204)
+    // ML-DSA (FIPS 204) — RFC 9881 §3: https://www.rfc-editor.org/rfc/rfc9881.html
     PqAlgorithm { oid: &[0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x03, 0x11], dotted: "2.16.840.1.101.3.4.3.17", name: "ml-dsa-44", composite: false },
     PqAlgorithm { oid: &[0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x03, 0x12], dotted: "2.16.840.1.101.3.4.3.18", name: "ml-dsa-65", composite: false },
     PqAlgorithm { oid: &[0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x03, 0x13], dotted: "2.16.840.1.101.3.4.3.19", name: "ml-dsa-87", composite: false },
-    // SLH-DSA (FIPS 205) — all twelve parameter sets
+    // SLH-DSA (FIPS 205) — all twelve parameter sets, RFC 9909:
+    // https://www.rfc-editor.org/rfc/rfc9909.html
     PqAlgorithm { oid: &[0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x03, 0x14], dotted: "2.16.840.1.101.3.4.3.20", name: "slh-dsa-sha2-128s", composite: false },
     PqAlgorithm { oid: &[0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x03, 0x15], dotted: "2.16.840.1.101.3.4.3.21", name: "slh-dsa-sha2-128f", composite: false },
     PqAlgorithm { oid: &[0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x03, 0x16], dotted: "2.16.840.1.101.3.4.3.22", name: "slh-dsa-sha2-192s", composite: false },
@@ -182,7 +196,8 @@ pub const PQ_ALGORITHMS: &[PqAlgorithm] = &[
     PqAlgorithm { oid: &[0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x03, 0x1d], dotted: "2.16.840.1.101.3.4.3.29", name: "slh-dsa-shake-192f", composite: false },
     PqAlgorithm { oid: &[0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x03, 0x1e], dotted: "2.16.840.1.101.3.4.3.30", name: "slh-dsa-shake-256s", composite: false },
     PqAlgorithm { oid: &[0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x03, 0x1f], dotted: "2.16.840.1.101.3.4.3.31", name: "slh-dsa-shake-256f", composite: false },
-    // Composite ML-DSA (draft-ietf-lamps-pq-composite-sigs-19)
+    // Composite ML-DSA (draft-ietf-lamps-pq-composite-sigs-19) — name→OID table:
+    // https://github.com/lamps-wg/draft-composite-sigs/blob/main/src/algParams.md
     PqAlgorithm { oid: &[0x2b, 0x06, 0x01, 0x05, 0x05, 0x07, 0x06, 0x25], dotted: "1.3.6.1.5.5.7.6.37", name: "mldsa44-rsa2048-pss-sha256", composite: true },
     PqAlgorithm { oid: &[0x2b, 0x06, 0x01, 0x05, 0x05, 0x07, 0x06, 0x26], dotted: "1.3.6.1.5.5.7.6.38", name: "mldsa44-rsa2048-pkcs15-sha256", composite: true },
     PqAlgorithm { oid: &[0x2b, 0x06, 0x01, 0x05, 0x05, 0x07, 0x06, 0x27], dotted: "1.3.6.1.5.5.7.6.39", name: "mldsa44-ed25519-sha512", composite: true },
