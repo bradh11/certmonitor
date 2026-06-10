@@ -22,6 +22,10 @@
 mod der;
 mod error;
 mod pq_algorithms;
+// Public so the in-repo fuzz crate (and the upcoming probe, #33) can
+// reach the parsers; deliberately NOT exported to Python yet — the
+// PyO3 surface for TLS probing lands with tls/probe.rs (#33).
+pub mod tls;
 mod x509;
 
 // Public Rust API. The Python wheel doesn't use these — the wheel calls
