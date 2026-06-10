@@ -42,8 +42,8 @@ class TestPqChainValidator:
         )
         r = self.v.validate(cert, "h", 443)
         assert r["chain_length"] == 3
-        assert [link["role"] for link in r["links"]] == ["leaf", "intermediate", "root"]
-        assert all(link["is_pq"] is False for link in r["links"])
+        assert [link["role"] for link in r["certs"]] == ["leaf", "intermediate", "root"]
+        assert all(link["is_pq"] is False for link in r["certs"])
         assert r["summary"] == {
             "leaf_pq": False,
             "intermediate_pq": False,
@@ -60,8 +60,8 @@ class TestPqChainValidator:
         )
         r = self.v.validate(cert, "h", 443)
         # The realistic migration shape: PQ leaf, classical chain above.
-        assert r["links"][0]["key_is_pq"] is True
-        assert r["links"][0]["signature_is_pq"] is False  # CA's choice
+        assert r["certs"][0]["key_is_pq"] is True
+        assert r["certs"][0]["signature_is_pq"] is False  # CA's choice
         assert r["summary"]["leaf_pq"] is True
         assert r["summary"]["intermediate_pq"] is False
         assert r["summary"]["root_pq"] is False
@@ -74,7 +74,7 @@ class TestPqChainValidator:
             cert_entry("ml-dsa-87", ML_DSA_65_OID, self_signed=True, cn="root"),
         )
         r = self.v.validate(cert, "h", 443)
-        assert all(link["is_pq"] for link in r["links"])
+        assert all(link["is_pq"] for link in r["certs"])
         assert r["summary"] == {
             "leaf_pq": True,
             "intermediate_pq": True,
@@ -98,7 +98,7 @@ class TestPqChainValidator:
         # the key alone does not.
         cert = chain(cert_entry("ecPublicKey", COMPOSITE_OID, self_signed=True))
         r = self.v.validate(cert, "h", 443)
-        link = r["links"][0]
+        link = r["certs"][0]
         assert link["key_is_pq"] is False
         assert link["signature_is_pq"] is True
         assert link["is_pq"] is True
@@ -109,7 +109,7 @@ class TestPqChainValidator:
         cert = chain(cert_entry("ml-dsa-44", ML_DSA_65_OID, self_signed=True))
         r = self.v.validate(cert, "h", 443)
         assert r["chain_length"] == 1
-        assert r["links"][0]["role"] == "leaf"
+        assert r["certs"][0]["role"] == "leaf"
         assert r["summary"] == {
             "leaf_pq": True,
             "intermediate_pq": None,  # no certs in these roles

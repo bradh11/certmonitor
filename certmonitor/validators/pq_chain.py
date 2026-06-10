@@ -76,8 +76,8 @@ class PqChainValidator(BaseCertValidator):
                 ``False``: the leaf's key decides.
 
         Returns:
-            dict: ``{chain_length, links, summary, is_valid}`` where each
-            link is ``{position, role, subject, key_algorithm, key_is_pq,
+            dict: ``{chain_length, certs, summary, is_valid}`` where each
+            entry is ``{position, role, subject, key_algorithm, key_is_pq,
             signature_algorithm_oid, signature_is_pq, is_pq}`` and the
             summary is ``{leaf_pq, intermediate_pq, root_pq}``
             (``None`` when the chain has no certificate in that role).
@@ -87,7 +87,7 @@ class PqChainValidator(BaseCertValidator):
                 ```json
                 {
                     "chain_length": 3,
-                    "links": [
+                    "certs": [
                         {"position": 0, "role": "leaf", "key_algorithm": "ml-dsa-65", "key_is_pq": true, "is_pq": true},
                         {"position": 1, "role": "intermediate", "key_algorithm": "rsaEncryption", "key_is_pq": false, "is_pq": false},
                         {"position": 2, "role": "root", "key_algorithm": "rsaEncryption", "key_is_pq": false, "is_pq": false}
@@ -96,7 +96,7 @@ class PqChainValidator(BaseCertValidator):
                     "is_valid": true
                 }
                 ```
-                (Per-link fields abbreviated; each link also carries
+                (Per-cert fields abbreviated; each entry also carries
                 ``subject``, ``signature_algorithm_oid``, and
                 ``signature_is_pq``.)
         """
@@ -118,7 +118,7 @@ class PqChainValidator(BaseCertValidator):
         if not raw_certs:
             return self._error_result("Certificate chain is empty.")
 
-        links: List[Dict[str, Any]] = []
+        certs: List[Dict[str, Any]] = []
         for idx, raw in enumerate(raw_certs):
             key_algorithm = raw.get("public_key_info", {}).get("algorithm", "unknown")
             sig_oid = raw.get("signature_algorithm_oid", "")
@@ -132,7 +132,7 @@ class PqChainValidator(BaseCertValidator):
             else:
                 role = "intermediate"
 
-            links.append(
+            certs.append(
                 {
                     "position": idx,
                     "role": role,
@@ -146,19 +146,19 @@ class PqChainValidator(BaseCertValidator):
             )
 
         summary = {
-            "leaf_pq": links[0]["key_is_pq"],
-            "intermediate_pq": self._role_all_pq(links, "intermediate"),
-            "root_pq": self._role_all_pq(links, "root"),
+            "leaf_pq": certs[0]["key_is_pq"],
+            "intermediate_pq": self._role_all_pq(certs, "intermediate"),
+            "root_pq": self._role_all_pq(certs, "root"),
         }
 
         if require_full_chain:
-            is_valid = all(link["is_pq"] for link in links)
+            is_valid = all(entry["is_pq"] for entry in certs)
         else:
             is_valid = bool(summary["leaf_pq"])
 
         result: Dict[str, Any] = {
-            "chain_length": len(links),
-            "links": links,
+            "chain_length": len(certs),
+            "certs": certs,
             "summary": summary,
             "is_valid": is_valid,
         }
@@ -166,17 +166,17 @@ class PqChainValidator(BaseCertValidator):
             result["reason"] = (
                 "Not every certificate in the chain uses a post-quantum algorithm."
                 if require_full_chain
-                else f"Leaf key algorithm ({links[0]['key_algorithm']}) is not post-quantum."
+                else f"Leaf key algorithm ({certs[0]['key_algorithm']}) is not post-quantum."
             )
         return result
 
     @staticmethod
-    def _role_all_pq(links: List[Dict[str, Any]], role: str) -> Optional[bool]:
+    def _role_all_pq(certs: List[Dict[str, Any]], role: str) -> Optional[bool]:
         """True/False when every cert of ``role`` is PQ; None when absent."""
-        of_role = [link for link in links if link["role"] == role]
+        of_role = [entry for entry in certs if entry["role"] == role]
         if not of_role:
             return None
-        return all(link["is_pq"] for link in of_role)
+        return all(entry["is_pq"] for entry in of_role)
 
     @staticmethod
     def _error_result(reason: str) -> Dict[str, Any]:
@@ -184,6 +184,6 @@ class PqChainValidator(BaseCertValidator):
             "is_valid": False,
             "reason": reason,
             "chain_length": 0,
-            "links": [],
+            "certs": [],
             "summary": {"leaf_pq": False, "intermediate_pq": None, "root_pq": None},
         }

@@ -3,7 +3,7 @@
 Reports the **post-quantum posture of every certificate in the presented
 chain**. During the staged PQ migration the leaf, intermediates, and root
 rotate independently, so a single yes/no for the whole chain hides the
-information operators actually need — this validator gives a per-link
+information operators actually need — this validator gives a per-certificate
 view plus a role-level summary.
 
 A certificate counts as PQ when **either** its public key algorithm or
@@ -44,7 +44,7 @@ A post-quantum leaf on a classical chain (the realistic migration shape):
 ```json
 {
     "chain_length": 3,
-    "links": [
+    "certs": [
         {"position": 0, "role": "leaf", "key_algorithm": "ml-dsa-65",
          "key_is_pq": true, "signature_algorithm_oid": "1.2.840.113549.1.1.11",
          "signature_is_pq": false, "is_pq": true},
