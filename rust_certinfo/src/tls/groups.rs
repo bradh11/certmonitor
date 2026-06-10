@@ -6,6 +6,20 @@
 // kept apart from the wire-format code — tracking new group codepoints
 // never means touching parser logic.
 //
+// ## Which registry file do I touch?
+//
+// CertMonitor tracks the two distinct post-quantum surfaces in two
+// independent data files — they are different namespaces (ASN.1 OIDs
+// vs. 16-bit IANA codepoints) covering different algorithm families,
+// so adding an entry to one NEVER requires touching the other:
+//
+//   - New **certificate** algorithm (signatures/keys: ML-DSA, SLH-DSA,
+//     composites — published by NIST CSOR / IETF LAMPS)
+//       → `rust_certinfo/src/pq_algorithms.rs`
+//   - New **TLS key-exchange group** (KEMs: ML-KEM hybrids etc. —
+//     published by the IANA TLS Supported Groups registry)
+//       → this file
+//
 // ## Adding a group
 //
 // Append one entry to `SUPPORTED_GROUPS` with the values the IANA

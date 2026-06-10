@@ -1,9 +1,19 @@
 // rust_certinfo/src/pq_algorithms.rs
 //
-// The post-quantum algorithm registry. This file is deliberately
-// self-contained — pure data plus one lookup function — and kept apart
-// from the DER / X.509 parser code so that tracking the PQ ecosystem
-// never means touching parser logic.
+// The post-quantum **certificate algorithm** registry. This file is
+// deliberately self-contained — pure data plus one lookup function —
+// and kept apart from the DER / X.509 parser code so that tracking the
+// PQ ecosystem never means touching parser logic.
+//
+// ## Which registry file do I touch?
+//
+// This file covers algorithms that appear *inside certificates*
+// (signature/key OIDs from NIST CSOR / IETF LAMPS). TLS *key-exchange
+// groups* (ML-KEM hybrids etc., 16-bit IANA codepoints seen in
+// handshakes) live in their own independent registry at
+// `rust_certinfo/src/tls/groups.rs` — different namespace, different
+// algorithm families, so adding an entry to one never requires
+// touching the other.
 //
 // ## Adding an algorithm
 //
