@@ -159,6 +159,25 @@ pub const OID_AT_ORGANIZATIONAL_UNIT_NAME: &[u8] = &[0x55, 0x04, 0x0b];
 // These OIDs identify both the SubjectPublicKeyInfo algorithm and the
 // certificate signatureAlgorithm — ML-DSA/SLH-DSA use the same OID for
 // the key and the signature, with absent parameters.
+//
+// Where the hex bytes come from: the registries publish OIDs in dotted
+// decimal, but certificates carry them DER-encoded (X.690 §8.19), and the
+// parser compares those raw bytes — so the table stores the encoded form.
+// The rule:
+//
+//   - First byte = 40 × arc1 + arc2.        2.16 → 96 → 0x60;  1.3 → 43 → 0x2b
+//   - Every later arc is base-128, big-endian, high bit set on every byte
+//     except its last.                       840 = 6×128 + 72 → 0x86 0x48
+//   - Arcs under 128 are one literal byte.   101 → 0x65;  17 → 0x11;  37 → 0x25
+//
+//   Worked example — id-ml-dsa-44 = 2.16.840.1.101.3.4.3.17:
+//     2.16 → 0x60 · 840 → 0x86 0x48 · 1 → 0x01 · 101 → 0x65
+//     · 3 → 0x03 · 4 → 0x04 · 3 → 0x03 · 17 → 0x11
+//
+// You never need to encode by hand: to add an entry, fill in `dotted` and
+// `name` from the registry and leave `oid: &[]`. `cargo test` fails with
+// the correct byte encoding to paste — the `pq_table_*` test derives it
+// from `dotted` and prints it in the assertion message.
 
 /// One post-quantum algorithm the parser recognizes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -300,24 +319,78 @@ mod tests {
         );
     }
 
+    /// DER-encode a dotted-decimal OID (X.690 §8.19). Test-only: lets the
+    /// table test derive the expected bytes from the human-readable
+    /// `dotted` field, so contributors copy dotted OIDs from the registry
+    /// and never hand-encode — on mismatch the assertion prints the
+    /// correct encoding to paste into the table.
+    fn encode_dotted_oid(dotted: &str) -> Vec<u8> {
+        let arcs: Vec<u64> = dotted
+            .split('.')
+            .map(|a| a.parse().expect("dotted OID arcs must be numeric"))
+            .collect();
+        assert!(arcs.len() >= 2, "OID needs at least two arcs: {}", dotted);
+        let mut out = vec![(arcs[0] * 40 + arcs[1]) as u8];
+        for &arc in &arcs[2..] {
+            // Base-128, big-endian, continuation bit on all but the last byte.
+            let mut chunks = [0u8; 10];
+            let mut i = chunks.len();
+            let mut v = arc;
+            loop {
+                i -= 1;
+                chunks[i] = (v & 0x7f) as u8;
+                v >>= 7;
+                if v == 0 {
+                    break;
+                }
+            }
+            let last = chunks.len() - 1;
+            for (j, b) in chunks.iter().enumerate().skip(i) {
+                out.push(if j == last { *b } else { b | 0x80 });
+            }
+        }
+        out
+    }
+
     #[test]
-    fn pq_table_roundtrips_and_has_no_duplicates() {
+    fn pq_table_matches_dotted_form_and_has_no_duplicates() {
         use std::collections::HashSet;
         let mut oids: HashSet<&[u8]> = HashSet::new();
         let mut names: HashSet<&str> = HashSet::new();
         for alg in PQ_ALGORITHMS {
-            let oid = Oid::from_bytes(alg.oid).unwrap();
+            // Derive the expected encoding from the dotted form. This
+            // assertion comes first so a placeholder `oid: &[]` entry
+            // fails with the bytes to paste rather than a decode panic.
+            let expected = encode_dotted_oid(alg.dotted);
             assert_eq!(
-                oid.to_id_string(),
+                alg.oid,
+                expected.as_slice(),
+                "OID bytes for {} do not match {} — correct encoding: {:#04x?}",
+                alg.name,
                 alg.dotted,
-                "byte encoding does not match dotted form for {}",
-                alg.name
+                expected
             );
+            // And round-trip through the decoder for good measure.
+            let oid = Oid::from_bytes(alg.oid).unwrap();
+            assert_eq!(oid.to_id_string(), alg.dotted);
             assert!(oids.insert(alg.oid), "duplicate OID for {}", alg.name);
             assert!(names.insert(alg.name), "duplicate name {}", alg.name);
         }
         // 3 ML-DSA + 12 SLH-DSA + 18 composite ML-DSA
         assert_eq!(PQ_ALGORITHMS.len(), 33);
+    }
+
+    #[test]
+    fn encoder_agrees_with_decoder_on_classic_oids() {
+        // Sanity-check the test-only encoder against the well-known
+        // constants that long predate the PQ table.
+        assert_eq!(
+            encode_dotted_oid("1.2.840.113549.1.1.1"),
+            OID_RSA_ENCRYPTION
+        );
+        assert_eq!(encode_dotted_oid("1.2.840.10045.2.1"), OID_EC_PUBLIC_KEY);
+        assert_eq!(encode_dotted_oid("1.3.132.0.34"), OID_SECP384R1);
+        assert_eq!(encode_dotted_oid("2.5.29.14"), OID_EXT_SKI);
     }
 
     #[test]
