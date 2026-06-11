@@ -190,16 +190,34 @@ fuzz-long: FUZZ_DURATION = 3600
 fuzz-long: _fuzz_run
 
 _fuzz_run:
-	@command -v cargo-fuzz >/dev/null 2>&1 || { \
+	@if ! command -v cargo-fuzz >/dev/null 2>&1; then \
 		echo "❌ cargo-fuzz not installed."; \
-		echo "   Install with: cargo install cargo-fuzz"; \
-		exit 1; \
-	}
-	@rustup toolchain list 2>/dev/null | grep -q nightly || { \
+		if [ -t 0 ]; then \
+			printf "   Install now with 'cargo install cargo-fuzz'? [y/N] "; \
+			read ans; \
+			case "$$ans" in \
+				[Yy]*) cargo install cargo-fuzz || exit 1 ;; \
+				*) echo "   Aborting. Install manually and re-run 'make fuzz'."; exit 1 ;; \
+			esac; \
+		else \
+			echo "   Install with: cargo install cargo-fuzz"; \
+			exit 1; \
+		fi; \
+	fi
+	@if ! rustup toolchain list 2>/dev/null | grep -q nightly; then \
 		echo "❌ nightly Rust toolchain not installed."; \
-		echo "   Install with: rustup toolchain install nightly"; \
-		exit 1; \
-	}
+		if [ -t 0 ]; then \
+			printf "   Install now with 'rustup toolchain install nightly'? [y/N] "; \
+			read ans; \
+			case "$$ans" in \
+				[Yy]*) rustup toolchain install nightly || exit 1 ;; \
+				*) echo "   Aborting. Install manually and re-run 'make fuzz'."; exit 1 ;; \
+			esac; \
+		else \
+			echo "   Install with: rustup toolchain install nightly"; \
+			exit 1; \
+		fi; \
+	fi
 	@echo "🐛 Seeding fuzz corpus from tests/fixtures/diff_corpus/..."
 	@mkdir -p fuzz/corpus/parse_certificate
 	@cp tests/fixtures/diff_corpus/*.der fuzz/corpus/parse_certificate/ 2>/dev/null || true
