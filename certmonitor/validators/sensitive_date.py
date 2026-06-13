@@ -9,6 +9,15 @@ from typing import Any, Dict, List, NamedTuple, Optional, Tuple, Union
 
 from ._utils import parse_not_after
 from .base import BaseCertValidator
+from .results import ValidationResult
+
+
+class SensitiveDateResult(ValidationResult, total=False):
+    """Result shape for :class:`SensitiveDateValidator` (envelope + data)."""
+
+    leapday_expiry: bool
+    weekend_expiry: bool
+    sensitive_date_matches: List[Dict[str, str]]
 
 
 class SensitiveDate(NamedTuple):
@@ -93,7 +102,7 @@ class SensitiveDateValidator(BaseCertValidator):
         port: int,
         *,
         dates: Optional[List[SensitiveDateInput]] = None,
-    ) -> Dict[str, Any]:
+    ) -> SensitiveDateResult:
         """
         Validates the sensitivity of the expiry date of the provided SSL certificate.
 
@@ -157,7 +166,7 @@ class SensitiveDateValidator(BaseCertValidator):
                 try:
                     normalized.append(_normalize(item))
                 except (TypeError, ValueError) as exc:
-                    return {
+                    invalid: SensitiveDateResult = {
                         "is_valid": False,
                         "reason": f"Invalid sensitive date input: {exc}",
                         "leapday_expiry": False,
@@ -165,6 +174,7 @@ class SensitiveDateValidator(BaseCertValidator):
                         "sensitive_date_matches": [],
                         "warnings": [],
                     }
+                    return invalid
 
         not_after = parse_not_after(cert)
         expiry_date = not_after.date()
@@ -195,7 +205,7 @@ class SensitiveDateValidator(BaseCertValidator):
 
         is_valid = not (leapday_expiry or weekend_expiry or sensitive_date_matches)
 
-        result: Dict[str, Any] = {
+        result: SensitiveDateResult = {
             "is_valid": is_valid,
             "leapday_expiry": leapday_expiry,
             "weekend_expiry": weekend_expiry,

@@ -1,9 +1,16 @@
 # validators/tls_version.py
 
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from ..cipher_algorithms import ALLOWED_TLS_VERSIONS
 from .base import BaseCipherValidator
+from .results import ValidationResult
+
+
+class TLSVersionResult(ValidationResult, total=False):
+    """Result shape for :class:`TLSVersionValidator` (envelope + data)."""
+
+    protocol_version: Optional[str]
 
 
 class TLSVersionValidator(BaseCipherValidator):
@@ -15,7 +22,7 @@ class TLSVersionValidator(BaseCipherValidator):
 
     def validate(
         self, cipher_info: Dict[str, Any], host: str, port: int
-    ) -> Dict[str, Any]:
+    ) -> TLSVersionResult:
         """
         Validates the TLS protocol version used by the connection.
 
@@ -54,7 +61,7 @@ class TLSVersionValidator(BaseCipherValidator):
                 ```
         """
         protocol_version = cipher_info.get("protocol_version")
-        result = {
+        result: TLSVersionResult = {
             "is_valid": True,
             "protocol_version": protocol_version,
         }

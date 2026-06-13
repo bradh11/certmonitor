@@ -1,10 +1,18 @@
 # validators/expiration.py
 
 import datetime
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 from ._utils import parse_not_after
 from .base import BaseCertValidator
+from .results import ValidationResult
+
+
+class ExpirationResult(ValidationResult, total=False):
+    """Result shape for :class:`ExpirationValidator` (envelope + data)."""
+
+    days_to_expiry: int
+    expires_on: str
 
 
 class ExpirationValidator(BaseCertValidator):
@@ -17,7 +25,7 @@ class ExpirationValidator(BaseCertValidator):
 
     name: str = "expiration"
 
-    def validate(self, cert: Dict[str, Any], host: str, port: int) -> Dict[str, Any]:
+    def validate(self, cert: Dict[str, Any], host: str, port: int) -> ExpirationResult:
         """
         Validates the expiration date of the provided SSL certificate.
 
@@ -65,7 +73,7 @@ class ExpirationValidator(BaseCertValidator):
         is_valid = now < not_after
         days_to_expiry = (not_after - now).days
 
-        warnings = []
+        warnings: List[str] = []
         if days_to_expiry < 0:
             warnings.append(
                 f"Certificate is expired and has been expired for ({days_to_expiry} days)"
@@ -79,7 +87,7 @@ class ExpirationValidator(BaseCertValidator):
                 f"Certificate is valid for more than industry standard ({days_to_expiry}/398 days)"
             )
 
-        result: Dict[str, Any] = {
+        result: ExpirationResult = {
             "is_valid": is_valid,
             "days_to_expiry": days_to_expiry,
             "expires_on": not_after.isoformat(),
