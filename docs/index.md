@@ -21,6 +21,7 @@
 
 - **Easy Certificate Retrieval**: Fetch and parse certificates from any host (domain or IP) with a single call.
 - **Pluggable Validators**: Built-in and custom validators for expiration, hostname, SANs, key strength, cipher, protocol version, and more.
+- **Post-Quantum Readiness**: Opt-in validators detect post-quantum (hybrid/pure **ML-KEM**) TLS key exchange and post-quantum certificate keys/signatures (**ML-DSA**, **SLH-DSA**, composite) — track quantum-safe migration and *harvest-now-decrypt-later* exposure.
 - **Rich API**: Access raw certificate data, cipher info, and validation results in structured Python objects or JSON.
 - **Rust-Powered Performance**: Advanced public key parsing and elliptic curve support are powered by Rust for speed and safety. All orchestration and logic are pure Python standard library.
 - **Graceful Error Handling**: Robust to network failures, invalid hosts, and edge cases.
@@ -55,7 +56,7 @@ with CertMonitor("example.com") as monitor:
 
     # Validate with specific arguments for a validator
     results = monitor.validate(
-        validator_args={"subject_alt_names": ["example.com", "www.example.com"]}
+        validator_args={"subject_alt_names": {"alternate_names": ["example.com", "www.example.com"]}}
     )
     print("\nValidation Results:")
     for validator_name, result in results.items():

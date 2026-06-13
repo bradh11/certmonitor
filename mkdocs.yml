@@ -6,6 +6,11 @@ repo_url: https://github.com/bradh11/certmonitor
 repo_name: bradh11/certmonitor
 nav:
   - Home: index.md
+  - Concepts:
+      - Overview: concepts/index.md
+      - How TLS & HTTPS Work: concepts/how-tls-works.md
+      - Certificates & PKI: concepts/certificates-and-pki.md
+      - Post-Quantum Cryptography: concepts/post-quantum.md
   - Usage:
       - Overview: usage/index.md
       - Installation: usage/installation.md
