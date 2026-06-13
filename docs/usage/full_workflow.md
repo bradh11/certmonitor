@@ -74,8 +74,8 @@ Here's roughly what each call gives you back. The output is trimmed for readabil
 {
   "cipher_suite": {
     "name": "TLS_AES_256_GCM_SHA384",
-    "encryption_algorithm": "AES-256-GCM",
-    "message_authentication_code": "AEAD",
+    "encryption_algorithm": "AES",
+    "message_authentication_code": "SHA384",
     "key_exchange_algorithm": "Not applicable (TLS 1.3 uses ephemeral key exchange by default)"
   },
   "protocol_version": "TLSv1.3",
