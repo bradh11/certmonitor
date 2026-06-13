@@ -124,7 +124,7 @@ ALLOWED_CIPHER_SUITES = {
     "ECDHE-ECDSA-AES256-GCM-SHA384",
     "ECDHE-RSA-AES256-GCM-SHA384",
     # TLS 1.3 (IANA names, as reported by Python's ssl module). ALLOWED_TLS_VERSIONS
-    # permits TLS 1.3, so its cipher suites must be allowed too — otherwise every
+    # permits TLS 1.3, so its cipher suites must be allowed too, otherwise every
     # TLS 1.3 connection (the modern default) is flagged weak on its strongest config.
     "TLS_AES_128_GCM_SHA256",
     "TLS_AES_256_GCM_SHA384",
