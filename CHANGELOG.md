@@ -28,6 +28,8 @@ rename the headers to emoji form when cutting a release.
 
 ### Fixed
 - `key_info` no longer reports every EC certificate as `is_valid: false`. The Rust parser emitted the EC curve as an OID (e.g. `1.2.840.10045.3.1.7`) while the validator compared against curve short names, so the strong-curve check never matched. `parse_public_key_info` now reports the curve by its documented short name (e.g. `secp256r1`), falling back to the OID string for curves outside the known table. Latent since the in-tree parser rewrite (v0.3.0); curve identity stays in the Rust registry (#48).
+- `weak_cipher` no longer reports every TLS 1.3 connection as using a disallowed cipher. The allowed-cipher list held only TLS 1.2 (OpenSSL-style) names while `ALLOWED_TLS_VERSIONS` permits TLS 1.3, so a TLS 1.3 handshake — the modern default — failed on its strongest cipher. The three standard TLS 1.3 suites (`TLS_AES_128_GCM_SHA256`, `TLS_AES_256_GCM_SHA384`, `TLS_CHACHA20_POLY1305_SHA256`) are now allowed (#50).
+- Fixed test state leakage where `update_allowed_lists` mutated the module-global allow-lists without restoration, letting one test's custom lists bleed into later tests in the same run.
 - TLS probe ClientHello random is now guaranteed to vary between calls. The previous time-plus-stack-address seed could collide when the clock did not advance between two calls (observed on macOS's coarse `SystemTime` resolution), producing identical "random" bytes and a flaky test; a monotonic per-call counter now guarantees distinct values (#33).
 
 ## [0.3.0] - 2026-04-15

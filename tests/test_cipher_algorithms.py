@@ -9,12 +9,30 @@ This module tests:
 - LRU cache functionality
 """
 
+import pytest
+
+import certmonitor.cipher_algorithms as ca
 from certmonitor.cipher_algorithms import (
     list_algorithms,
     parse_cipher_suite,
     update_algorithms,
     update_allowed_lists,
 )
+
+
+@pytest.fixture(autouse=True)
+def _restore_allowed_lists():
+    """Snapshot and restore the module-global allow-lists around each test.
+
+    ``update_allowed_lists`` reassigns ``ALLOWED_CIPHER_SUITES`` /
+    ``ALLOWED_TLS_VERSIONS`` in place, so tests that exercise it would
+    otherwise leak the mutated lists into every later test in the session.
+    """
+    orig_ciphers = set(ca.ALLOWED_CIPHER_SUITES)
+    orig_versions = set(ca.ALLOWED_TLS_VERSIONS)
+    yield
+    ca.ALLOWED_CIPHER_SUITES = orig_ciphers
+    ca.ALLOWED_TLS_VERSIONS = orig_versions
 
 
 class TestCipherAlgorithms:
