@@ -44,6 +44,21 @@ is determined without any extra connection.
 connection to the host; IDS/rate-limiters may observe it. This is one
 reason the validator is opt-in.
 
+## How it decides
+
+```mermaid
+flowchart TD
+    A[validate called] --> B{Primary connection<br/>negotiated TLS 1.3?}
+    B -- "No (TLS 1.2 or older)" --> N["is_valid: false<br/>kem_kind: n/a<br/><b>no second connection</b>"]
+    B -- Yes --> C[Probe: open 2nd TCP connection,<br/>send TLS 1.3 ClientHello<br/>offering PQ groups]
+    C --> D{Probe result}
+    D -- error --> E["is_valid: false<br/>error + message + reason"]
+    D -- n/a --> N
+    D -- group --> F{Negotiated group<br/>post-quantum?}
+    F -- "Yes — hybrid or pure ML-KEM" --> G["is_valid: true<br/>is_pq: true"]
+    F -- "No — classical ECDH" --> H["is_valid: false<br/>classical KEX — HNDL-exposed"]
+```
+
 ## Example output
 
 Hybrid PQ (pass):

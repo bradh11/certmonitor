@@ -37,6 +37,26 @@ with CertMonitor("example.com", enabled_validators=["pq_chain"]) as m:
 Chain retrieval requires Python 3.10+ (same constraint as the `chain`
 validator); older interpreters get a structured error.
 
+## How it decides
+
+Each link is classified independently, then the verdict keys off the leaf
+key by default (or the whole chain with `require_full_chain`).
+
+```mermaid
+flowchart TD
+    A[validate called] --> B{Chain available?<br/>Python 3.10+}
+    B -- No --> Z["structured error"]
+    B -- Yes --> C[For each certificate:<br/>is_pq = key_is_pq OR signature_is_pq]
+    C --> D[Summarize by role:<br/>leaf_pq / intermediate_pq / root_pq]
+    D --> E{require_full_chain?}
+    E -- "false (default)" --> F{Leaf key<br/>post-quantum?}
+    F -- Yes --> G["is_valid: true"]
+    F -- No --> H["is_valid: false"]
+    E -- true --> I{Every certificate<br/>is_pq?}
+    I -- Yes --> G
+    I -- No --> H
+```
+
 ## Example output
 
 A post-quantum leaf on a classical chain (the realistic migration shape):
