@@ -113,6 +113,12 @@ pub const OID_SECP256K1: &[u8] = &[0x2b, 0x81, 0x04, 0x00, 0x0a];
 /// name rather than a raw OID; unknown curves fall back to the dotted
 /// OID string. This keeps curve identity in one place (next to the OID
 /// constants) instead of duplicated in the Python layer.
+///
+/// Its only non-test caller is the PyO3 layer (`pyobj`), which is gated
+/// behind the `python` feature. Without that feature (e.g. the fuzz
+/// crate's `--no-default-features` build) this is unused, so suppress the
+/// dead-code warning in exactly that configuration.
+#[cfg_attr(not(feature = "python"), allow(dead_code))]
 pub fn curve_name(oid: Oid<'_>) -> Option<&'static str> {
     match oid.as_bytes() {
         b if b == OID_SECP256R1 => Some("secp256r1"),
