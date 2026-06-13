@@ -23,7 +23,9 @@ class KeyInfoValidator(BaseCertValidator):
     Judges key strength per algorithm family:
 
     - **RSA**: modulus must be at least 2048 bits.
-    - **EC**: curve must be one of secp256r1 / secp384r1 / secp521r1.
+    - **EC**: curve must be one of secp256r1 / secp384r1 / secp521r1
+      (the parser reports the curve by short name; unrecognized curves
+      come through as an OID dotted string and are treated as not strong).
     - **Post-quantum** (ML-DSA, SLH-DSA, and hybrid composite ML-DSA):
       always strong — PQ strength is judged by algorithm identity, since
       the FIPS 204/205 parameter sets have no weak sizes or curves. The
