@@ -1,9 +1,13 @@
 # tests/test_validators/test_key_info.py
 
+from pathlib import Path
+
 import pytest
 
 from certmonitor import certinfo
 from certmonitor.validators.key_info import KeyInfoValidator
+
+_FIXTURES = Path(__file__).resolve().parent.parent / "fixtures"
 
 
 class TestKeyInfoValidator:
@@ -273,6 +277,53 @@ class TestKeyInfoPostQuantum:
         validator = KeyInfoValidator()
         assert validator._is_key_strong_enough("ml-dsa-65", 0, None) is True
         assert validator._is_key_strong_enough("ml-dsa-65", None, None) is True
+
+
+class TestKeyInfoRealParserOutput:
+    """Regression tests driving the validator with the *real* Rust parser
+    output (issue #48).
+
+    The hand-built-dict tests above can silently drift from what the parser
+    actually emits — that is exactly how the EC ``curve`` regression slipped
+    through (the parser emitted an OID like ``1.2.840.10045.3.1.7`` while the
+    validator and its mocks compared against the name ``secp256r1``). These
+    tests parse genuine certificate DER so the validator is exercised against
+    the contract the parser truly produces.
+    """
+
+    def _validate_fixture(self, name: str) -> dict:
+        der = (_FIXTURES / name).read_bytes()
+        cert = {"public_key_info": certinfo.parse_public_key_info(der)}
+        return KeyInfoValidator().validate(cert, "example.com", 443)
+
+    def test_real_ec_p256_cert_is_valid(self):
+        """A real P-256 leaf cert must validate as strong (the #48 bug)."""
+        result = self._validate_fixture("chain_0.der")
+
+        assert result["key_type"] == "ecPublicKey"
+        # The parser must surface the curve as the documented short name,
+        # not a raw OID — this is what makes the strong-curve check match.
+        assert result["curve"] == "secp256r1"
+        assert result["is_valid"] is True
+
+    def test_real_rsa_cert_is_valid(self):
+        """A real RSA-2048+ cert still validates as strong."""
+        result = self._validate_fixture("chain_1.der")
+
+        assert result["key_type"] == "rsaEncryption"
+        assert result["key_size"] >= 2048
+        assert result["is_valid"] is True
+
+
+class TestParsePublicKeyInfoCurveFormat:
+    """The parser must emit curve short names, falling back to the OID
+    dotted string for curves outside the known table (issue #48)."""
+
+    def test_known_curve_reported_as_name(self):
+        der = (_FIXTURES / "chain_0.der").read_bytes()
+        info = certinfo.parse_public_key_info(der)
+        assert info["algorithm"] == "ecPublicKey"
+        assert info["curve"] == "secp256r1"
 
 
 if __name__ == "__main__":

@@ -111,8 +111,9 @@ mod py {
     ) -> PyResult<Py<PyAny>> {
         let timeout = std::time::Duration::from_millis(timeout_ms);
         // Release the GIL for the blocking socket work so concurrent
-        // scans don't serialize on the probe.
-        let result = py.allow_threads(|| crate::tls::probe::probe(host, port, timeout));
+        // scans don't serialize on the probe. (`detach` is pyo3 0.29's
+        // rename of the former `allow_threads`.)
+        let result = py.detach(|| crate::tls::probe::probe(host, port, timeout));
         Ok(pyobj::probe_result_dict(py, &result)?.into())
     }
 

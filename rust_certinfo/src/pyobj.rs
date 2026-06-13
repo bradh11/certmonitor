@@ -77,8 +77,9 @@ pub fn pq_algorithms_list(py: Python<'_>) -> PyResult<Bound<'_, PyList>> {
 
 /// Build the `{"algorithm": ..., "size": ..., "curve": ...}` dict that
 /// `parse_public_key_info` returns. The shape is stable Python-facing
-/// API. For EC keys `curve` carries the curve OID (e.g.
-/// `1.2.840.10045.3.1.7`), not the algorithm OID.
+/// API. For EC keys `curve` carries the curve's well-known short name
+/// (e.g. `secp256r1`), falling back to the curve OID dotted string for
+/// curves not in our table. (It is the curve, never the algorithm OID.)
 pub fn key_info_dict<'py>(
     py: Python<'py>,
     spki: &SubjectPublicKeyInfo<'_>,
@@ -96,7 +97,13 @@ pub fn key_info_dict<'py>(
         } => {
             dict.set_item("algorithm", "ecPublicKey")?;
             dict.set_item("size", key_bits)?;
-            dict.set_item("curve", curve_oid.to_id_string())?;
+            // Surface the documented short name (e.g. "secp256r1") so the
+            // key_info validator's curve check matches; unknown curves fall
+            // back to the dotted OID string.
+            let curve = crate::der::oid::curve_name(curve_oid)
+                .map(str::to_string)
+                .unwrap_or_else(|| curve_oid.to_id_string());
+            dict.set_item("curve", curve)?;
         }
         PublicKeyAlgorithm::PostQuantum {
             algorithm,

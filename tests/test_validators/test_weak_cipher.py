@@ -60,6 +60,29 @@ class TestWeakCipherValidator:
         assert result["cipher_suite"] == "ECDHE-ECDSA-AES256-GCM-SHA384"
         assert "reason" not in result
 
+    @pytest.mark.parametrize(
+        "cipher_name",
+        [
+            "TLS_AES_128_GCM_SHA256",
+            "TLS_AES_256_GCM_SHA384",
+            "TLS_CHACHA20_POLY1305_SHA256",
+        ],
+    )
+    def test_allowed_tls13_cipher_suites(self, cipher_name):
+        """TLS 1.3 cipher suites must be allowed (issue #50).
+
+        ALLOWED_TLS_VERSIONS permits TLS 1.3, so the suites a TLS 1.3
+        handshake actually negotiates — reported by Python's ssl module
+        under their IANA names — must validate as strong. Previously the
+        allow-list held only TLS 1.2 names, so every modern site failed.
+        """
+        cipher_info = {"cipher_suite": {"name": cipher_name}}
+        result = WeakCipherValidator().validate(cipher_info, "example.com", 443)
+
+        assert result["is_valid"] is True, result
+        assert result["cipher_suite"] == cipher_name
+        assert "reason" not in result
+
     def test_weak_cipher_suite_rc4(self):
         """Test validation with a weak RC4 cipher (should be disallowed)."""
         cipher_info = {"cipher_suite": {"name": "TLS_RSA_WITH_RC4_128_MD5"}}
