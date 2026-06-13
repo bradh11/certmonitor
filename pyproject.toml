@@ -1,13 +1,54 @@
 [project]
 name = "certmonitor"
 version = "0.3.0"
-description = "A simple package to parse certificates"
+description = "Zero-dependency TLS/SSL certificate monitoring and validation, including post-quantum (ML-KEM / ML-DSA) readiness checks."
 authors = [
     { name = "Brad Haas", email = "bradh11@gmail.com" }
 ]
 license = "MIT"
 readme = "README.md"
 requires-python = ">=3.8,<3.14"
+keywords = [
+    "tls",
+    "ssl",
+    "certificate",
+    "x509",
+    "certificate-monitoring",
+    "certificate-validation",
+    "security",
+    "cryptography",
+    "post-quantum",
+    "post-quantum-cryptography",
+    "pqc",
+    "quantum-safe",
+    "ml-kem",
+    "ml-dsa",
+    "mlkem",
+    "harvest-now-decrypt-later",
+    "cipher",
+    "monitoring",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: System Administrators",
+    "Intended Audience :: Information Technology",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Rust",
+    "Topic :: Security",
+    "Topic :: Security :: Cryptography",
+    "Topic :: System :: Networking :: Monitoring",
+    "Topic :: System :: Systems Administration",
+    "Typing :: Typed",
+]
 
 dependencies = []
 # No runtime dependencies; standard library only

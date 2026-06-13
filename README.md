@@ -122,6 +122,7 @@ MIID...snip...IDAQAB
 - 🛡️ **Certificate Validators:** Modular checks for expiration, hostname, SANs, key strength, protocol, ciphers, and more.
 - ⚡ **High Performance:** Async- and batch-friendly. Designed for speed and concurrency.
 - 🧩 **Extensible:** Add your own custom validators for organization-specific checks.
+- 🔮 **Post-Quantum Readiness:** Opt-in validators detect post-quantum (hybrid/pure **ML-KEM**) TLS key exchange and post-quantum certificate keys/signatures (**ML-DSA**, **SLH-DSA**, composite) — so you can track quantum-safe migration and *harvest-now-decrypt-later* exposure. See [below](#-post-quantum-readiness).
 - 🐍 **Native Python First:** Works out-of-the-box in any Python 3.8+ environment.
 - 🦀 **Rust-Powered Parsing:** Certificate parsing and public key extraction are handled by a Rust extension for speed, safety, and correctness. <strong>This is required for advanced public key and elliptic curve features, but all orchestration and logic are pure Python stdlib.</strong>
 - 📦 **Portable:** No system dependencies. Drop it into any project or CI pipeline.
@@ -151,6 +152,34 @@ You can enable, disable, or extend validators to fit your needs, making CertMoni
 - `weak_cipher`: Validates that the negotiated cipher suite is in the allowed list.
 - `sensitive_date`: Validates that the certificate doesn't expire on built-in or user specified sensitive dates.
 - `chain`: Validates the full TLS certificate chain for structural problems (missing intermediates, out-of-order, expired members, weak signatures).
+- `pq_key_exchange`: Reports whether the TLS 1.3 key exchange is post-quantum (hybrid or pure ML-KEM) — the *harvest-now-decrypt-later* question. Opt-in.
+- `pq_signature`: Reports the leaf certificate's post-quantum posture (key and signature algorithm — ML-DSA / SLH-DSA / composite). Opt-in.
+- `pq_chain`: Reports the post-quantum posture of every certificate in the presented chain. Opt-in.
+
+> The `pq_*` validators are **opt-in** (not enabled by default). See [Post-Quantum Readiness](#-post-quantum-readiness) below.
+
+---
+
+## 🔮 Post-Quantum Readiness
+
+CertMonitor helps you measure your migration to **post-quantum cryptography (PQC)** across both surfaces that matter, using NIST's finalized standards (FIPS 203 **ML-KEM**, FIPS 204 **ML-DSA**, FIPS 205 **SLH-DSA**):
+
+- **Key exchange (the urgent one).** TLS 1.3 hybrid key exchange (e.g. `X25519MLKEM768`) is what defends today's traffic against *harvest-now-decrypt-later* (HNDL) — an attacker recording encrypted traffic now to decrypt once a quantum computer exists. The `pq_key_exchange` validator reads the negotiated group directly off the wire (the Python `ssl` module doesn't expose it) and tells you whether the session is quantum-safe.
+- **Certificate keys & signatures.** As CAs and operators roll out ML-DSA / SLH-DSA and composite (hybrid) certificates, `pq_signature` and `pq_chain` report the post-quantum posture of the leaf and the full chain.
+
+"PQ" includes **hybrid** algorithms (classical + post-quantum), which is what real-world deployments use today — requiring pure PQ would fail every server currently in production.
+
+```python
+from certmonitor import CertMonitor
+
+with CertMonitor("cloudflare.com", enabled_validators=["pq_key_exchange", "pq_signature", "pq_chain"]) as monitor:
+    results = monitor.validate()
+    print(results["pq_key_exchange"])
+    # {'kem_id': 4588, 'kem_name': 'X25519MLKEM768', 'kem_kind': 'hybrid_pq',
+    #  'is_pq': True, 'is_valid': True}
+```
+
+These validators are **opt-in** (not in the default set) while PQC adoption is still ramping. Full details: [PqKeyExchange](docs/validators/pq_key_exchange.md) · [PqSignature](docs/validators/pq_signature.md) · [PqChain](docs/validators/pq_chain.md).
 
 ---
 
