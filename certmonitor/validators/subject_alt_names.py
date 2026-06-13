@@ -1,9 +1,24 @@
 # validators/subject_alt_names.py
 
 import ipaddress
-from typing import Any, Dict, List, Optional, Tuple, cast
+from typing import Any, Dict, List, Optional, Tuple
 
 from .base import BaseCertValidator
+from .results import ValidationResult
+
+
+class SubjectAltNamesResult(ValidationResult, total=False):
+    """Result shape for :class:`SubjectAltNamesValidator` (envelope + data).
+
+    The top-level ``is_valid`` reflects only whether the certificate carries
+    a usable SAN extension; per-name match outcomes live in the nested
+    ``contains_host`` / ``contains_alternate`` records.
+    """
+
+    sans: Optional[Dict[str, List[str]]]
+    count: int
+    contains_host: Dict[str, Any]
+    contains_alternate: Dict[str, Any]
 
 
 class SubjectAltNamesValidator(BaseCertValidator):
@@ -24,7 +39,7 @@ class SubjectAltNamesValidator(BaseCertValidator):
         port: int,
         *,
         alternate_names: Optional[List[str]] = None,
-    ) -> Dict[str, Any]:
+    ) -> SubjectAltNamesResult:
         """
         Validates the SANs in the provided SSL certificate.
 
@@ -102,12 +117,13 @@ class SubjectAltNamesValidator(BaseCertValidator):
                 ```
         """
         if "subjectAltName" not in cert["cert_info"]:
-            return {
+            no_san: SubjectAltNamesResult = {
                 "is_valid": False,
                 "reason": "Certificate does not contain a Subject Alternative Name extension",
                 "sans": None,
                 "count": 0,
             }
+            return no_san
 
         raw_sans = cert["cert_info"]["subjectAltName"]
 
@@ -121,7 +137,7 @@ class SubjectAltNamesValidator(BaseCertValidator):
                 value for san_type, value in raw_sans if san_type == "IP Address"
             ]
 
-        result: Dict[str, Any] = {
+        result: SubjectAltNamesResult = {
             "is_valid": True,
             "sans": {"DNS": dns_sans, "IP Address": ip_sans},
             "count": len(dns_sans) + len(ip_sans),
@@ -153,7 +169,7 @@ class SubjectAltNamesValidator(BaseCertValidator):
             result["contains_alternate"] = contains_alternate
 
         # Additional checks and warnings
-        warnings = cast(List[str], result["warnings"])
+        warnings = result["warnings"]
         if not dns_sans and not ip_sans:
             warnings.append("Certificate does not contain any DNS or IP Address SANs")
 
@@ -167,9 +183,7 @@ class SubjectAltNamesValidator(BaseCertValidator):
                 f"The hostname/IP {host} is not included in the SANs: {result['contains_host']['reason']}"
             )
 
-        for alt_name, alt_validation in cast(
-            Dict[str, Any], result["contains_alternate"]
-        ).items():
+        for alt_name, alt_validation in result["contains_alternate"].items():
             if not alt_validation["is_valid"]:
                 warnings.append(
                     f"The alternate name {alt_validation['name']} is not included in the SANs: {alt_validation['reason']}"

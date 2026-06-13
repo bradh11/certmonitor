@@ -5,6 +5,16 @@ from typing import Any, Dict, FrozenSet, Optional
 from certmonitor import certinfo
 
 from .base import BaseCertValidator
+from .results import ValidationResult
+
+
+class KeyInfoResult(ValidationResult, total=False):
+    """Result shape for :class:`KeyInfoValidator` (envelope + data)."""
+
+    key_type: str
+    key_size: Optional[int]
+    curve: str
+
 
 # Post-quantum algorithm names, sourced from the Rust registry
 # (rust_certinfo/src/pq_algorithms.rs) via certinfo.pq_algorithms() so
@@ -32,8 +42,10 @@ class KeyInfoValidator(BaseCertValidator):
       recognized set comes from the Rust registry exposed via
       ``certinfo.pq_algorithms()``.
 
-    Unrecognized algorithms return ``is_valid: None`` ("can't judge"),
-    never ``False``.
+    Per the result envelope, ``is_valid`` is always a strict ``bool``. When
+    strength cannot be determined (unrecognized algorithm, or a missing
+    size/curve) the key fails closed — ``is_valid: False`` with a ``reason``
+    that distinguishes "cannot determine" from "recognized but weak".
 
     Attributes:
         name (str): The name of the validator.
@@ -41,7 +53,7 @@ class KeyInfoValidator(BaseCertValidator):
 
     name: str = "key_info"
 
-    def validate(self, cert: Dict[str, Any], host: str, port: int) -> Dict[str, Any]:
+    def validate(self, cert: Dict[str, Any], host: str, port: int) -> KeyInfoResult:
         """
         Validates the key information of the provided SSL certificate.
 
@@ -83,41 +95,75 @@ class KeyInfoValidator(BaseCertValidator):
                 ```
 
             Example output (failure):
-                This example shows a certificate with a weak 512-bit key, so validation fails and a warning is included.
+                This example shows a certificate with a weak 512-bit key, so validation fails with a reason.
 
                 ```json
                 {
                     "key_type": "rsaEncryption",
                     "key_size": 512,
                     "is_valid": false,
-                    "curve": null,
-                    "warnings": [
-                        "Key size 512 is considered weak."
-                    ]
+                    "reason": "RSA key size 512 is below the 2048-bit minimum."
                 }
                 ```
         """
         public_key_info = cert.get("public_key_info", {})
         if not public_key_info:
-            return {
-                "error": "Unable to extract public key information",
+            empty: KeyInfoResult = {
                 "is_valid": False,
+                "reason": "Unable to extract public key information.",
+                "error": "Unable to extract public key information",
             }
+            return empty
 
         key_type = public_key_info.get("algorithm", "Unknown")
         key_size = public_key_info.get("size")
         curve = public_key_info.get("curve")
 
-        result = {
+        # ``_is_key_strong_enough`` returns ``None`` when strength cannot be
+        # determined (unknown algorithm, or required size/curve missing). The
+        # result envelope requires a strict bool, so map ``None`` to ``False``
+        # — "we could not verify this key is strong" fails closed — and carry
+        # the distinction in ``reason``.
+        strength = self._is_key_strong_enough(key_type, key_size, curve)
+        is_valid = bool(strength)
+
+        result: KeyInfoResult = {
             "key_type": key_type,
             "key_size": key_size,
-            "is_valid": self._is_key_strong_enough(key_type, key_size, curve),
+            "is_valid": is_valid,
         }
-
         if curve:
             result["curve"] = curve
 
+        if not is_valid:
+            result["reason"] = self._weak_key_reason(
+                key_type, key_size, curve, strength
+            )
+
         return result
+
+    @staticmethod
+    def _weak_key_reason(
+        key_type: str,
+        key_size: Optional[int],
+        curve: Optional[str],
+        strength: Optional[bool],
+    ) -> str:
+        """Explain why a key did not validate as strong.
+
+        ``strength is None`` means the strength could not be determined;
+        ``strength is False`` means a recognized-but-weak key.
+        """
+        if strength is None:
+            return f"Cannot determine key strength for algorithm {key_type!r}."
+        if "rsaEncryption" in key_type:
+            return f"RSA key size {key_size} is below the 2048-bit minimum."
+        if "ecPublicKey" in key_type:
+            return (
+                f"EC curve {curve!r} is not in the approved set "
+                "(secp256r1, secp384r1, secp521r1)."
+            )
+        return f"Key algorithm {key_type!r} did not meet strength requirements."
 
     def _is_key_strong_enough(
         self, key_type: str, key_size: Optional[int], curve: Optional[str]

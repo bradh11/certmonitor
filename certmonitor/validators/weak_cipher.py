@@ -1,9 +1,16 @@
 # validators/weak_cipher.py
 
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from ..cipher_algorithms import ALLOWED_CIPHER_SUITES
 from .base import BaseCipherValidator
+from .results import ValidationResult
+
+
+class WeakCipherResult(ValidationResult, total=False):
+    """Result shape for :class:`WeakCipherValidator` (envelope + data)."""
+
+    cipher_suite: Optional[str]
 
 
 class WeakCipherValidator(BaseCipherValidator):
@@ -15,7 +22,7 @@ class WeakCipherValidator(BaseCipherValidator):
 
     def validate(
         self, cipher_info: Dict[str, Any], host: str, port: int
-    ) -> Dict[str, Any]:
+    ) -> WeakCipherResult:
         """
         Validates that the negotiated cipher suite is in the allowed list.
 
@@ -52,7 +59,7 @@ class WeakCipherValidator(BaseCipherValidator):
         cipher_suite = cipher_info.get("cipher_suite", {})
         cipher_name = cipher_suite.get("name")
 
-        result = {
+        result: WeakCipherResult = {
             "is_valid": True,
             "cipher_suite": cipher_name,
         }

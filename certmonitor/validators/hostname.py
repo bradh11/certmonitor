@@ -1,8 +1,16 @@
 # validators/hostname.py
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from .base import BaseCertValidator
+from .results import ValidationResult
+
+
+class HostnameResult(ValidationResult, total=False):
+    """Result shape for :class:`HostnameValidator` (envelope + data)."""
+
+    matched_name: str
+    alt_names: List[str]
 
 
 class HostnameValidator(BaseCertValidator):
@@ -15,7 +23,7 @@ class HostnameValidator(BaseCertValidator):
 
     name: str = "hostname"
 
-    def validate(self, cert: Dict[str, Any], host: str, port: int) -> Dict[str, Any]:
+    def validate(self, cert: Dict[str, Any], host: str, port: int) -> HostnameResult:
         """
         Validates the hostname against the Subject Alternative Names (SANs) and Common Name (CN) in the provided SSL certificate.
 
