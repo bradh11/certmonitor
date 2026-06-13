@@ -1,7 +1,5 @@
 # tests/test_validators/test_weak_cipher.py
 
-from unittest.mock import patch
-
 import pytest
 
 from certmonitor.validators.weak_cipher import WeakCipherValidator
@@ -71,10 +69,10 @@ class TestWeakCipherValidator:
     def test_allowed_tls13_cipher_suites(self, cipher_name):
         """TLS 1.3 cipher suites must be allowed (issue #50).
 
-        ALLOWED_TLS_VERSIONS permits TLS 1.3, so the suites a TLS 1.3
-        handshake actually negotiates — reported by Python's ssl module
-        under their IANA names — must validate as strong. Previously the
-        allow-list held only TLS 1.2 names, so every modern site failed.
+        tls_version permits TLS 1.3, so the suites a TLS 1.3 handshake
+        actually negotiates (reported by Python's ssl module under their
+        IANA names) must validate as strong. Previously the allow-list held
+        only TLS 1.2 names, so every modern site failed.
         """
         cipher_info = {"cipher_suite": {"name": cipher_name}}
         result = WeakCipherValidator().validate(cipher_info, "example.com", 443)
@@ -178,45 +176,62 @@ class TestWeakCipherValidator:
         assert "UNKNOWN_CIPHER_SUITE is not allowed" in result["reason"]
 
     def test_custom_allowed_ciphers(self):
-        """Test validation with custom allowed cipher suites."""
-        # Mock the ALLOWED_CIPHER_SUITES to include a custom cipher
-        custom_ciphers = {"CUSTOM-CIPHER-SUITE", "ECDHE-RSA-AES128-GCM-SHA256"}
-        with patch(
-            "certmonitor.validators.weak_cipher.ALLOWED_CIPHER_SUITES", custom_ciphers
-        ):
-            cipher_info = {"cipher_suite": {"name": "CUSTOM-CIPHER-SUITE"}}
-            validator = WeakCipherValidator()
-            result = validator.validate(cipher_info, "example.com", 443)
+        """A custom allowed_cipher_suites arg lets through a custom cipher."""
+        cipher_info = {"cipher_suite": {"name": "CUSTOM-CIPHER-SUITE"}}
+        validator = WeakCipherValidator()
+        result = validator.validate(
+            cipher_info,
+            "example.com",
+            443,
+            allowed_cipher_suites=[
+                "CUSTOM-CIPHER-SUITE",
+                "ECDHE-RSA-AES128-GCM-SHA256",
+            ],
+        )
 
-            assert result["is_valid"] is True
-            assert result["cipher_suite"] == "CUSTOM-CIPHER-SUITE"
-            assert "reason" not in result
+        assert result["is_valid"] is True
+        assert result["cipher_suite"] == "CUSTOM-CIPHER-SUITE"
+        assert "reason" not in result
 
     def test_custom_restricted_ciphers(self):
-        """Test validation with more restrictive allowed cipher suites."""
-        # Mock to only allow one specific cipher
-        with patch(
-            "certmonitor.validators.weak_cipher.ALLOWED_CIPHER_SUITES",
-            {"ECDHE-RSA-AES256-GCM-SHA384"},
-        ):
-            cipher_info = {"cipher_suite": {"name": "ECDHE-RSA-AES128-GCM-SHA256"}}
-            validator = WeakCipherValidator()
-            result = validator.validate(cipher_info, "example.com", 443)
+        """A restrictive allowed_cipher_suites arg rejects an otherwise-strong cipher."""
+        cipher_info = {"cipher_suite": {"name": "ECDHE-RSA-AES128-GCM-SHA256"}}
+        validator = WeakCipherValidator()
+        result = validator.validate(
+            cipher_info,
+            "example.com",
+            443,
+            allowed_cipher_suites=["ECDHE-RSA-AES256-GCM-SHA384"],
+        )
 
-            assert result["is_valid"] is False
-            assert result["cipher_suite"] == "ECDHE-RSA-AES128-GCM-SHA256"
-            assert "reason" in result
+        assert result["is_valid"] is False
+        assert result["cipher_suite"] == "ECDHE-RSA-AES128-GCM-SHA256"
+        assert "reason" in result
 
     def test_empty_allowed_ciphers(self):
-        """Test validation when no cipher suites are allowed."""
-        with patch("certmonitor.validators.weak_cipher.ALLOWED_CIPHER_SUITES", set()):
-            cipher_info = {"cipher_suite": {"name": "ECDHE-RSA-AES128-GCM-SHA256"}}
-            validator = WeakCipherValidator()
-            result = validator.validate(cipher_info, "example.com", 443)
+        """An empty allowed_cipher_suites arg rejects everything."""
+        cipher_info = {"cipher_suite": {"name": "ECDHE-RSA-AES128-GCM-SHA256"}}
+        validator = WeakCipherValidator()
+        result = validator.validate(
+            cipher_info, "example.com", 443, allowed_cipher_suites=[]
+        )
 
-            assert result["is_valid"] is False
-            assert result["cipher_suite"] == "ECDHE-RSA-AES128-GCM-SHA256"
-            assert "reason" in result
+        assert result["is_valid"] is False
+        assert result["cipher_suite"] == "ECDHE-RSA-AES128-GCM-SHA256"
+        assert "reason" in result
+
+    def test_dhe_rsa_allowed_by_default(self):
+        """DHE-RSA AEAD suites are part of Mozilla Intermediate and pass by default."""
+        validator = WeakCipherValidator()
+        for name in (
+            "DHE-RSA-AES128-GCM-SHA256",
+            "DHE-RSA-AES256-GCM-SHA384",
+            "DHE-RSA-CHACHA20-POLY1305",
+        ):
+            result = validator.validate(
+                {"cipher_suite": {"name": name}}, "example.com", 443
+            )
+            assert result["is_valid"] is True, name
 
     def test_case_sensitive_cipher_check(self):
         """Test that cipher suite checking is case-sensitive."""
@@ -268,30 +283,16 @@ class TestWeakCipherValidator:
             assert result["cipher_suite"] == "ECDHE-RSA-AES128-GCM-SHA256"
 
     def test_default_allowed_ciphers(self):
-        """Test that the default allowed cipher suites contain expected strong ciphers."""
-        from certmonitor.cipher_algorithms import ALLOWED_CIPHER_SUITES
+        """The validator's default allowed cipher suites contain strong ciphers."""
+        from certmonitor.validators.weak_cipher import _DEFAULT_ALLOWED_CIPHER_SUITES
 
-        # The test should be resilient to global state changes
-        # At minimum, we should have some strong cipher suites
-        assert len(ALLOWED_CIPHER_SUITES) > 0
-
-        # Verify that at least some modern cipher suites are present
-        # (this test is flexible in case global state was modified)
-        strong_ciphers_found = 0
-        expected_patterns = [
+        assert len(_DEFAULT_ALLOWED_CIPHER_SUITES) > 0
+        for pattern in (
             "ECDHE-RSA-AES128-GCM-SHA256",
             "ECDHE-ECDSA-AES256-GCM-SHA384",
             "ECDHE-RSA-CHACHA20-POLY1305",
-        ]
-
-        for pattern in expected_patterns:
-            if pattern in ALLOWED_CIPHER_SUITES:
-                strong_ciphers_found += 1
-
-        # At least one modern cipher should be present
-        assert strong_ciphers_found > 0, (
-            f"No expected strong ciphers found in {ALLOWED_CIPHER_SUITES}"
-        )
+        ):
+            assert pattern in _DEFAULT_ALLOWED_CIPHER_SUITES
 
     def test_additional_cipher_suite_fields(self):
         """Test that additional fields in cipher_suite are ignored."""

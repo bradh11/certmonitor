@@ -41,7 +41,7 @@ class TestRealCertValidators:
     """Cert validators must produce sane results on real parser output."""
 
     def test_key_info_accepts_real_ec_leaf(self, real_cert_data):
-        """The captured leaf is a real P-256 cert — must validate strong.
+        """The captured leaf is a real P-256 cert, so it must validate strong.
 
         This is the exact path the #48 EC-curve bug broke: the parser emits
         the curve and key_info judges it.
@@ -76,22 +76,36 @@ class TestRealCertValidators:
 
 
 class TestAllowedCipherSuitesAreRealistic:
-    """The weak_cipher allow-list must cover what modern handshakes negotiate.
+    """The weak_cipher default allow-list must cover what modern handshakes
+    negotiate.
 
-    Guards the #50 class: ALLOWED_TLS_VERSIONS permits TLS 1.3, so the suites
-    a TLS 1.3 handshake actually uses must be allowed.
+    Guards the #50 class: tls_version permits TLS 1.3, so the suites a TLS 1.3
+    handshake actually uses must be allowed. Also checks the full Mozilla
+    "Intermediate" set is present (the DHE-RSA suites were once missing).
     """
 
-    def test_tls13_suites_present_in_allowlist(self):
-        from certmonitor.cipher_algorithms import ALLOWED_CIPHER_SUITES
+    def test_mozilla_intermediate_suites_present_in_default(self):
+        from certmonitor.validators.weak_cipher import _DEFAULT_ALLOWED_CIPHER_SUITES
 
-        tls13 = {
+        expected = {
+            # TLS 1.3
             "TLS_AES_128_GCM_SHA256",
             "TLS_AES_256_GCM_SHA384",
             "TLS_CHACHA20_POLY1305_SHA256",
+            # TLS 1.2 ECDHE
+            "ECDHE-ECDSA-AES128-GCM-SHA256",
+            "ECDHE-RSA-AES128-GCM-SHA256",
+            "ECDHE-ECDSA-AES256-GCM-SHA384",
+            "ECDHE-RSA-AES256-GCM-SHA384",
+            "ECDHE-ECDSA-CHACHA20-POLY1305",
+            "ECDHE-RSA-CHACHA20-POLY1305",
+            # TLS 1.2 DHE
+            "DHE-RSA-AES128-GCM-SHA256",
+            "DHE-RSA-AES256-GCM-SHA384",
+            "DHE-RSA-CHACHA20-POLY1305",
         }
-        missing = tls13 - ALLOWED_CIPHER_SUITES
-        assert not missing, f"TLS 1.3 suites missing from allow-list: {missing}"
+        missing = expected - _DEFAULT_ALLOWED_CIPHER_SUITES
+        assert not missing, f"Mozilla Intermediate suites missing: {missing}"
 
 
 if __name__ == "__main__":

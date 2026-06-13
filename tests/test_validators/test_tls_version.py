@@ -1,7 +1,5 @@
 # tests/test_validators/test_tls_version.py
 
-from unittest.mock import patch
-
 import pytest
 
 from certmonitor.validators.tls_version import TLSVersionValidator
@@ -128,45 +126,44 @@ class TestTLSVersionValidator:
         assert "TLSv1.4 is not allowed" in result["reason"]
 
     def test_custom_allowed_versions(self):
-        """Test validation with custom allowed TLS versions."""
-        # Mock the ALLOWED_TLS_VERSIONS to include TLSv1.1
-        with patch(
-            "certmonitor.validators.tls_version.ALLOWED_TLS_VERSIONS",
-            {"TLSv1.1", "TLSv1.2", "TLSv1.3"},
-        ):
-            cipher_info = {"protocol_version": "TLSv1.1"}
-            validator = TLSVersionValidator()
-            result = validator.validate(cipher_info, "example.com", 443)
+        """A custom allowed_tls_versions arg can permit an older version."""
+        cipher_info = {"protocol_version": "TLSv1.1"}
+        validator = TLSVersionValidator()
+        result = validator.validate(
+            cipher_info,
+            "example.com",
+            443,
+            allowed_tls_versions=["TLSv1.1", "TLSv1.2", "TLSv1.3"],
+        )
 
-            assert result["is_valid"] is True
-            assert result["protocol_version"] == "TLSv1.1"
-            assert "reason" not in result
+        assert result["is_valid"] is True
+        assert result["protocol_version"] == "TLSv1.1"
+        assert "reason" not in result
 
     def test_custom_restricted_versions(self):
-        """Test validation with more restrictive allowed TLS versions."""
-        # Mock the ALLOWED_TLS_VERSIONS to only include TLSv1.3
-        with patch(
-            "certmonitor.validators.tls_version.ALLOWED_TLS_VERSIONS", {"TLSv1.3"}
-        ):
-            cipher_info = {"protocol_version": "TLSv1.2"}
-            validator = TLSVersionValidator()
-            result = validator.validate(cipher_info, "example.com", 443)
+        """A restrictive allowed_tls_versions arg rejects TLS 1.2."""
+        cipher_info = {"protocol_version": "TLSv1.2"}
+        validator = TLSVersionValidator()
+        result = validator.validate(
+            cipher_info, "example.com", 443, allowed_tls_versions=["TLSv1.3"]
+        )
 
-            assert result["is_valid"] is False
-            assert result["protocol_version"] == "TLSv1.2"
-            assert "reason" in result
-            assert "TLSv1.2 is not allowed" in result["reason"]
+        assert result["is_valid"] is False
+        assert result["protocol_version"] == "TLSv1.2"
+        assert "reason" in result
+        assert "TLSv1.2 is not allowed" in result["reason"]
 
     def test_empty_allowed_versions(self):
-        """Test validation when no TLS versions are allowed."""
-        with patch("certmonitor.validators.tls_version.ALLOWED_TLS_VERSIONS", set()):
-            cipher_info = {"protocol_version": "TLSv1.3"}
-            validator = TLSVersionValidator()
-            result = validator.validate(cipher_info, "example.com", 443)
+        """An empty allowed_tls_versions arg rejects everything."""
+        cipher_info = {"protocol_version": "TLSv1.3"}
+        validator = TLSVersionValidator()
+        result = validator.validate(
+            cipher_info, "example.com", 443, allowed_tls_versions=[]
+        )
 
-            assert result["is_valid"] is False
-            assert result["protocol_version"] == "TLSv1.3"
-            assert "reason" in result
+        assert result["is_valid"] is False
+        assert result["protocol_version"] == "TLSv1.3"
+        assert "reason" in result
 
     def test_case_sensitive_version_check(self):
         """Test that TLS version checking is case-sensitive."""
@@ -217,14 +214,13 @@ class TestTLSVersionValidator:
 
     def test_default_allowed_versions(self):
         """Test that the default allowed versions are correct."""
-        from certmonitor.cipher_algorithms import ALLOWED_TLS_VERSIONS
+        from certmonitor.validators.tls_version import _DEFAULT_ALLOWED_TLS_VERSIONS
 
-        # Verify default allowed versions
-        assert "TLSv1.2" in ALLOWED_TLS_VERSIONS
-        assert "TLSv1.3" in ALLOWED_TLS_VERSIONS
-        assert "TLSv1.1" not in ALLOWED_TLS_VERSIONS
-        assert "TLSv1.0" not in ALLOWED_TLS_VERSIONS
-        assert "SSLv3" not in ALLOWED_TLS_VERSIONS
+        assert "TLSv1.2" in _DEFAULT_ALLOWED_TLS_VERSIONS
+        assert "TLSv1.3" in _DEFAULT_ALLOWED_TLS_VERSIONS
+        assert "TLSv1.1" not in _DEFAULT_ALLOWED_TLS_VERSIONS
+        assert "TLSv1.0" not in _DEFAULT_ALLOWED_TLS_VERSIONS
+        assert "SSLv3" not in _DEFAULT_ALLOWED_TLS_VERSIONS
 
 
 if __name__ == "__main__":

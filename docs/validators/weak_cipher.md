@@ -36,12 +36,21 @@ A suite outside the allow-list fails with a `reason`:
 
 ## Customizing the allow-list
 
-The set lives in `certmonitor.cipher_algorithms.ALLOWED_CIPHER_SUITES` and can be overridden:
+The default allowed set follows Mozilla's "Intermediate" configuration. Override it per call with the `allowed_cipher_suites` argument, passed through `validator_args`:
 
 ```python
-from certmonitor.cipher_algorithms import update_allowed_lists
+from certmonitor import CertMonitor
 
-update_allowed_lists(custom_ciphers={"TLS_AES_256_GCM_SHA384", "ECDHE-RSA-AES256-GCM-SHA384"})
+with CertMonitor("example.com", enabled_validators=["weak_cipher"]) as monitor:
+    monitor.get_cert_info()
+    result = monitor.validate(
+        validator_args={
+            "weak_cipher": {
+                "allowed_cipher_suites": ["TLS_AES_256_GCM_SHA384", "ECDHE-RSA-AES256-GCM-SHA384"]
+            }
+        }
+    )
+    print(result["weak_cipher"])
 ```
 
 !!! tip "TLS 1.2 and TLS 1.3 name suites differently"
