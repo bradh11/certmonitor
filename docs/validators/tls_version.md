@@ -36,12 +36,17 @@ A legacy endpoint fails with a `reason`:
 
 ## Customizing the allowed versions
 
-The allow-list lives in `certmonitor.cipher_algorithms.ALLOWED_TLS_VERSIONS` (default `{"TLSv1.2", "TLSv1.3"}`) and can be overridden at runtime:
+The default allowed set is `{"TLSv1.2", "TLSv1.3"}`. Override it per call with the `allowed_tls_versions` argument, passed through `validator_args`:
 
 ```python
-from certmonitor.cipher_algorithms import update_allowed_lists
+from certmonitor import CertMonitor
 
-update_allowed_lists(custom_tls_versions={"TLSv1.3"})  # require TLS 1.3 only
+with CertMonitor("example.com", enabled_validators=["tls_version"]) as monitor:
+    monitor.get_cert_info()
+    result = monitor.validate(
+        validator_args={"tls_version": {"allowed_tls_versions": ["TLSv1.3"]}}  # require TLS 1.3 only
+    )
+    print(result["tls_version"])
 ```
 
 !!! tip "Pairs with WeakCipher"
