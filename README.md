@@ -183,6 +183,16 @@ These validators are **opt-in** (not in the default set) while PQC adoption is s
 
 ---
 
+## 📚 Learn How It Works
+
+New to TLS, certificates, or the post-quantum transition? The docs include vendor-neutral explainers with diagrams:
+
+- [How TLS & HTTPS Work](docs/concepts/how-tls-works.md) — the handshake, and the key-exchange-vs-signatures split.
+- [Certificates & PKI](docs/concepts/certificates-and-pki.md) — what's in a certificate and how the chain of trust works.
+- [Post-Quantum Cryptography](docs/concepts/post-quantum.md) — the quantum threat, harvest-now-decrypt-later, and the NIST standards.
+
+---
+
 ## 📦 Installation
 
 Install CertMonitor from PyPI using your preferred package manager:

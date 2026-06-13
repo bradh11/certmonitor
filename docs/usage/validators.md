@@ -2,9 +2,10 @@
 
 Validators are modular checks that CertMonitor uses to assess the security and compliance of SSL/TLS certificates and connections. Each validator focuses on a specific aspect—such as expiration, hostname matching, key strength, or protocol version—and returns a structured result indicating success or failure. Validators can be enabled, disabled, or extended with custom logic to fit your organization's needs.
 
-Validators are the core mechanism that makes CertMonitor flexible and powerful for a wide range of certificate monitoring and compliance scenarios.
+!!! info "Looking for the catalog?"
+    This page covers **how to control and extend** validators. For the per-validator reference — what each one checks, its arguments, and example output — see the [Validators section](../validators/index.md).
 
-# Enabling/Disabling Validators
+## Enabling/Disabling Validators
 
 You can control which validators are enabled:
 
@@ -13,7 +14,7 @@ with CertMonitor("example.com", enabled_validators=["expiration", "hostname"]) a
     print(monitor.validate())
 ```
 
-# Validator Convenience Methods
+## Validator Convenience Methods
 
 CertMonitor provides several convenience methods to discover and work with validators. These are available both as module-level functions and as instance methods.
 
@@ -36,7 +37,9 @@ You can list all currently registered validators (including built-in and custom 
 from certmonitor.validators import list_validators
 
 print(list_validators())
-# Output: ['expiration', 'hostname', 'key_info', 'subject_alt_names', 'root_certificate', 'sensitive_date', 'tls_version', 'weak_cipher', 'chain']
+# Output: ['expiration', 'hostname', 'key_info', 'subject_alt_names', 'root_certificate',
+#          'sensitive_date', 'tls_version', 'weak_cipher', 'chain',
+#          'pq_key_exchange', 'pq_chain', 'pq_signature']
 ```
 
 ### From a CertMonitor Instance
@@ -46,7 +49,9 @@ from certmonitor import CertMonitor
 
 monitor = CertMonitor("example.com")
 print(monitor.list_validators())
-# Output: ['expiration', 'hostname', 'key_info', 'subject_alt_names', 'root_certificate', 'sensitive_date', 'tls_version', 'weak_cipher', 'chain']
+# Output: ['expiration', 'hostname', 'key_info', 'subject_alt_names', 'root_certificate',
+#          'sensitive_date', 'tls_version', 'weak_cipher', 'chain',
+#          'pq_key_exchange', 'pq_chain', 'pq_signature']
 ```
 
 Both methods return the same list of all available validators, regardless of which ones are enabled for a specific instance.
@@ -94,13 +99,16 @@ print(monitor.get_enabled_validators())
 To add your own validator, create a class that inherits from `BaseValidator`, then register it:
 
 ```python
-from certmonitor.validators import register_validator, BaseValidator, list_validators
+from certmonitor.validators import register_validator, list_validators
+from certmonitor.validators.base import BaseCertValidator
 
-class MyCustomValidator(BaseValidator):
+class MyCustomValidator(BaseCertValidator):
     name = "my_custom_validator"
-    def validate(self, cert_info, **kwargs):
-        # Custom validation logic
-        return {"success": True, "reason": "Custom check passed"}
+
+    def validate(self, cert, host, port):
+        # Custom validation logic. Follow the result envelope:
+        # always return is_valid (a strict bool); add reason only on failure.
+        return {"is_valid": True}
 
 # Register your custom validator
 register_validator(MyCustomValidator())
@@ -110,7 +118,7 @@ print(list_validators())
 # Output will include 'my_custom_validator'
 ```
 
-See the [Custom Validators](../usage/custom_validators.md) usage guide for more details and a template.
+Subclass `BaseCertValidator` (for certificate checks) or `BaseCipherValidator` (for cipher/connection checks), and follow the [result envelope](../validators/index.md#the-result-contract). See the [Custom Validators](custom_validators.md) guide for the full template, including user-configurable arguments.
 
 ## Practical Examples
 
