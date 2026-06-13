@@ -86,13 +86,13 @@ Here's roughly what each call gives you back. The output is trimmed for readabil
 ### PEM Format
 ```pem
 -----BEGIN CERTIFICATE-----
-MIID...snip...IDAQAB
+MIIDdzCCAl+gAwIBAgIEAgAAuQ...(truncated for brevity)...IDAQAB
 -----END CERTIFICATE-----
 ```
 
 ### DER Format (base64)
 ```text
-MIID...snip...IDAQAB
+MIIDdzCCAl+gAwIBAgIEAgAAuQ...(truncated for brevity)...IDAQAB
 ```
 
 ## Error Handling Example

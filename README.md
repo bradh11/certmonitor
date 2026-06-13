@@ -33,89 +33,6 @@
 
 ---
 
-## 🚀 Quick Start
-
-```python
-from certmonitor import CertMonitor
-
-with CertMonitor("example.com") as monitor:
-    print(monitor.get_cert_info())
-    print(monitor.validate())
-```
-
----
-
-## 🛠️ Example Output
-
-### Certificate Info
-
-This is a sample of the structured certificate info returned by `monitor.get_cert_info()`:
-
-```json
-{
-  "subject": {
-    "commonName": "example.com"
-  },
-  "issuer": {
-    "organizationName": "DigiCert Inc",
-    "commonName": "DigiCert TLS RSA SHA256 2020 CA1"
-  },
-  "notBefore": "2024-06-01T00:00:00",
-  "notAfter": "2025-09-01T23:59:59",
-  "serialNumber": "0A1B2C3D4E5F6789",
-  "subjectAltName": {
-    "DNS": ["example.com", "www.example.com"],
-    "IP Address": []
-  },
-  "publicKeyInfo": {
-    "algorithm": "rsaEncryption",
-    "size": 2048,
-    "curve": null
-  }
-}
-```
-
-### PEM Format
-
-This is a sample of the PEM format returned by `monitor.get_raw_pem()`:
-
-```pem
------BEGIN CERTIFICATE-----
-MIID...snip...IDAQAB
------END CERTIFICATE-----
-```
-
-### DER Format
-
-This is a sample of the DER format returned by `monitor.get_raw_der()` (as bytes, shown here as base64):
-
-```text
-MIID...snip...IDAQAB
-```
-
-### Validation Results
-
-```json
-{
-  "expiration": {
-    "is_valid": true,
-    "days_to_expiry": 120,
-    "expires_on": "2025-09-01T23:59:59",
-    "warnings": []
-  },
-  "subject_alt_names": {
-    "is_valid": true,
-    "sans": {"DNS": ["example.com", "www.example.com"], "IP Address": []},
-    "count": 2,
-    "contains_host": {"name": "example.com", "is_valid": true, "reason": "Matched DNS SAN"},
-    "contains_alternate": {"www.example.com": {"name": "www.example.com", "is_valid": true, "reason": "Matched DNS SAN"}},
-    "warnings": []
-  }
-}
-```
-
----
-
 ## ✨ Features
 
 - 🔒 **Zero Dependencies:** 100% standard library. No third-party Python packages required. Ever.
@@ -193,7 +110,7 @@ New to TLS, certificates, or the post-quantum transition? The docs include vendo
 
 ---
 
-## 📦 Installation
+## 📦 Installation & Quickstart
 
 Install CertMonitor from PyPI using your preferred package manager:
 
@@ -209,52 +126,81 @@ uv add certmonitor
 
 For instructions on installing from source for development, please see the [Development Guide](docs/development.md).
 
----
+Once installed, here's the pattern you'll use most often. Connect to a host, pull the certificate details, and run the validators:
 
-## 🛠️ Usage Examples
-
-### Context Manager Usage (Recommended)
 ```python
 from certmonitor import CertMonitor
 
 with CertMonitor("example.com") as monitor:
     cert_data = monitor.get_cert_info()
-    validation_results = monitor.validate(validator_args={"subject_alt_names": {"alternate_names": ["www.example.com"]}})
+    validation_results = monitor.validate()
     print(cert_data)
     print(validation_results)
 ```
 
-### Basic Usage (Non-Context Manager)
-```python
-monitor = CertMonitor("example.com")
-cert_data = monitor.get_cert_info()
-validation_results = monitor.validate()
-monitor.close()
+Two calls do the work. `get_cert_info()` gives you the parsed certificate, and `validate()` runs the checks against it.
+
+### What `get_cert_info()` returns
+
+A structured dictionary describing the certificate:
+
+```json
+{
+  "subject": {
+    "countryName": "US",
+    "stateOrProvinceName": "California",
+    "localityName": "Los Angeles",
+    "organizationName": "Internet Corporation for Assigned Names and Numbers",
+    "commonName": "www.example.com"
+  },
+  "issuer": {
+    "countryName": "US",
+    "organizationName": "DigiCert Inc",
+    "commonName": "DigiCert Global G2 TLS RSA SHA256 2020 CA1"
+  },
+  "version": 3,
+  "serialNumber": "075BCEF30689C8ADDF13E51AF4AFE187",
+  "notBefore": "2024-01-30T00:00:00",
+  "notAfter": "2025-03-01T23:59:59",
+  "subjectAltName": {
+    "DNS": ["www.example.com", "example.com"],
+    "IP Address": []
+  },
+  "OCSP": ["http://ocsp.digicert.com"],
+  "caIssuers": ["http://cacerts.digicert.com/DigiCertGlobalG2TLSRSASHA2562020CA1-1.crt"],
+  "crlDistributionPoints": [
+    "http://crl3.digicert.com/DigiCertGlobalG2TLSRSASHA2562020CA1-1.crl",
+    "http://crl4.digicert.com/DigiCertGlobalG2TLSRSASHA2562020CA1-1.crl"
+  ]
+}
 ```
 
-### Using IP Address
-You can also use an IPv4 or IPv6 address to retrieve and validate the SSL certificate. Note: Using an IP address may not match the certificate's hostname.
-```python
-with CertMonitor("20.76.201.171") as monitor:
-    cert = monitor.get_cert_info()
-    validation_results = monitor.validate()
-    print(cert)
-    print(validation_results)
+It's all there: who the certificate is for (`subject`), who issued it (`issuer`), how long it's valid (`notBefore` and `notAfter`), the alternate names it covers, and the revocation endpoints.
+
+### What `validate()` returns
+
+A dictionary keyed by validator name, with a structured result under each one:
+
+```json
+{
+  "expiration": {
+    "is_valid": true,
+    "days_to_expiry": 120,
+    "expires_on": "2025-03-01T23:59:59",
+    "warnings": []
+  },
+  "subject_alt_names": {
+    "is_valid": true,
+    "sans": {"DNS": ["www.example.com", "example.com"], "IP Address": []},
+    "count": 2,
+    "contains_host": {"name": "www.example.com", "is_valid": true, "reason": "Exact match for www.example.com found in DNS SANs"},
+    "contains_alternate": {"example.com": {"name": "example.com", "is_valid": true, "reason": "Exact match for example.com found in DNS SANs"}},
+    "warnings": []
+  }
+}
 ```
 
-### Retrieving Raw Certificate Data
-These methods are only available for SSL/TLS connections:
-```python
-raw_der = monitor.get_raw_der()  # Returns DER bytes
-raw_pem = monitor.get_raw_pem()  # Returns PEM string
-```
-
-### Retrieving Cipher Information
-You can retrieve and validate cipher suite information:
-```python
-cipher_info = monitor.get_cipher_info()
-print(cipher_info)
-```
+Each validator reports its own `is_valid` flag plus the details behind its decision. That structure is consistent across every validator, so once you can read one result you can read them all.
 
 ---
 

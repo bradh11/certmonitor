@@ -5,14 +5,43 @@ Validators are modular checks that CertMonitor uses to assess the security and c
 !!! info "Looking for the catalog?"
     This page covers **how to control and extend** validators. For the per-validator reference (what each one checks, its arguments, and example output), see the [Validators section](../validators/index.md).
 
+## Registered vs. enabled
+
+These two words sound similar but mean different things, and the distinction matters once you start customizing.
+
+A validator is **registered** when CertMonitor knows it exists. Every built-in validator is registered out of the box, and you can register your own with `register_validator()` (see [Custom Validators](custom_validators.md)). `list_validators()` shows you everything that's registered.
+
+A validator is **enabled** when it actually runs for a given `CertMonitor`. The enabled set is a subset of the registered ones, and it's what `validate()` executes. `monitor.get_enabled_validators()` shows you that subset.
+
+In other words: *registered* is the menu of everything available, and *enabled* is what you've ordered. A validator has to be registered before you can enable it, but plenty of registered validators stay disabled until you ask for them. For example, all the `pq_*` validators are registered by default but not enabled, so you opt into them when you're ready.
+
 ## Enabling/Disabling Validators
 
-You can control which validators are enabled:
+You have two ways to control which validators run.
+
+The first is per call, by passing `enabled_validators` when you create the monitor:
 
 ```python
 with CertMonitor("example.com", enabled_validators=["expiration", "hostname"]) as monitor:
     print(monitor.validate())
 ```
+
+The second is with the `ENABLED_VALIDATORS` environment variable, which is handy when you want to configure a CI job, container, or cron monitor without touching code. Set it to a comma-separated list:
+
+```sh
+export ENABLED_VALIDATORS="expiration,hostname,subject_alt_names,tls_version,weak_cipher"
+```
+
+The enabled set is resolved in this order:
+
+1. The `enabled_validators=[...]` argument, if you pass one.
+2. Otherwise the `ENABLED_VALIDATORS` environment variable, if it's set.
+3. Otherwise the built-in defaults: `expiration`, `hostname`, `root_certificate`.
+
+So the argument always wins over the environment variable, which in turn wins over the defaults.
+
+!!! tip "Turning on post-quantum checks fleet-wide"
+    The environment variable is the easiest way to enable the opt-in PQ validators everywhere without editing code. See [Environment Variable Configuration](env.md) for more.
 
 ## Validator Convenience Methods
 

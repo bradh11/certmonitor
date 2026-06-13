@@ -20,7 +20,7 @@ with CertMonitor("example.com") as monitor:
 
 ```pem
 -----BEGIN CERTIFICATE-----
-MIID...snip...IDAQAB
+MIIDdzCCAl+gAwIBAgIEAgAAuQ...(truncated for brevity)...IDAQAB
 -----END CERTIFICATE-----
 ```
 
@@ -37,7 +37,7 @@ with CertMonitor("example.com") as monitor:
 ### Example output (base64-encoded for readability)
 
 ```text
-MIID...snip...IDAQAB
+MIIDdzCCAl+gAwIBAgIEAgAAuQ...(truncated for brevity)...IDAQAB
 ```
 
 !!! note "DER is bytes, not text"

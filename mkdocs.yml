@@ -106,7 +106,10 @@ markdown_extensions:
           class: mermaid
   - pymdownx.tabbed:
       alternate_style: true
+extra_css:
+  - stylesheets/extra.css
+
 extra:
   social:
     - icon: fontawesome/brands/github
-      link: https://github.com/yourusername/certmonitor
+      link: https://github.com/bradh11/certmonitor

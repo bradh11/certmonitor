@@ -8,7 +8,7 @@ HTTPS is just HTTP carried over **TLS** (Transport Layer Security). When you con
 
 CertMonitor looks at the artifacts this process produces (the certificate, the chain, the TLS version, the cipher suite, and the key-exchange group) and tells you whether they're healthy. So before you use the validators, it helps to know what those artifacts are and where they come from.
 
-!!! note "\"SSL\" or \"TLS\"?"
+!!! note "Is it SSL or TLS?"
     You'll see both words, often for the same thing. **SSL** (Secure Sockets Layer) is the original protocol from the 1990s. It was renamed **TLS** when it was standardized, and every SSL version is now obsolete and insecure. What actually runs today is TLS 1.2 and TLS 1.3. The old name simply stuck, which is why people still say "SSL certificate." CertMonitor speaks TLS in practice, and it can still *detect* legacy SSL so you can flag servers that haven't moved on.
 
 ## The TLS 1.3 handshake

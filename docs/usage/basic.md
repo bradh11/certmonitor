@@ -93,8 +93,8 @@ Now for the checks. `validate()` returns a dictionary keyed by validator name, w
     "is_valid": true,
     "sans": {"DNS": ["www.example.com", "example.com"], "IP Address": []},
     "count": 2,
-    "contains_host": {"name": "www.example.com", "is_valid": true, "reason": "Matched DNS SAN"},
-    "contains_alternate": {"example.com": {"name": "example.com", "is_valid": true, "reason": "Matched DNS SAN"}},
+    "contains_host": {"name": "www.example.com", "is_valid": true, "reason": "Exact match for www.example.com found in DNS SANs"},
+    "contains_alternate": {"example.com": {"name": "example.com", "is_valid": true, "reason": "Exact match for example.com found in DNS SANs"}},
     "warnings": []
   }
 }
@@ -133,6 +133,39 @@ Here's what that looks like:
 ```
 
 This tells you which cipher suite was negotiated, which protocol version was used, and the key strength behind it.
+
+### Getting the raw certificate
+
+Sometimes you want the certificate itself, not the parsed view, so you can hand it to another tool or store it. CertMonitor gives you both standard encodings.
+
+PEM is the base64 text form (the `-----BEGIN CERTIFICATE-----` block you've probably seen):
+
+```python
+with CertMonitor("example.com") as monitor:
+    pem_cert = monitor.get_raw_pem()
+    print(pem_cert)
+```
+
+```text
+-----BEGIN CERTIFICATE-----
+MIIDdzCCAl+gAwIBAgIEAgAAuQ...(truncated for brevity)...IDAQAB
+-----END CERTIFICATE-----
+```
+
+DER is the raw binary form, returned as `bytes`:
+
+```python
+with CertMonitor("example.com") as monitor:
+    der_cert = monitor.get_raw_der()
+    print(der_cert[:20])
+```
+
+```text
+b'0\x82\x03w0\x82\x02_\xa0\x03\x02\x01\x02\x02\x04\x02\x00\x00\xb9'
+```
+
+!!! tip "Which one do I want?"
+    Reach for PEM for most file-based work, human inspection, and tools that expect text. Reach for DER when you need the exact bytes (hashing, fingerprinting, passing to a binary API). The [Retrieving Raw Certificate Data](raw_cert.md) page goes deeper, including converting between the two.
 
 !!! tip "Ready for more?"
     Head back to the [Usage Overview](index.md) for advanced examples, including custom validators, error handling, and retrieving raw PEM or DER output.

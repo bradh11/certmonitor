@@ -4,6 +4,38 @@ CertMonitor provides a modular validator system to check various aspects of SSL/
 
 This includes **post-quantum readiness**: opt-in validators report whether the TLS key exchange and the certificate's keys/signatures use post-quantum algorithms (hybrid or pure ML-KEM / ML-DSA / SLH-DSA), so you can track quantum-safe migration and *harvest-now-decrypt-later* exposure. See [Post-Quantum Readiness](#post-quantum-readiness) below.
 
+## Registered vs. enabled
+
+Two words worth keeping straight. A validator is **registered** when CertMonitor knows it exists (every built-in, plus any you add yourself). It's **enabled** when it actually runs for a given monitor. Enabled is always a subset of registered: only `expiration`, `hostname`, and `root_certificate` run by default, and everything else is registered but waits until you opt in.
+
+<div class="validator-map">
+  <p class="validator-map__label">Registered: every validator CertMonitor knows about</p>
+  <div class="validator-group validator-group--enabled">
+    <p class="validator-group__title">Enabled by default <small>runs on every <code>validate()</code> call</small></p>
+    <div class="validator-chips">
+      <span class="validator-chip validator-chip--on">expiration</span>
+      <span class="validator-chip validator-chip--on">hostname</span>
+      <span class="validator-chip validator-chip--on">root_certificate</span>
+    </div>
+  </div>
+  <div class="validator-group validator-group--optin">
+    <p class="validator-group__title">Opt-in <small>registered and ready, off until you enable it</small></p>
+    <div class="validator-chips">
+      <span class="validator-chip">subject_alt_names</span>
+      <span class="validator-chip">key_info</span>
+      <span class="validator-chip">tls_version</span>
+      <span class="validator-chip">weak_cipher</span>
+      <span class="validator-chip">sensitive_date</span>
+      <span class="validator-chip">chain</span>
+      <span class="validator-chip">pq_key_exchange</span>
+      <span class="validator-chip">pq_signature</span>
+      <span class="validator-chip">pq_chain</span>
+    </div>
+  </div>
+</div>
+
+The default three run out of the box. The opt-in validators are registered and ready, but stay off until you name them in `enabled_validators` or `ENABLED_VALIDATORS`. To register and enable your own custom validators, see [Custom Validators](../usage/custom_validators.md).
+
 ## Available validators
 
 **Enabled by default** (`expiration`, `hostname`, `root_certificate`):
