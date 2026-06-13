@@ -5,6 +5,7 @@ from typing import Any, ClassVar, Dict, FrozenSet, List, Optional
 from certmonitor import certinfo
 
 from .base import BaseCertValidator
+from .results import ValidationResult
 
 # Post-quantum algorithm identities, sourced from the Rust registry
 # (rust_certinfo/src/pq_algorithms.rs) so Python never carries its own
@@ -18,6 +19,14 @@ _PQ_SIG_OIDS: FrozenSet[str] = frozenset(
     alg["dotted"]
     for alg in certinfo.pq_algorithms()  # type: ignore[attr-defined]
 )
+
+
+class PqChainResult(ValidationResult, total=False):
+    """Result shape for :class:`PqChainValidator` (envelope + data)."""
+
+    chain_length: int
+    certs: List[Dict[str, Any]]
+    summary: Dict[str, Optional[bool]]
 
 
 class PqChainValidator(BaseCertValidator):
@@ -63,7 +72,7 @@ class PqChainValidator(BaseCertValidator):
         port: int,
         *,
         require_full_chain: bool = False,
-    ) -> Dict[str, Any]:
+    ) -> PqChainResult:
         """Walk the presented chain and report per-certificate PQ posture.
 
         Args:
@@ -156,7 +165,7 @@ class PqChainValidator(BaseCertValidator):
         else:
             is_valid = bool(summary["leaf_pq"])
 
-        result: Dict[str, Any] = {
+        result: PqChainResult = {
             "chain_length": len(certs),
             "certs": certs,
             "summary": summary,
@@ -179,7 +188,7 @@ class PqChainValidator(BaseCertValidator):
         return all(entry["is_pq"] for entry in of_role)
 
     @staticmethod
-    def _error_result(reason: str) -> Dict[str, Any]:
+    def _error_result(reason: str) -> PqChainResult:
         return {
             "is_valid": False,
             "reason": reason,

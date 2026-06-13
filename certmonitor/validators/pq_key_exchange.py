@@ -1,8 +1,19 @@
 # validators/pq_key_exchange.py
 
-from typing import Any, ClassVar, Dict, Tuple
+from typing import Any, ClassVar, Dict, Optional, Tuple
 
 from .base import BaseCipherValidator
+from .results import ValidationResult
+
+
+class PqKeyExchangeResult(ValidationResult, total=False):
+    """Result shape for :class:`PqKeyExchangeValidator` (envelope + data)."""
+
+    kem_id: Optional[int]
+    kem_name: str
+    kem_kind: str
+    is_pq: bool
+    via_hello_retry_request: bool
 
 
 class PqKeyExchangeValidator(BaseCipherValidator):
@@ -26,7 +37,7 @@ class PqKeyExchangeValidator(BaseCipherValidator):
     | TLS 1.3 + hybrid/pure PQ group | ``is_valid: True`` |
     | TLS 1.3 + classical group | ``is_valid: False`` — classical KEX, HNDL-exposed |
     | TLS 1.2 or older | ``is_valid: False`` — no PQ KEMs defined (probe skipped) |
-    | Connection/probe error | ``{error, message, is_valid: False}`` |
+    | Connection/probe error | ``{error, message, reason, is_valid: False}`` |
 
     The skip-for-legacy short-circuit (no second TCP connection for
     TLS < 1.3) lives in the ``tls_probe`` data source, so by the time this
@@ -49,7 +60,7 @@ class PqKeyExchangeValidator(BaseCipherValidator):
         tls_probe: Dict[str, Any],
         host: str,
         port: int,
-    ) -> Dict[str, Any]:
+    ) -> PqKeyExchangeResult:
         """Classify the negotiated key exchange.
 
         Args:
@@ -61,7 +72,8 @@ class PqKeyExchangeValidator(BaseCipherValidator):
         Returns:
             dict: ``{kem_id, kem_name, kem_kind, is_pq, is_valid}`` on a
             negotiated group; an ``n/a`` result for TLS < 1.3; or a
-            ``{error, message, is_valid}`` dict on a probe/connection error.
+            ``{error, message, reason, is_valid}`` dict on a
+            probe/connection error.
 
         Examples:
             Hybrid PQ key exchange (success):
@@ -90,11 +102,15 @@ class PqKeyExchangeValidator(BaseCipherValidator):
         result = tls_probe.get("result")
 
         if result == "error":
-            # Connection/probe failure — surface the standard error shape.
+            # Connection/probe failure — an operational failure is still a
+            # result: reason satisfies the envelope, error/message keep the
+            # machine-readable class.
+            message = tls_probe.get("message", "TLS probe failed")
             return {
                 "error": tls_probe.get("error", "ProbeError"),
-                "message": tls_probe.get("message", "TLS probe failed"),
+                "message": message,
                 "is_valid": False,
+                "reason": message,
             }
 
         if result == "n/a":
@@ -115,7 +131,7 @@ class PqKeyExchangeValidator(BaseCipherValidator):
         if result == "group":
             is_pq = bool(tls_probe.get("is_pq", False))
             name = tls_probe.get("name", "unknown")
-            out: Dict[str, Any] = {
+            out: PqKeyExchangeResult = {
                 "kem_id": tls_probe.get("id"),
                 "kem_name": name,
                 "kem_kind": tls_probe.get("kind", "unknown"),
