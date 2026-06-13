@@ -250,8 +250,8 @@ CertMonitor's certificate parser handles untrusted bytes from every TLS handshak
 - **Every parser path returns `Result`.** Malformed input produces a structured error, never a crash. No `.unwrap()` on user-input-derived data.
 - **1.7 billion fuzz iterations, zero crashes.** The parser is continuously fuzz-tested with [cargo-fuzz](https://github.com/rust-lang/cargo-fuzz) (libFuzzer) against adversarial byte sequences. A 1-hour soak run explores 310 code-coverage points and 503 libfuzzer features with zero panics. Run it yourself: `make fuzz`.
 - **130-cert real-world corpus on every CI run.** Every commit is tested against captured certificates from 101 production hosts spanning Google Trust Services, DigiCert, Let's Encrypt, Sectigo, Cloudflare, and more, covering both RSA and ECDSA key types.
-- **425+ Python tests at 99% line coverage, 56 Rust unit tests.** The full test suite runs across Python 3.8 to 3.13 and Rust stable on macOS, Ubuntu, and Windows.
-- **`cargo audit` on every PR.** The Rust dependency tree is 20 crates total (all PyO3 build-time helpers), scanned for known vulnerabilities on every pull request.
+- **540+ Python tests at 99% line coverage, plus 99 Rust unit tests.** The full test suite runs across Python 3.8 to 3.13 and Rust stable on macOS, Ubuntu, and Windows.
+- **`cargo audit` on every PR.** CertMonitor declares a single direct Rust dependency, `pyo3` (the Python bridge). The whole compiled tree is 15 crates, all pyo3 and its helpers, with no third-party parsing crates, scanned for known vulnerabilities on every pull request.
 
 ---
 

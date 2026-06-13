@@ -64,7 +64,7 @@ Here's roughly what each call gives you back. The output is trimmed for readabil
 ```json
 {
   "expiration": {"is_valid": true, "days_to_expiry": 120, "expires_on": "2025-09-01T23:59:59", "warnings": []},
-  "subject_alt_names": {"is_valid": true, "sans": {"DNS": ["example.com", "www.example.com"], "IP Address": []}, "count": 2, "contains_host": {"name": "example.com", "is_valid": true, "reason": "Matched DNS SAN"}, "contains_alternate": {"www.example.com": {"name": "www.example.com", "is_valid": true, "reason": "Matched DNS SAN"}}, "warnings": []}
+  "subject_alt_names": {"is_valid": true, "sans": {"DNS": ["example.com", "www.example.com"], "IP Address": []}, "count": 2, "contains_host": {"name": "example.com", "is_valid": true, "reason": "Exact match for example.com found in DNS SANs"}, "contains_alternate": {"www.example.com": {"name": "www.example.com", "is_valid": true, "reason": "Exact match for www.example.com found in DNS SANs"}}, "warnings": []}
   // ...
 }
 ```

@@ -10,14 +10,14 @@
 
 ### Test Coverage
 - **Overall coverage:** 98.7%
-- **Total tests:** 522
-- **Statements covered:** 1,115/1,130
-- **Files with coverage:** 25
+- **Total tests:** 540
+- **Statements covered:** 1,212/1,228
+- **Files with coverage:** 27
 
 ### Type Hint Coverage
-- **Files analyzed:** 22
-- **Files with type hints:** 20
-- **Type hint coverage:** 90.9%
+- **Files analyzed:** 23
+- **Files with type hints:** 21
+- **Type hint coverage:** 91.3%
 
 ### Code Quality
 - **Ruff issues:** 0
@@ -29,8 +29,8 @@
 - **Rust vulnerabilities found:** 0
 - **Python security scanning:** ✅ Enabled
 - **Python security issues found:** 0
-- **Files scanned by bandit:** 25
-- **Lines scanned by bandit:** 2,843
+- **Files scanned by bandit:** 27
+- **Lines scanned by bandit:** 3,039
 - **Overall security status:** 🔒 Clean
 - **PyO3 version:** 0.29
 
@@ -71,19 +71,20 @@
 - **protocol_handlers/ssh_handler.py**: ✅ (77 lines)
 - **protocol_handlers/base.py**: ✅ (28 lines)
 - **utils/utils.py**: ❌ (1 lines)
-- **validators/weak_cipher.py**: ✅ (68 lines)
-- **validators/pq_chain.py**: ✅ (190 lines)
-- **validators/sensitive_date.py**: ✅ (204 lines)
-- **validators/subject_alt_names.py**: ✅ (239 lines)
-- **validators/chain.py**: ✅ (302 lines)
-- **validators/expiration.py**: ✅ (87 lines)
-- **validators/pq_key_exchange.py**: ✅ (141 lines)
-- **validators/root_certificate_validator.py**: ✅ (113 lines)
-- **validators/pq_signature.py**: ✅ (174 lines)
-- **validators/tls_version.py**: ✅ (70 lines)
-- **validators/key_info.py**: ✅ (158 lines)
-- **validators/base.py**: ✅ (149 lines)
-- **validators/hostname.py**: ✅ (148 lines)
+- **validators/weak_cipher.py**: ✅ (75 lines)
+- **validators/pq_chain.py**: ✅ (199 lines)
+- **validators/sensitive_date.py**: ✅ (220 lines)
+- **validators/subject_alt_names.py**: ✅ (253 lines)
+- **validators/results.py**: ✅ (70 lines)
+- **validators/chain.py**: ✅ (313 lines)
+- **validators/expiration.py**: ✅ (102 lines)
+- **validators/pq_key_exchange.py**: ✅ (157 lines)
+- **validators/root_certificate_validator.py**: ✅ (129 lines)
+- **validators/pq_signature.py**: ✅ (186 lines)
+- **validators/tls_version.py**: ✅ (77 lines)
+- **validators/key_info.py**: ✅ (204 lines)
+- **validators/base.py**: ✅ (156 lines)
+- **validators/hostname.py**: ✅ (156 lines)
 - **validators/_utils.py**: ✅ (23 lines)
 
 ---
