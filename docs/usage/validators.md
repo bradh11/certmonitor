@@ -1,19 +1,49 @@
 # Validator System Overview
 
-Validators are modular checks that CertMonitor uses to assess the security and compliance of SSL/TLS certificates and connections. Each validator focuses on a specific aspect—such as expiration, hostname matching, key strength, or protocol version—and returns a structured result indicating success or failure. Validators can be enabled, disabled, or extended with custom logic to fit your organization's needs.
+Validators are modular checks that CertMonitor uses to assess the security and compliance of SSL/TLS certificates and connections. Each validator focuses on a specific aspect (expiration, hostname matching, key strength, protocol version) and returns a structured result indicating success or failure. Validators can be enabled, disabled, or extended with custom logic to fit your organization's needs.
 
-Validators are the core mechanism that makes CertMonitor flexible and powerful for a wide range of certificate monitoring and compliance scenarios.
+!!! info "Looking for the catalog?"
+    This page covers **how to control and extend** validators. For the per-validator reference (what each one checks, its arguments, and example output), see the [Validators section](../validators/index.md).
 
-# Enabling/Disabling Validators
+## Registered vs. enabled
 
-You can control which validators are enabled:
+These two words sound similar but mean different things, and the distinction matters once you start customizing.
+
+A validator is **registered** when CertMonitor knows it exists. Every built-in validator is registered out of the box, and you can register your own with `register_validator()` (see [Custom Validators](custom_validators.md)). `list_validators()` shows you everything that's registered.
+
+A validator is **enabled** when it actually runs for a given `CertMonitor`. The enabled set is a subset of the registered ones, and it's what `validate()` executes. `monitor.get_enabled_validators()` shows you that subset.
+
+In other words: *registered* is the menu of everything available, and *enabled* is what you've ordered. A validator has to be registered before you can enable it, but plenty of registered validators stay disabled until you ask for them. For example, all the `pq_*` validators are registered by default but not enabled, so you opt into them when you're ready.
+
+## Enabling/Disabling Validators
+
+You have two ways to control which validators run.
+
+The first is per call, by passing `enabled_validators` when you create the monitor:
 
 ```python
 with CertMonitor("example.com", enabled_validators=["expiration", "hostname"]) as monitor:
     print(monitor.validate())
 ```
 
-# Validator Convenience Methods
+The second is with the `ENABLED_VALIDATORS` environment variable, which is handy when you want to configure a CI job, container, or cron monitor without touching code. Set it to a comma-separated list:
+
+```sh
+export ENABLED_VALIDATORS="expiration,hostname,subject_alt_names,tls_version,weak_cipher"
+```
+
+The enabled set is resolved in this order:
+
+1. The `enabled_validators=[...]` argument, if you pass one.
+2. Otherwise the `ENABLED_VALIDATORS` environment variable, if it's set.
+3. Otherwise the built-in defaults: `expiration`, `hostname`, `root_certificate`.
+
+So the argument always wins over the environment variable, which in turn wins over the defaults.
+
+!!! tip "Turning on post-quantum checks fleet-wide"
+    The environment variable is the easiest way to enable the opt-in PQ validators everywhere without editing code. See [Environment Variable Configuration](env.md) for more.
+
+## Validator Convenience Methods
 
 CertMonitor provides several convenience methods to discover and work with validators. These are available both as module-level functions and as instance methods.
 
@@ -36,7 +66,9 @@ You can list all currently registered validators (including built-in and custom 
 from certmonitor.validators import list_validators
 
 print(list_validators())
-# Output: ['expiration', 'hostname', 'key_info', 'subject_alt_names', 'root_certificate', 'sensitive_date', 'tls_version', 'weak_cipher', 'chain']
+# Output: ['expiration', 'hostname', 'key_info', 'subject_alt_names', 'root_certificate',
+#          'sensitive_date', 'tls_version', 'weak_cipher', 'chain',
+#          'pq_key_exchange', 'pq_chain', 'pq_signature']
 ```
 
 ### From a CertMonitor Instance
@@ -46,7 +78,9 @@ from certmonitor import CertMonitor
 
 monitor = CertMonitor("example.com")
 print(monitor.list_validators())
-# Output: ['expiration', 'hostname', 'key_info', 'subject_alt_names', 'root_certificate', 'sensitive_date', 'tls_version', 'weak_cipher', 'chain']
+# Output: ['expiration', 'hostname', 'key_info', 'subject_alt_names', 'root_certificate',
+#          'sensitive_date', 'tls_version', 'weak_cipher', 'chain',
+#          'pq_key_exchange', 'pq_chain', 'pq_signature']
 ```
 
 Both methods return the same list of all available validators, regardless of which ones are enabled for a specific instance.
@@ -94,13 +128,16 @@ print(monitor.get_enabled_validators())
 To add your own validator, create a class that inherits from `BaseValidator`, then register it:
 
 ```python
-from certmonitor.validators import register_validator, BaseValidator, list_validators
+from certmonitor.validators import register_validator, list_validators
+from certmonitor.validators.base import BaseCertValidator
 
-class MyCustomValidator(BaseValidator):
+class MyCustomValidator(BaseCertValidator):
     name = "my_custom_validator"
-    def validate(self, cert_info, **kwargs):
-        # Custom validation logic
-        return {"success": True, "reason": "Custom check passed"}
+
+    def validate(self, cert, host, port):
+        # Custom validation logic. Follow the result envelope:
+        # always return is_valid (a strict bool); add reason only on failure.
+        return {"is_valid": True}
 
 # Register your custom validator
 register_validator(MyCustomValidator())
@@ -110,7 +147,7 @@ print(list_validators())
 # Output will include 'my_custom_validator'
 ```
 
-See the [Custom Validators](../usage/custom_validators.md) usage guide for more details and a template.
+Subclass `BaseCertValidator` (for certificate checks) or `BaseCipherValidator` (for cipher/connection checks), and follow the [result envelope](../validators/index.md#the-result-contract). See the [Custom Validators](custom_validators.md) guide for the full template, including user-configurable arguments.
 
 ## Practical Examples
 

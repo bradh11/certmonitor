@@ -1,11 +1,17 @@
 # Performance Tips
 
-- Use the context manager to ensure connections are closed promptly.
-- For batch testing, use Python's `asyncio` and `asyncio.to_thread` to parallelize checks (see `test.py` for an example).
+CertMonitor is built to stay out of your way when you're checking a lot of hosts. The good news up front: the dominant cost of a check is network I/O, not parsing. The actual certificate parsing happens in Rust, and CertMonitor releases the GIL while that work runs, so it plays nicely with async code and threads. That means the biggest wins come from overlapping the network waits, not from optimizing the parsing.
+
+A couple of habits go a long way:
+
+- Use the context manager so connections are opened and closed promptly.
+- For batch testing, lean on Python's `asyncio` and `asyncio.to_thread` to run checks in parallel (see `test.py` for an example).
 
 ## Asynchronous Usage for Performance
 
-For best performance when testing many hosts, you can use CertMonitor in an asynchronous workflow. Below is a real-world example using Python's `asyncio` and CertMonitor's thread-safe context manager:
+So why does async help so much here? Because each check spends most of its time waiting on the network. While one host is mid-handshake, your program could be talking to another. CertMonitor's context manager is thread-safe, and it releases the GIL during the Rust calls, so you can fan many checks out at once and let them overlap.
+
+Here's a real-world example using `asyncio` and `asyncio.to_thread`:
 
 ```python
 import asyncio
@@ -34,13 +40,15 @@ async def test_certinfo_async(hostname, port: int = 443):
             lines.append(json.dumps(cert_details, indent=2))
             verification_results = monitor.validate(
                 validator_args={
-                    "subject_alt_names": [
-                        "www.example.com",
-                        "cisco.com",
-                        "test.google.com",
-                        "8.8.4.4",
-                        "test.badssl.com",
-                    ]
+                    "subject_alt_names": {
+                        "alternate_names": [
+                            "www.example.com",
+                            "cisco.com",
+                            "test.google.com",
+                            "8.8.4.4",
+                            "test.badssl.com",
+                        ]
+                    }
                 }
             )
             lines.append(json.dumps(verification_results, indent=2))
@@ -85,4 +93,7 @@ if __name__ == "__main__":
     print(f"Average time per test: {average_time:.2f} seconds")
 ```
 
-This approach allows you to efficiently test many hosts in parallel, maximizing throughput and minimizing total runtime.
+Notice the pattern: each host runs inside `asyncio.to_thread`, and `asyncio.as_completed` lets you process results as soon as they finish rather than waiting for the slowest host. That's what lets you test many hosts in parallel, maximizing throughput and minimizing total runtime.
+
+!!! tip "Start with the network in mind"
+    Since the network is the bottleneck, the lever that matters most is concurrency. Adding more parallel checks usually helps far more than anything you could tune in the parsing path.

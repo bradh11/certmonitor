@@ -1,5 +1,23 @@
 # API Reference: Protocol Handlers
 
-<!-- No protocol handler modules are currently importable for mkdocstrings. -->
+Protocol handlers are how CertMonitor talks to a host. When you connect, CertMonitor detects whether the endpoint speaks SSL/TLS or SSH and hands off to the matching handler, which knows how to fetch the certificate (and, for TLS, the cipher information). You normally won't use these directly, since `CertMonitor` drives them for you. They're documented here for contributors and for anyone writing a custom handler.
 
-Documentation for protocol handlers is not currently available due to module import issues. Please ensure the modules are importable and exposed in certmonitor/protocol_handlers/__init__.py if you want them documented here.
+See [Protocol Detection](../usage/protocol.md) for how the right handler gets chosen at connect time.
+
+## Base handler
+
+The shared interface every handler implements.
+
+::: certmonitor.protocol_handlers.base
+
+## SSL/TLS handler
+
+Handles SSL/TLS endpoints: the handshake, certificate retrieval, and cipher info.
+
+::: certmonitor.protocol_handlers.ssl_handler
+
+## SSH handler
+
+Handles SSH endpoints.
+
+::: certmonitor.protocol_handlers.ssh_handler

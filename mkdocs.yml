@@ -6,6 +6,11 @@ repo_url: https://github.com/bradh11/certmonitor
 repo_name: bradh11/certmonitor
 nav:
   - Home: index.md
+  - Concepts:
+      - Overview: concepts/index.md
+      - How TLS & HTTPS Work: concepts/how-tls-works.md
+      - Certificates & PKI: concepts/certificates-and-pki.md
+      - Post-Quantum Cryptography: concepts/post-quantum.md
   - Usage:
       - Overview: usage/index.md
       - Installation: usage/installation.md
@@ -13,6 +18,7 @@ nav:
       - Using IP Addresses: usage/ip.md
       - Context Manager vs Manual Close: usage/context_manager.md
       - Certificate Validators: usage/validators.md
+      - Custom Validators: usage/custom_validators.md
       - Passing Arguments to Validators: usage/validator_args.md
       - Retrieving Raw Certificate Data: usage/raw_cert.md
       - Retrieving Cipher Information: usage/cipher.md
@@ -44,7 +50,10 @@ nav:
       - Protocol Handlers: reference/protocol_handlers.md
       - Error Handlers: reference/error_handlers.md
       - Cipher Algorithms: reference/cipher_algorithms.md
-  - Development: development.md
+  - Development:
+      - Overview: development.md
+      - Contributing a Validator: contributing-a-validator.md
+      - Security Configuration: security-configuration.md
       
 theme:
   name: material
@@ -97,7 +106,10 @@ markdown_extensions:
           class: mermaid
   - pymdownx.tabbed:
       alternate_style: true
+extra_css:
+  - stylesheets/extra.css
+
 extra:
   social:
     - icon: fontawesome/brands/github
-      link: https://github.com/yourusername/certmonitor
+      link: https://github.com/bradh11/certmonitor

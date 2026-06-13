@@ -1,10 +1,10 @@
 # Retrieving Cipher Information
 
-CertMonitor makes it easy to retrieve detailed information about the cipher suite used in an SSL/TLS connection.
+Every TLS connection negotiates a cipher suite: the exact set of algorithms used to encrypt and authenticate the session. CertMonitor lets you see what was chosen, broken down into its parts, so you don't have to decode the cipher suite name yourself.
 
-## Example: Getting Cipher Info
+## Getting cipher info
 
-You can use the `get_cipher_info()` method to retrieve structured information about the negotiated cipher suite:
+Use the `get_cipher_info()` method to retrieve structured information about the negotiated cipher suite:
 
 ```python
 from certmonitor import CertMonitor
@@ -15,7 +15,7 @@ with CertMonitor("example.com") as monitor:
     print(json.dumps(cipher_info, indent=2))
 ```
 
-### Example Output
+### Example output
 
 ```json
 {
@@ -30,8 +30,13 @@ with CertMonitor("example.com") as monitor:
 }
 ```
 
-- The `cipher_suite` object contains the negotiated cipher suite name and its parsed components.
+Let's walk through what came back:
+
+- The `cipher_suite` object holds the negotiated cipher suite name along with its parsed components.
 - `protocol_version` shows the TLS version in use.
 - `key_bit_length` is the size of the encryption key.
+
+!!! info "Want to know what the parts mean?"
+    The [How TLS & HTTPS Work](../concepts/how-tls-works.md) page explains key exchange, authentication, and why the cipher suite matters.
 
 See also: [API Reference: CertMonitor.get_cipher_info()](../reference/certmonitor.md#get_cipher_info)
