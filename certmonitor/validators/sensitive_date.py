@@ -146,7 +146,8 @@ class SensitiveDateValidator(BaseCertValidator):
                     "warnings": [
                         "Certificate expires on a weekend (Sunday)",
                         "Certificate is due to expire on sensitive date \\"Busy Sunday\\" (2025-11-16)"
-                    ]
+                    ],
+                    "reason": "Certificate expires on a sensitive date: Certificate expires on a weekend (Sunday); Certificate is due to expire on sensitive date \\"Busy Sunday\\" (2025-11-16)"
                 }
                 ```
         """
@@ -194,10 +195,15 @@ class SensitiveDateValidator(BaseCertValidator):
 
         is_valid = not (leapday_expiry or weekend_expiry or sensitive_date_matches)
 
-        return {
+        result: Dict[str, Any] = {
             "is_valid": is_valid,
             "leapday_expiry": leapday_expiry,
             "weekend_expiry": weekend_expiry,
             "sensitive_date_matches": sensitive_date_matches,
             "warnings": warnings,
         }
+        if not is_valid:
+            result["reason"] = "Certificate expires on a sensitive date: " + "; ".join(
+                warnings
+            )
+        return result

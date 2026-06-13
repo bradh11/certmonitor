@@ -53,7 +53,8 @@ class ExpirationValidator(BaseCertValidator):
                     "expires_on": "2025-04-30T23:59:59",
                     "warnings": [
                         "Certificate is expired and has been expired for (-10 days)"
-                    ]
+                    ],
+                    "reason": "Certificate expired 10 days ago (expired on 2025-04-30)."
                 }
                 ```
         """
@@ -78,9 +79,15 @@ class ExpirationValidator(BaseCertValidator):
                 f"Certificate is valid for more than industry standard ({days_to_expiry}/398 days)"
             )
 
-        return {
+        result: Dict[str, Any] = {
             "is_valid": is_valid,
             "days_to_expiry": days_to_expiry,
             "expires_on": not_after.isoformat(),
             "warnings": warnings,
         }
+        if not is_valid:
+            result["reason"] = (
+                f"Certificate expired {abs(days_to_expiry)} days ago "
+                f"(expired on {not_after.date().isoformat()})."
+            )
+        return result

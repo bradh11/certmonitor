@@ -55,7 +55,8 @@ class RootCertificateValidator(BaseCertValidator):
                     "Certificate does not provide caIssuers information.",
                     "Certificate is self-signed.",
                     "The certificate is issued by an untrusted root CA: Unknown (Unknown)"
-                  ]
+                  ],
+                  "reason": "Certificate is not issued by a trusted root CA: Unknown (Unknown)."
                 }
         """
         cert_info = cert.get("cert_info", {})
@@ -105,8 +106,14 @@ class RootCertificateValidator(BaseCertValidator):
                 f"The certificate is issued by an untrusted root CA: {organization_name} ({common_name})"
             )
 
-        return {
+        result: Dict[str, Any] = {
             "is_valid": is_trusted,
             "issuer": issuer,
             "warnings": warnings,
         }
+        if not is_trusted:
+            result["reason"] = (
+                "Certificate is not issued by a trusted root CA: "
+                f"{organization_name} ({common_name})."
+            )
+        return result

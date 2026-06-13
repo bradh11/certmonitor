@@ -133,34 +133,37 @@ class TestKeyInfoValidator:
         assert result["is_valid"] is False
 
     def test_ec_no_curve_info(self):
-        """Test validation of an EC key without curve information."""
+        """Undeterminable EC strength fails closed (strict-bool envelope)."""
         cert = {"public_key_info": {"algorithm": "ecPublicKey", "size": 256}}
         validator = KeyInfoValidator()
         result = validator.validate(cert, "example.com", 443)
 
         assert result["key_type"] == "ecPublicKey"
         assert result["key_size"] == 256
-        assert result["is_valid"] is None  # Cannot determine without curve info
+        assert result["is_valid"] is False  # strict bool: None -> False
+        assert "Cannot determine key strength" in result["reason"]
 
     def test_rsa_no_size_info(self):
-        """Test validation of an RSA key without size information."""
+        """Undeterminable RSA strength fails closed (strict-bool envelope)."""
         cert = {"public_key_info": {"algorithm": "rsaEncryption"}}
         validator = KeyInfoValidator()
         result = validator.validate(cert, "example.com", 443)
 
         assert result["key_type"] == "rsaEncryption"
         assert result["key_size"] is None
-        assert result["is_valid"] is None  # Cannot determine without size info
+        assert result["is_valid"] is False  # strict bool: None -> False
+        assert "Cannot determine key strength" in result["reason"]
 
     def test_unknown_key_type(self):
-        """Test validation of an unknown key type."""
+        """Unknown key type fails closed with a reason (strict-bool envelope)."""
         cert = {"public_key_info": {"algorithm": "unknownKeyType", "size": 2048}}
         validator = KeyInfoValidator()
         result = validator.validate(cert, "example.com", 443)
 
         assert result["key_type"] == "unknownKeyType"
         assert result["key_size"] == 2048
-        assert result["is_valid"] is None  # Cannot determine for unknown key types
+        assert result["is_valid"] is False  # strict bool: None -> False
+        assert "Cannot determine key strength" in result["reason"]
 
     def test_missing_public_key_info(self):
         """Test validation when public_key_info is missing."""
@@ -264,13 +267,14 @@ class TestKeyInfoPostQuantum:
         assert result["key_type"] == alg["name"]
         assert result["is_valid"] is True
 
-    def test_unknown_pq_like_name_still_returns_none(self):
-        """A PQ-looking name that is not in the registry stays None."""
+    def test_unknown_pq_like_name_fails_closed(self):
+        """A PQ-looking name not in the registry fails closed (strict bool)."""
         cert = {"public_key_info": {"algorithm": "ml-dsa-99", "size": 1024}}
         validator = KeyInfoValidator()
         result = validator.validate(cert, "example.com", 443)
 
-        assert result["is_valid"] is None
+        assert result["is_valid"] is False
+        assert "Cannot determine key strength" in result["reason"]
 
     def test_pq_size_is_irrelevant(self):
         """PQ strength is judged by identity — size 0 must still pass."""

@@ -100,24 +100,60 @@ class KeyInfoValidator(BaseCertValidator):
         public_key_info = cert.get("public_key_info", {})
         if not public_key_info:
             return {
-                "error": "Unable to extract public key information",
                 "is_valid": False,
+                "reason": "Unable to extract public key information.",
+                "error": "Unable to extract public key information",
             }
 
         key_type = public_key_info.get("algorithm", "Unknown")
         key_size = public_key_info.get("size")
         curve = public_key_info.get("curve")
 
-        result = {
+        # ``_is_key_strong_enough`` returns ``None`` when strength cannot be
+        # determined (unknown algorithm, or required size/curve missing). The
+        # result envelope requires a strict bool, so map ``None`` to ``False``
+        # — "we could not verify this key is strong" fails closed — and carry
+        # the distinction in ``reason``.
+        strength = self._is_key_strong_enough(key_type, key_size, curve)
+        is_valid = bool(strength)
+
+        result: Dict[str, Any] = {
             "key_type": key_type,
             "key_size": key_size,
-            "is_valid": self._is_key_strong_enough(key_type, key_size, curve),
+            "is_valid": is_valid,
         }
-
         if curve:
             result["curve"] = curve
 
+        if not is_valid:
+            result["reason"] = self._weak_key_reason(
+                key_type, key_size, curve, strength
+            )
+
         return result
+
+    @staticmethod
+    def _weak_key_reason(
+        key_type: str,
+        key_size: Optional[int],
+        curve: Optional[str],
+        strength: Optional[bool],
+    ) -> str:
+        """Explain why a key did not validate as strong.
+
+        ``strength is None`` means the strength could not be determined;
+        ``strength is False`` means a recognized-but-weak key.
+        """
+        if strength is None:
+            return f"Cannot determine key strength for algorithm {key_type!r}."
+        if "rsaEncryption" in key_type:
+            return f"RSA key size {key_size} is below the 2048-bit minimum."
+        if "ecPublicKey" in key_type:
+            return (
+                f"EC curve {curve!r} is not in the approved set "
+                "(secp256r1, secp384r1, secp521r1)."
+            )
+        return f"Key algorithm {key_type!r} did not meet strength requirements."
 
     def _is_key_strong_enough(
         self, key_type: str, key_size: Optional[int], curve: Optional[str]
