@@ -192,13 +192,22 @@ make docs
 
 This starts a local development server for the documentation.
 
+## Validator Development
+
+Validators are the heart of CertMonitor, and there are two reasons you might write one. Be clear about which you're doing, because the path is different:
+
+- **For yourself.** You need an organization-specific check (an internal naming policy, a custom compliance rule) and you want to register it at runtime in your own code. You don't touch the CertMonitor repo at all. This is covered in [Custom Validators](usage/custom_validators.md) in the usage guide.
+- **To contribute back.** You think the check is useful to everyone and you want it shipped in the library. That means adding it to the codebase with tests, docs, and registration. See [Contributing a Validator](contributing-a-validator.md).
+
+Both paths share the same building blocks (subclass a base validator, follow the result envelope, declare keyword-only arguments). The difference is everything around the validator: a contributed one needs tests, a docs page, a changelog entry, and registration in the shipped registry.
+
 ## Why Rust for Certificate Parsing?
 
 Parsing X.509 certificates and extracting cryptographic key information is performance-critical and security-sensitive. Python's standard library does not provide low-level, robust, or fast parsing for all certificate fields, especially for public key extraction and ASN.1 parsing. Rust, with its strong safety guarantees and excellent cryptography ecosystem, is ideal for this task.
 
 - **Performance:** Rust code is compiled and runs much faster than pure Python for binary parsing.
-- **Safety:** Rust's memory safety model helps prevent many classes of bugs and vulnerabilities.
-- **Ecosystem:** The Rust `x509-parser` crate is mature and reliable for certificate parsing.
+- **Safety:** Rust's memory safety model helps prevent many classes of bugs and vulnerabilities. The in-tree parser is annotated `#![forbid(unsafe_code)]` and returns a `Result` on every path, so malformed input never panics.
+- **Zero dependencies:** As of v0.3.0 the entire X.509 / DER parser is written in-house against the Rust standard library, with no third-party parsing crates in the runtime tree.
 
 The Rust extension is built as a Python module using [PyO3](https://pyo3.rs/) and [maturin](https://github.com/PyO3/maturin), and is automatically installed as part of the development workflow.
 

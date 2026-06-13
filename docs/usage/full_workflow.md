@@ -1,8 +1,10 @@
 # Full Workflow Example
 
-This page demonstrates a complete CertMonitor workflow, including certificate retrieval, validation, cipher info, and error handling.
+Once you've seen the individual pieces, it helps to watch them work together. This page walks through a complete CertMonitor workflow: connecting to a host, pulling certificate info, running validators, reading cipher details, and handling errors when a connection goes wrong.
 
 ## Example: All-in-One
+
+Let's say you want to inspect a host end to end. Here's everything in one script:
 
 ```python
 from certmonitor import CertMonitor
@@ -35,9 +37,17 @@ with CertMonitor("example.com", enabled_validators=validators) as monitor:
     print(base64.b64encode(der).decode())
 ```
 
----
+Notice the shape of this: you open one `with` block, and every call inside it reuses the same connection. When the block exits, CertMonitor cleans up for you.
+
+!!! tip "Why the context manager?"
+    Using `with CertMonitor(...)` makes sure the connection is opened once and closed promptly when you're done. It's the recommended way to use CertMonitor, and it keeps your code tidy.
+
+!!! info "DER, PEM, and cipher info are SSL/TLS only"
+    `get_raw_pem()`, `get_raw_der()`, and `get_cipher_info()` deal with X.509 certificates and the TLS handshake, so they apply to SSL/TLS endpoints. CertMonitor auto-detects the protocol, so on an SSH endpoint these aren't available.
 
 ## Example Output (abbreviated)
+
+Here's roughly what each call gives you back. The output is trimmed for readability.
 
 ### Certificate Info
 ```json
@@ -85,11 +95,11 @@ MIID...snip...IDAQAB
 MIID...snip...IDAQAB
 ```
 
----
-
 ## Error Handling Example
 
-If a connection fails, CertMonitor returns a structured error:
+Connections don't always succeed, and that's fine. CertMonitor never throws a surprise at you here. When a connection fails, it returns a structured error you can inspect and act on.
+
+Let's point it at a host that doesn't exist:
 
 ```python
 with CertMonitor("badhost.invalid") as monitor:
@@ -97,7 +107,7 @@ with CertMonitor("badhost.invalid") as monitor:
     print(cert_info)
 ```
 
-Sample output:
+You get back something like this:
 
 ```json
 {
@@ -108,6 +118,7 @@ Sample output:
 }
 ```
 
----
+Notice that the error is just a dictionary, with the `error` type, a human-readable `reason`, and the `host` and `port` that were attempted. That makes it easy to log, alert on, or branch on in your own code.
 
-> **Tip:** See the [Usage Guide](index.md) for more advanced examples and troubleshooting tips.
+!!! tip "Want more?"
+    See the [Usage Guide](index.md) for more advanced examples and troubleshooting tips.

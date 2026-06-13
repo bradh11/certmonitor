@@ -1,11 +1,15 @@
 # Expiration Validator
 
-Catches the most common certificate incident there is: a cert that has expired, or is about to. `expiration` reports how long until the certificate's `notAfter` date and flags certificates that are expired, expiring within a week, or valid for longer than the industry-standard maximum (398 days).
+This is the validator that catches the most common certificate incident there is: a certificate that has expired, or is about to.
+
+It reports how long until the certificate's `notAfter` date, and it flags three situations you care about: the cert is already expired, it's expiring within a week, or it's valid for longer than the industry-standard maximum of 398 days.
 
 !!! note "Enabled by default"
-    `expiration` runs out of the box — it's one of the three default validators (`expiration`, `hostname`, `root_certificate`). No configuration required.
+    You don't have to turn this one on. `expiration` is one of the three default validators, along with `hostname` and `root_certificate`.
 
-## Example
+## Try it
+
+Let's run it against a host:
 
 ```python
 from certmonitor import CertMonitor
@@ -15,7 +19,7 @@ with CertMonitor("example.com") as monitor:
     print(monitor.validate()["expiration"])
 ```
 
-A healthy certificate:
+A healthy certificate comes back valid, with the days remaining:
 
 ```json
 {
@@ -26,7 +30,7 @@ A healthy certificate:
 }
 ```
 
-An expired certificate fails with a human-readable `reason` you can put straight into an alert:
+An expired one flips `is_valid` to `false` and adds a `reason` you can drop straight into an alert:
 
 ```json
 {
@@ -38,19 +42,9 @@ An expired certificate fails with a human-readable `reason` you can put straight
 }
 ```
 
-## What it reports
+!!! tip "A valid certificate can still warn you"
+    `is_valid` only tells you whether the certificate has expired. A certificate can be perfectly valid and still carry a warning, for example when it expires in less than a week (time to renew) or when it's valid for more than 398 days (browsers reject over-long certificates). So watch the `warnings` list, not just `is_valid`.
 
-| Field | Meaning |
-|---|---|
-| `is_valid` | `false` once the certificate is past its `notAfter` date. |
-| `days_to_expiry` | Days until expiry; negative once expired. |
-| `expires_on` | The `notAfter` timestamp (ISO 8601, UTC). |
-| `warnings` | Non-fatal heads-up notices (see below). |
-| `reason` | Present only on failure. |
-
-!!! tip "Warnings vs. failure"
-    A certificate can be **valid but still warn**. Warnings fire when a cert is expiring in under 7 days (renew soon!) or is valid for more than 398 days (browsers reject over-long certs). Watch `warnings` for early signals, not just `is_valid`.
-
-## API
+## Reference
 
 ::: certmonitor.validators.expiration.ExpirationValidator

@@ -7,7 +7,7 @@ Common issues and how to resolve them. If your problem isn't here, the [FAQ](faq
 **Symptom:** `get_cert_info()` returns a dict with an `error` key like `ConnectionError` or `ProtocolDetectionError`.
 
 - Confirm the host and port are reachable: `openssl s_client -connect host:443`.
-- Check firewalls, proxies, and DNS — CertMonitor makes a direct TCP connection.
+- Check firewalls, proxies, and DNS. CertMonitor makes a direct TCP connection.
 - For non-standard ports, pass them explicitly: `CertMonitor("host", 8443)`.
 
 ```python
@@ -22,11 +22,11 @@ with CertMonitor("example.com") as monitor:
 A result like `{"is_valid": false, "reason": "Validator 'foo' is not implemented."}` means the name isn't registered.
 
 - Check spelling against the [validator list](../validators/index.md).
-- Remember most validators are **opt-in** — enable them with `enabled_validators=[...]`. Only `expiration`, `hostname`, and `root_certificate` run by default.
+- Remember most validators are **opt-in**. Enable them with `enabled_validators=[...]`. Only `expiration`, `hostname`, and `root_certificate` run by default.
 
 ## A validator reports `is_valid: false` unexpectedly
 
-Every failing validator includes a `reason` explaining exactly why — read it first:
+Every failing validator includes a `reason` explaining exactly why, so read it first:
 
 ```python
 results = monitor.validate()
@@ -37,9 +37,9 @@ for name, r in results.items():
 
 Common surprises:
 
-- **`hostname` fails on an IP address** — most certs don't list IPs as SANs. See [Using IP Addresses](ip.md).
-- **`chain` / `pq_chain` returns an error on Python 3.8/3.9** — chain retrieval needs Python 3.10+.
-- **`pq_signature` / `pq_chain` is `false` for a normal site** — expected; the cert is classical (EC/RSA), not post-quantum. See [Post-Quantum Cryptography](../concepts/post-quantum.md).
+- **`hostname` fails on an IP address.** Most certs don't list IPs as SANs. See [Using IP Addresses](ip.md).
+- **`chain` / `pq_chain` returns an error on Python 3.8/3.9.** Chain retrieval needs Python 3.10+.
+- **`pq_signature` / `pq_chain` is `false` for a normal site.** This is expected: the cert is classical (EC/RSA), not post-quantum. See [Post-Quantum Cryptography](../concepts/post-quantum.md).
 
 ## Inspecting output
 
@@ -52,7 +52,7 @@ print(json.dumps(monitor.validate(), indent=2))
 
 ## SSH vs SSL/TLS
 
-CertMonitor auto-detects the protocol. Features like raw DER/PEM and cipher info are **SSL/TLS only** — calling them against an SSH host returns a `ProtocolError`. See [Protocol Detection](protocol.md).
+CertMonitor auto-detects the protocol. Features like raw DER/PEM and cipher info are **SSL/TLS only**, so calling them against an SSH host returns a `ProtocolError`. See [Protocol Detection](protocol.md).
 
 !!! tip "Still stuck?"
-    Open an issue with the host/port (if shareable), your Python version, and the full error dict — the `error` and `message` fields are the fastest way to diagnose.
+    Open an issue with the host/port (if shareable), your Python version, and the full error dict. The `error` and `message` fields are the fastest way to diagnose.

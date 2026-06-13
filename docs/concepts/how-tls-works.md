@@ -1,19 +1,19 @@
 # How TLS & HTTPS Work
 
-HTTPS is just HTTP carried over **TLS** (Transport Layer Security). TLS gives a connection three guarantees:
+HTTPS is just HTTP carried over **TLS** (Transport Layer Security). When you connect over TLS, you get three things:
 
-- **Encryption** — nobody between you and the server can read the traffic.
-- **Authentication** — you're really talking to the server you think you are (this is what certificates prove).
-- **Integrity** — the data can't be tampered with in transit without detection.
+* **Encryption.** Nobody between you and the server can read the traffic.
+* **Authentication.** You're really talking to the server you think you are. This is what certificates prove.
+* **Integrity.** The data can't be tampered with along the way without you noticing.
 
-CertMonitor inspects the artifacts of this process — the certificate, the chain, the negotiated protocol version, the cipher suite, and the key-exchange group — and reports on their health. This page explains what those artifacts are and where they come from.
+CertMonitor looks at the artifacts this process produces (the certificate, the chain, the TLS version, the cipher suite, and the key-exchange group) and tells you whether they're healthy. So before you use the validators, it helps to know what those artifacts are and where they come from.
 
-!!! note "\"SSL\" vs \"TLS\""
-    You'll see both terms everywhere, often interchangeably. **SSL** (Secure Sockets Layer) is the original 1990s protocol; it was renamed **TLS** when standardized, and every SSL version (1.0–3.0) is now obsolete and insecure. What runs today is TLS 1.2 and TLS 1.3 — but the old name stuck, which is why we still say "SSL certificate" and "SSL/TLS." CertMonitor uses TLS in practice and can still *detect* legacy SSL/older TLS so you can flag endpoints that haven't moved on.
+!!! note "\"SSL\" or \"TLS\"?"
+    You'll see both words, often for the same thing. **SSL** (Secure Sockets Layer) is the original protocol from the 1990s. It was renamed **TLS** when it was standardized, and every SSL version is now obsolete and insecure. What actually runs today is TLS 1.2 and TLS 1.3. The old name simply stuck, which is why people still say "SSL certificate." CertMonitor speaks TLS in practice, and it can still *detect* legacy SSL so you can flag servers that haven't moved on.
 
 ## The TLS 1.3 handshake
 
-Before any application data flows, the client and server perform a **handshake** to agree on keys and verify identity. TLS 1.3 (the modern default) completes this in a single round trip:
+Before any of your application data is sent, the client and the server run a **handshake**. This is where they agree on keys and check identity. With TLS 1.3 (the modern default) it takes a single round trip.
 
 ```mermaid
 sequenceDiagram
@@ -29,33 +29,33 @@ sequenceDiagram
     C->>S: Encrypted application data (HTTPS)
 ```
 
-Step by step:
+Here's what's happening, step by step:
 
-1. **ClientHello** — the client offers what it supports: TLS versions, cipher suites, and key-exchange groups, along with a `key_share` (its half of the key agreement).
-2. **ServerHello** — the server picks one option from each list and sends its own `key_share`. After this exchange, both sides can derive the shared session keys.
-3. **Certificate** — the server presents its certificate chain (leaf → intermediates), and `CertificateVerify` proves it holds the matching private key.
-4. **Validation** — the client checks the certificate: is it for this hostname? expired? issued by a trusted CA? is the chain intact?
-5. **Finished** — both sides confirm the handshake wasn't tampered with, then switch to encrypted application data.
+1. **ClientHello.** The client says what it supports: TLS versions, cipher suites, and key-exchange groups. It also sends a `key_share`, which is its half of the key agreement.
+2. **ServerHello.** The server picks one option from each list and sends back its own `key_share`. At this point both sides can compute the same shared session keys.
+3. **Certificate.** The server presents its certificate chain (the leaf plus any intermediates), and `CertificateVerify` proves it actually holds the matching private key.
+4. **Validation.** The client checks that certificate. Is it for this hostname? Is it expired? Was it issued by a trusted CA? Is the chain intact?
+5. **Finished.** Both sides confirm nothing was tampered with, and then they switch to encrypted application data.
 
 !!! info "Where CertMonitor looks"
-    CertMonitor performs this handshake and then inspects each artifact: the **certificate** (→ [Expiration](../validators/expiration.md), [Hostname](../validators/hostname.md), [KeyInfo](../validators/key_info.md), [Chain](../validators/chain.md)), the **negotiated protocol** (→ [TLSVersion](../validators/tls_version.md)), the **cipher suite** (→ [WeakCipher](../validators/weak_cipher.md)), and the **key-exchange group** (→ [PqKeyExchange](../validators/pq_key_exchange.md)).
+    CertMonitor runs this handshake and then inspects each artifact. The **certificate** feeds [Expiration](../validators/expiration.md), [Hostname](../validators/hostname.md), [KeyInfo](../validators/key_info.md), and [Chain](../validators/chain.md). The **negotiated protocol** feeds [TLSVersion](../validators/tls_version.md). The **cipher suite** feeds [WeakCipher](../validators/weak_cipher.md). And the **key-exchange group** feeds [PqKeyExchange](../validators/pq_key_exchange.md).
 
-## The two halves: key exchange vs. signatures
+## Two jobs: key exchange and signatures
 
-A subtle but important point — a TLS session uses cryptography in two distinct roles, and they have very different security timelines:
+Here's a detail that turns out to matter a lot. A TLS session uses cryptography for two different jobs, and the two have very different security timelines.
 
-| Role | What it does | Algorithm examples |
+| Job | What it does | Examples |
 |---|---|---|
 | **Key exchange (KEM)** | Agrees on the symmetric session key | ECDH (`x25519`), or post-quantum `X25519MLKEM768` |
-| **Signatures** | Authenticate the server (cert + handshake) | RSA, ECDSA, or post-quantum ML-DSA |
+| **Signatures** | Authenticate the server (certificate + handshake) | RSA, ECDSA, or post-quantum ML-DSA |
 
-This split matters enormously for post-quantum security: **key exchange is the urgent problem** (an attacker can record traffic today and decrypt it later), while signatures only need to be quantum-safe before a quantum computer actually exists. See [Post-Quantum Cryptography](post-quantum.md) for why.
+Why does the split matter? Because of post-quantum security. **Key exchange is the urgent problem.** An attacker can record your encrypted traffic today and decrypt it later, once a quantum computer exists. Signatures only need to be quantum-safe before such a computer actually arrives, since you can't forge a signature on a handshake that already happened. The [Post-Quantum Cryptography](post-quantum.md) page digs into this.
 
 ## Why TLS 1.3 over older versions
 
-TLS 1.0 and 1.1 are deprecated — they permit weak ciphers and have known weaknesses. TLS 1.2 is still acceptable when configured well; TLS 1.3 removed the legacy footguns entirely, made forward secrecy mandatory, and cut the handshake to one round trip. CertMonitor's [TLSVersion](../validators/tls_version.md) validator flags anything below TLS 1.2 by default.
+TLS 1.0 and 1.1 are deprecated. They allow weak ciphers and have known weaknesses, so you don't want them. TLS 1.2 is still fine when it's configured well. TLS 1.3 went further: it removed the legacy footguns, made forward secrecy mandatory, and trimmed the handshake to one round trip. By default, CertMonitor's [TLSVersion](../validators/tls_version.md) validator flags anything below TLS 1.2.
 
 ## Next steps
 
-- [Certificates & PKI](certificates-and-pki.md) — what the server's certificate actually proves, and how trust is established.
-- [Post-Quantum Cryptography](post-quantum.md) — the looming change to TLS key exchange and signatures.
+* [Certificates & PKI](certificates-and-pki.md), to see what the server's certificate actually proves and how trust is established.
+* [Post-Quantum Cryptography](post-quantum.md), for the coming change to TLS key exchange and signatures.

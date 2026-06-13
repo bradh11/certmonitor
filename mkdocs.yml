@@ -50,8 +50,10 @@ nav:
       - Protocol Handlers: reference/protocol_handlers.md
       - Error Handlers: reference/error_handlers.md
       - Cipher Algorithms: reference/cipher_algorithms.md
-  - Development: development.md
-  - Security Configuration: security-configuration.md
+  - Development:
+      - Overview: development.md
+      - Contributing a Validator: contributing-a-validator.md
+      - Security Configuration: security-configuration.md
       
 theme:
   name: material

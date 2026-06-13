@@ -3,7 +3,7 @@
 Reports the **post-quantum posture of every certificate in the presented
 chain**. During the staged PQ migration the leaf, intermediates, and root
 rotate independently, so a single yes/no for the whole chain hides the
-information operators actually need — this validator gives a per-certificate
+information operators actually need. This validator gives a per-certificate
 view plus a role-level summary.
 
 A certificate counts as PQ when **either** its public key algorithm or
@@ -12,13 +12,13 @@ composite). The signature is the issuing CA's choice rather than the
 operator's, so both are tracked separately per link.
 
 By default `is_valid: true` means **the leaf certificate's key is
-post-quantum** — the part the operator controls. Pass
+post-quantum** (the part the operator controls). Pass
 `require_full_chain: true` via validator args to demand the whole chain.
 
 !!! note "Classical roots are expected"
     Chains that terminate at public trust anchors will report a
     classical root for the foreseeable future. **This is expected, not a
-    bug** — root CAs migrate last.
+    bug**: root CAs migrate last.
 
 ## Opt-in
 

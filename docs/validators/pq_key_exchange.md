@@ -1,12 +1,12 @@
 # PqKeyExchange Validator
 
-Reports the **post-quantum posture of the TLS key exchange** — the
+Reports the **post-quantum posture of the TLS key exchange**, the
 *harvest-now-decrypt-later* (HNDL) question: is this session's key
 agreement protected against a future quantum computer?
 
 It consumes the negotiated cipher info plus a second-connection TLS probe
 (`certinfo.probe_tls_handshake`) that reads the negotiated TLS 1.3
-key-exchange group off the wire — something the Python `ssl` module does
+key-exchange group off the wire, something the Python `ssl` module does
 not expose.
 
 "PQ" includes **hybrid** groups (classical + ML-KEM, e.g.
@@ -32,8 +32,8 @@ or via `ENABLED_VALIDATORS=...,pq_key_exchange`.
 | Server | Result |
 |---|---|
 | TLS 1.3 + hybrid/pure PQ group | `is_valid: true` |
-| TLS 1.3 + classical group | `is_valid: false` — classical KEX, HNDL-exposed |
-| TLS 1.2 or older | `is_valid: false` — no PQ KEMs defined |
+| TLS 1.3 + classical group | `is_valid: false` (classical KEX, HNDL-exposed) |
+| TLS 1.2 or older | `is_valid: false` (no PQ KEMs defined) |
 | Connection / probe error | `{error, message, is_valid: false}` |
 
 **Skip-for-legacy:** the probe opens a second TCP connection only when the
@@ -55,8 +55,8 @@ flowchart TD
     D -- error --> E["is_valid: false<br/>error + message + reason"]
     D -- n/a --> N
     D -- group --> F{Negotiated group<br/>post-quantum?}
-    F -- "Yes — hybrid or pure ML-KEM" --> G["is_valid: true<br/>is_pq: true"]
-    F -- "No — classical ECDH" --> H["is_valid: false<br/>classical KEX — HNDL-exposed"]
+    F -- "Yes: hybrid or pure ML-KEM" --> G["is_valid: true<br/>is_pq: true"]
+    F -- "No: classical ECDH" --> H["is_valid: false<br/>classical KEX, HNDL-exposed"]
 ```
 
 ## Example output

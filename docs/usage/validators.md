@@ -1,9 +1,9 @@
 # Validator System Overview
 
-Validators are modular checks that CertMonitor uses to assess the security and compliance of SSL/TLS certificates and connections. Each validator focuses on a specific aspect—such as expiration, hostname matching, key strength, or protocol version—and returns a structured result indicating success or failure. Validators can be enabled, disabled, or extended with custom logic to fit your organization's needs.
+Validators are modular checks that CertMonitor uses to assess the security and compliance of SSL/TLS certificates and connections. Each validator focuses on a specific aspect (expiration, hostname matching, key strength, protocol version) and returns a structured result indicating success or failure. Validators can be enabled, disabled, or extended with custom logic to fit your organization's needs.
 
 !!! info "Looking for the catalog?"
-    This page covers **how to control and extend** validators. For the per-validator reference — what each one checks, its arguments, and example output — see the [Validators section](../validators/index.md).
+    This page covers **how to control and extend** validators. For the per-validator reference (what each one checks, its arguments, and example output), see the [Validators section](../validators/index.md).
 
 ## Enabling/Disabling Validators
 

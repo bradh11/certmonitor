@@ -1,6 +1,6 @@
 # SubjectAltNames Validator
 
-Inspects the certificate's Subject Alternative Names (SANs) — the authoritative list of hostnames and IPs a certificate is valid for. Use it to confirm the host is covered, to check that extra names you expect (apex + `www`, alternate domains) are present, and to surface the full SAN inventory.
+Inspects the certificate's Subject Alternative Names (SANs): the authoritative list of hostnames and IPs a certificate is valid for. Use it to confirm the host is covered, to check that extra names you expect (apex + `www`, alternate domains) are present, and to surface the full SAN inventory.
 
 !!! note "Opt-in"
     Enable explicitly via `enabled_validators=["subject_alt_names", ...]` or the `ENABLED_VALIDATORS` environment variable.
@@ -57,7 +57,7 @@ Pass via `validator_args={"subject_alt_names": {...}}`:
 | `contains_alternate` | One entry per name in `alternate_names`, each with its own match result. |
 
 !!! warning "Top-level `is_valid` vs. per-name results"
-    The top-level `is_valid` reflects whether the certificate has a usable SAN extension — **not** whether every alternate name matched. Check the nested `contains_host["is_valid"]` and each `contains_alternate[...]["is_valid"]` for per-name outcomes. Unmatched names are also surfaced in `warnings`.
+    The top-level `is_valid` reflects whether the certificate has a usable SAN extension, **not** whether every alternate name matched. Check the nested `contains_host["is_valid"]` and each `contains_alternate[...]["is_valid"]` for per-name outcomes. Unmatched names are also surfaced in `warnings`.
 
 ## API
 

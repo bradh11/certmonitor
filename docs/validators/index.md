@@ -1,6 +1,6 @@
 # Validators Overview
 
-CertMonitor provides a modular validator system to check various aspects of SSL/TLS certificates and connections. Each validator returns a structured, JSON-serializable result — not a bare pass/fail — so you can drive alerts, dashboards, and policy from rich data. Validators can be enabled or disabled per call, and some accept arguments for fine-grained control.
+CertMonitor provides a modular validator system to check various aspects of SSL/TLS certificates and connections. Each validator returns a structured, JSON-serializable result (not a bare pass/fail), so you can drive alerts, dashboards, and policy from rich data. Validators can be enabled or disabled per call, and some accept arguments for fine-grained control.
 
 This includes **post-quantum readiness**: opt-in validators report whether the TLS key exchange and the certificate's keys/signatures use post-quantum algorithms (hybrid or pure ML-KEM / ML-DSA / SLH-DSA), so you can track quantum-safe migration and *harvest-now-decrypt-later* exposure. See [Post-Quantum Readiness](#post-quantum-readiness) below.
 
@@ -82,7 +82,7 @@ Because every validator's result is a plain dict keyed by validator name, a moni
 
 ## Post-Quantum Readiness
 
-The `pq_*` validators answer the questions classical TLS tooling can't. `pq_key_exchange` reads the negotiated TLS 1.3 group directly off the wire — the Python `ssl` module doesn't expose it — and tells you whether the session is protected against *harvest-now-decrypt-later*:
+The `pq_*` validators answer the questions classical TLS tooling can't. `pq_key_exchange` reads the negotiated TLS 1.3 group directly off the wire (the Python `ssl` module doesn't expose it) and tells you whether the session is protected against *harvest-now-decrypt-later*:
 
 ```python
 with CertMonitor("cloudflare.com", enabled_validators=["pq_key_exchange"]) as monitor:
@@ -111,7 +111,7 @@ without changing the runtime type:
 
 | Key | Type | Rule |
 |---|---|---|
-| `is_valid` | `bool` | Always present, strict bool — never `None`. |
+| `is_valid` | `bool` | Always present, strict bool, never `None`. |
 | `reason` | `str` | Present **iff** `is_valid` is `False`. One human-readable sentence stating the primary cause. |
 | `warnings` | `List[str]` | Optional. Non-fatal findings. |
 | `error` | `str` | Optional. Machine-readable error class on operational failures. |
@@ -125,7 +125,7 @@ Two corollaries:
 
 1. **Operational failures are still results.** A validator whose data source
    cannot be fetched (connection error, probe failure, chain missing) still
-   appears in `validate()` output with `is_valid: False` and a `reason` — it
+   appears in `validate()` output with `is_valid: False` and a `reason`; it
    is never silently omitted, so `results["<name>"]` never raises `KeyError`
    in a monitoring pipeline.
 2. **Schema is static-only.** A custom validator declares its full shape by
@@ -134,7 +134,7 @@ Two corollaries:
    an ordinary dict.
 3. **`is_valid` is always a strict `bool`.** When a validator cannot
    determine an answer (e.g. `key_info` facing an unrecognized algorithm),
-   it fails closed — `is_valid: False` with an explanatory `reason` — rather
+   it fails closed (`is_valid: False` with an explanatory `reason`) rather
    than returning `None`.
 
 ---

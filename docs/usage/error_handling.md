@@ -1,6 +1,6 @@
 # Error Handling
 
-CertMonitor never raises for the ordinary failures of talking to remote hosts — unreachable servers, protocol mismatches, missing data. Instead it **returns structured error dicts**, so a monitoring loop can keep going and log what happened rather than crashing.
+CertMonitor never raises for the ordinary failures of talking to remote hosts (unreachable servers, protocol mismatches, missing data). Instead it **returns structured error dicts**, so a monitoring loop can keep going and log what happened rather than crashing.
 
 ## Errors from `CertMonitor` methods
 
@@ -24,7 +24,7 @@ Validators follow the same philosophy through the [result envelope](../validator
 
 ```python
 results = monitor.validate()
-# Safe to index every enabled validator — none are silently dropped:
+# Safe to index every enabled validator; none are silently dropped:
 expiry = results["expiration"]
 if not expiry["is_valid"]:
     alert(expiry["reason"])

@@ -1,10 +1,12 @@
 # Retrieving Raw Certificate Data
 
-CertMonitor allows you to retrieve the raw certificate in both PEM and DER formats for any host.
+Sometimes you don't want CertMonitor's parsed view of a certificate. You want the certificate itself, in its original encoding, so you can hand it to another tool. CertMonitor lets you pull the raw certificate in two formats: PEM and DER.
 
-## Get PEM Format
+## Get PEM format
 
-PEM is a base64-encoded, human-readable format commonly used for certificate files.
+PEM is the base64-encoded, human-readable format you've probably seen in `.pem` and `.crt` files. It's what most file-based tools expect.
+
+Let's grab it:
 
 ```python
 from certmonitor import CertMonitor
@@ -14,7 +16,7 @@ with CertMonitor("example.com") as monitor:
     print(pem)
 ```
 
-### Example Output
+### Example output
 
 ```pem
 -----BEGIN CERTIFICATE-----
@@ -22,11 +24,9 @@ MIID...snip...IDAQAB
 -----END CERTIFICATE-----
 ```
 
----
+## Get DER format
 
-## Get DER Format
-
-DER is a binary format (often used in low-level APIs or for cryptographic operations).
+DER is a binary format. It's what you reach for when a low-level API or cryptographic library wants raw bytes rather than text.
 
 ```python
 with CertMonitor("example.com") as monitor:
@@ -34,15 +34,18 @@ with CertMonitor("example.com") as monitor:
     print(der)  # This will print bytes; you may want to base64-encode for display
 ```
 
-### Example Output (base64-encoded for readability)
+### Example output (base64-encoded for readability)
 
 ```text
 MIID...snip...IDAQAB
 ```
 
----
+!!! note "DER is bytes, not text"
+    `get_raw_der()` returns raw bytes. Printing them directly is noisy, so base64-encode the value first when you need something readable.
 
-## Certificate Retrieval & Info Extraction (Mermaid Diagram)
+## How retrieval fits together
+
+Here's the path a certificate takes, from the connection to whichever format you ask for:
 
 ```mermaid
 flowchart TD
@@ -55,13 +58,14 @@ flowchart TD
     E -->|Info| H[Return Parsed Info]
 ```
 
----
+As you can see, the same retrieved certificate can come back as PEM, as DER, or as parsed info. You pick the shape that fits your task.
 
-## When to Use Each Format
+## When to use each format
 
-- **PEM**: Use for most file-based operations, OpenSSL, and human inspection.
-- **DER**: Use for binary APIs, cryptographic libraries, or when a raw byte array is required.
+So which one do you want? It comes down to what's on the receiving end:
 
----
+- **PEM**: Use it for most file-based operations, OpenSSL, and human inspection.
+- **DER**: Use it for binary APIs, cryptographic libraries, or anywhere a raw byte array is required.
 
-> **Tip:** You can always convert between PEM and DER using OpenSSL or Python's cryptography library if needed.
+!!! tip "You can always convert"
+    If you have one format and need the other, OpenSSL or Python's cryptography library will convert between PEM and DER for you.

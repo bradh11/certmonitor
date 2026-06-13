@@ -13,7 +13,7 @@
 
 > ⚡️ **Why CertMonitor?**
 >
-> CertMonitor was born out of real-world frustration: outages and security incidents caused by expired certificates, missing Subject Alternative Names, or incomplete certificate chains. This tool is a labor of love—built to solve those pain points with a zero-dependency, native Python approach. All orchestration and logic are pure Python stdlib, with public key parsing and elliptic curve support powered by Rust for speed, safety, and correctness. CertMonitor is always improving, and your feedback is welcome!
+> CertMonitor was born out of real-world frustration: outages and security incidents caused by expired certificates, missing Subject Alternative Names, or incomplete certificate chains. This tool is a labor of love, built to solve those pain points with a zero-dependency, native Python approach. All orchestration and logic are pure Python stdlib, with public key parsing and elliptic curve support powered by Rust for speed, safety, and correctness. CertMonitor is always improving, and your feedback is welcome!
 
 ---
 
@@ -21,7 +21,7 @@
 
 - **Easy Certificate Retrieval**: Fetch and parse certificates from any host (domain or IP) with a single call.
 - **Pluggable Validators**: Built-in and custom validators for expiration, hostname, SANs, key strength, cipher, protocol version, and more.
-- **Post-Quantum Readiness**: Opt-in validators detect post-quantum (hybrid/pure **ML-KEM**) TLS key exchange and post-quantum certificate keys/signatures (**ML-DSA**, **SLH-DSA**, composite) — track quantum-safe migration and *harvest-now-decrypt-later* exposure.
+- **Post-Quantum Readiness**: Opt-in validators detect post-quantum (hybrid/pure **ML-KEM**) TLS key exchange and post-quantum certificate keys/signatures (**ML-DSA**, **SLH-DSA**, composite), so you can track quantum-safe migration and *harvest-now-decrypt-later* exposure.
 - **Rich API**: Access raw certificate data, cipher info, and validation results in structured Python objects or JSON.
 - **Rust-Powered Performance**: Advanced public key parsing and elliptic curve support are powered by Rust for speed and safety. All orchestration and logic are pure Python standard library.
 - **Graceful Error Handling**: Robust to network failures, invalid hosts, and edge cases.
@@ -124,6 +124,8 @@ MIID...snip...IDAQAB
 
 ### Validation Results
 
+This is what `monitor.validate()` returns. Each enabled validator gets its own entry, keyed by its name. Every entry has `is_valid` plus the data that validator gathered, and a `reason` is added whenever a check fails. Here two validators ran, and both passed:
+
 ```json
 {
   "expiration": {
@@ -136,18 +138,20 @@ MIID...snip...IDAQAB
     "is_valid": true,
     "sans": {"DNS": ["example.com", "www.example.com"], "IP Address": []},
     "count": 2,
-    "contains_host": {"name": "example.com", "is_valid": true, "reason": "Matched DNS SAN"},
-    "contains_alternate": {"www.example.com": {"name": "www.example.com", "is_valid": true, "reason": "Matched DNS SAN"}},
+    "contains_host": {"name": "example.com", "is_valid": true, "reason": "Exact match for example.com found in DNS SANs"},
+    "contains_alternate": {"www.example.com": {"name": "www.example.com", "is_valid": true, "reason": "Exact match for www.example.com found in DNS SANs"}},
     "warnings": []
   }
 }
 ```
 
+To see what each validator checks and the full shape of its result, head to the [Validators](validators/index.md) section.
+
 ---
 
 ## 📚 Documentation
 
-CertMonitor provides a robust, extensible system of **validators**—modular checks that automatically assess certificate health, security, and compliance. Validators can:
+CertMonitor provides a robust, extensible system of **validators**, modular checks that automatically assess certificate health, security, and compliance. Validators can:
 
 - Detect expired or soon-to-expire certificates
 - Ensure hostnames and SANs match

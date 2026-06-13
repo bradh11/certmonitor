@@ -1,6 +1,6 @@
 # TLSVersion Validator
 
-Checks that the connection negotiated a TLS version you consider acceptable. By default that's **TLS 1.2 or TLS 1.3** — TLS 1.1 and older are deprecated and fail. A useful guard against legacy endpoints that silently fall back to insecure protocols.
+Checks that the connection negotiated a TLS version you consider acceptable. By default that's **TLS 1.2 or TLS 1.3**; TLS 1.1 and older are deprecated and fail. A useful guard against legacy endpoints that silently fall back to insecure protocols.
 
 !!! note "Opt-in"
     Enable via `enabled_validators=["tls_version", ...]` or `ENABLED_VALIDATORS`.

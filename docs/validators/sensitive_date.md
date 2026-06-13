@@ -1,6 +1,6 @@
 # SensitiveDate Validator
 
-Flags certificates that expire on a date you'd rather not be doing an emergency renewal — weekends, leap days, or your own list of blackout dates (holidays, change freezes, peak-traffic events). A proactive scheduling check rather than a security one.
+Flags certificates that expire on a date you'd rather not be doing an emergency renewal: weekends, leap days, or your own list of blackout dates (holidays, change freezes, peak-traffic events). A proactive scheduling check rather than a security one.
 
 !!! note "Opt-in"
     Enable via `enabled_validators=["sensitive_date", ...]` or `ENABLED_VALIDATORS`. Weekend and leap-day checks run automatically; pass `dates` to add your own.
@@ -57,7 +57,7 @@ The accepted entry shapes:
 | `is_valid` | `false` if **any** of the above fired. |
 
 !!! tip "It's about when, not whether"
-    A `false` here doesn't mean the certificate is insecure — it means the expiry lands somewhere inconvenient. Use it to nudge renewals onto a business day well ahead of a freeze.
+    A `false` here doesn't mean the certificate is insecure. It means the expiry lands somewhere inconvenient. Use it to nudge renewals onto a business day well ahead of a freeze.
 
 ## API
 

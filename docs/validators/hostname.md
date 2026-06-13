@@ -37,12 +37,12 @@ A mismatch fails with a `reason`:
 
 ## How matching works
 
-1. **Common Name** — if the CN matches the host exactly, it passes.
-2. **DNS SANs** — the host is checked against every DNS SAN (case-insensitive).
-3. **Wildcards** — a `*.example.com` SAN matches exactly one label (`api.example.com`), but **not** the bare apex (`example.com`) or nested subdomains (`a.b.example.com`).
+1. **Common Name**: if the CN matches the host exactly, it passes.
+2. **DNS SANs**: the host is checked against every DNS SAN (case-insensitive).
+3. **Wildcards**: a `*.example.com` SAN matches exactly one label (`api.example.com`), but **not** the bare apex (`example.com`) or nested subdomains (`a.b.example.com`).
 
 !!! tip "Checking with an IP address?"
-    Connecting by IP will usually fail `hostname` unless the certificate carries that IP as a SAN — most don't. See [Using IP Addresses](../usage/ip.md) for how CertMonitor handles IP targets.
+    Connecting by IP will usually fail `hostname` unless the certificate carries that IP as a SAN (most don't). See [Using IP Addresses](../usage/ip.md) for how CertMonitor handles IP targets.
 
 ## API
 

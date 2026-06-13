@@ -1,6 +1,6 @@
 # Chain Validator
 
-The `chain` validator inspects the **full certificate chain** the server presented during the TLS handshake and reports structural problems: missing intermediates, out-of-order chains, expired members, weak signature algorithms, and non-CA intermediates. It does not perform cryptographic signature verification — that is deliberately left out to keep the Rust dependency footprint minimal.
+The `chain` validator inspects the **full certificate chain** the server presented during the TLS handshake and reports structural problems: missing intermediates, out-of-order chains, expired members, weak signature algorithms, and non-CA intermediates. It does not perform cryptographic signature verification; that is deliberately left out to keep the Rust dependency footprint minimal.
 
 ## Opting in
 
@@ -86,12 +86,12 @@ On failure, `is_valid` is `false` and a `reason` field is added.
 
 ## Python version requirement
 
-Chain retrieval relies on `SSLSocket.get_verified_chain()` (Python 3.13+) or the stable `_sslobj.get_unverified_chain()` attribute (Python 3.10–3.12). On Python 3.8 or 3.9 the validator returns an informative error dict rather than silently degrading. The rest of CertMonitor continues to work on 3.8+.
+Chain retrieval relies on `SSLSocket.get_verified_chain()` (Python 3.13+) or the stable `_sslobj.get_unverified_chain()` attribute (Python 3.10-3.12). On Python 3.8 or 3.9 the validator returns an informative error dict rather than silently degrading. The rest of CertMonitor continues to work on 3.8+.
 
 ## What is out of scope
 
 - **Cryptographic signature verification.** Structural validation (`subject(parent) == issuer(child)` plus SKI/AKI matching) catches the real-world misconfigurations this validator is built for. Real signature verification would require pulling `ring` into the Rust dependency tree and is deliberately left for a future iteration.
-- **OCSP / CRL revocation checks.** Same reasoning — network I/O and responder parsing belong in their own validator.
+- **OCSP / CRL revocation checks.** Same reasoning: network I/O and responder parsing belong in their own validator.
 - **Building a path against the system trust store.** `CertMonitor` intentionally uses `ssl.CERT_NONE` so it can profile misconfigured and legacy servers.
 
 ::: certmonitor.validators.chain.ChainValidator
