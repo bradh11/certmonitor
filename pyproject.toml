@@ -1,6 +1,6 @@
 [project]
 name = "certmonitor"
-version = "0.3.0"
+version = "0.4.0"
 description = "Zero-dependency TLS/SSL certificate monitoring and validation, including post-quantum (ML-KEM / ML-DSA) readiness checks."
 authors = [
     { name = "Brad Haas", email = "bradh11@gmail.com" }

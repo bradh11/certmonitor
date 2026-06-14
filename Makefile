@@ -1,6 +1,6 @@
 # Makefile for certmonitor project
 
-.PHONY: develop build wheel test test-quick docs clean lint format format-check verify-wheel check report ci help typecheck python-lint python-format rust-format rust-format-check rust-lint security fuzz fuzz-long
+.PHONY: develop build wheel test test-quick docs clean lint format format-check verify-wheel check report ci help typecheck python-lint python-format rust-format rust-format-check rust-lint security fuzz fuzz-long version version.patch version.minor version.major _sync-cargo-version
 
 # Show available targets and their descriptions
 help:
@@ -27,6 +27,12 @@ help:
 	@echo "  security     Run security vulnerability check (Rust + Python)"
 	@echo "  ci           Alias for 'test' (full CI checks)"
 	@echo ""
+	@echo "🏷️  Versioning (pyproject.toml + Cargo.toml):"
+	@echo "  version        Report the current version from both files"
+	@echo "  version.patch  Bump patch (0.4.0 -> 0.4.1)"
+	@echo "  version.minor  Bump minor (0.4.0 -> 0.5.0)"
+	@echo "  version.major  Bump major (0.4.0 -> 1.0.0)"
+	@echo ""
 	@echo "📊 Reporting:"
 	@echo "  report       Generate modularization and quality report"
 	@echo ""
@@ -52,6 +58,38 @@ wheel:
 
 # Full build (build artifacts for release)
 build: wheel
+
+# --- Versioning -------------------------------------------------------------
+# Modeled on `uv version`, but spanning both the Python (pyproject.toml) and
+# Rust (Cargo.toml) artifacts.
+#
+#   make version          Report the current version from both files.
+#   make version.patch    Bump the patch component (0.4.0 -> 0.4.1).
+#   make version.minor    Bump the minor component (0.4.0 -> 0.5.0).
+#   make version.major    Bump the major component (0.4.0 -> 1.0.0).
+#
+# uv drives the pyproject.toml bump; Cargo.toml is then synced to match.
+# Run `make develop` afterward to refresh Cargo.lock.
+version:
+	@printf "pyproject.toml  %s\n" "$$(uv version --short)"
+	@printf "Cargo.toml      %s\n" "$$(grep -m1 '^version = ' Cargo.toml | sed -E 's/version = "(.*)"/\1/')"
+	@py=$$(uv version --short); rs=$$(grep -m1 '^version = ' Cargo.toml | sed -E 's/version = "(.*)"/\1/'); \
+		if [ "$$py" != "$$rs" ]; then echo "⚠️  versions differ; run 'make version.patch' (or minor/major) to resync"; fi
+
+version.patch:
+	@uv version --frozen --bump patch >/dev/null && $(MAKE) --no-print-directory _sync-cargo-version
+
+version.minor:
+	@uv version --frozen --bump minor >/dev/null && $(MAKE) --no-print-directory _sync-cargo-version
+
+version.major:
+	@uv version --frozen --bump major >/dev/null && $(MAKE) --no-print-directory _sync-cargo-version
+
+# Sync Cargo.toml's package version to whatever pyproject.toml now reports.
+_sync-cargo-version:
+	@v=$$(uv version --short); \
+		python -c 'import re, pathlib, sys; v = sys.argv[1]; q = chr(34); p = pathlib.Path("Cargo.toml"); p.write_text(re.compile("^version = " + q + "[^" + q + "]*" + q, re.M).sub("version = " + q + v + q, p.read_text(), count=1))' "$$v"; \
+		echo "Bumped to $$v (pyproject.toml + Cargo.toml). Run 'make develop' to refresh Cargo.lock."
 
 # Quick test run (just pytest)
 test-quick:

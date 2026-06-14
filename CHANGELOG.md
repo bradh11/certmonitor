@@ -13,6 +13,30 @@ rename the headers to emoji form when cutting a release.
 ## [Unreleased]
 
 ### Added
+- TBD
+
+### Changed
+- TBD
+
+### Fixed
+- TBD
+
+## [0.4.0] - 2026-06-14
+
+# 📦 CertMonitor v0.4.0 – Post-Quantum Readiness
+
+**Release Date:** June 14, 2026
+**Repository:** [bradh11/certmonitor](https://github.com/bradh11/certmonitor)
+
+---
+
+## 🚀 Overview
+
+CertMonitor v0.4.0 brings post-quantum readiness to certificate and TLS monitoring. New opt-in validators report whether the TLS key exchange and a certificate's keys and signatures use post-quantum algorithms (hybrid or pure ML-KEM / ML-DSA / SLH-DSA), backed by an in-house Rust TLS 1.3 probe that reads the negotiated key-exchange group directly off the wire (something Python's `ssl` module does not expose). This release also formalizes the validator result envelope across every validator, upgrades `pyo3` to resolve two security advisories, and ships a full documentation overhaul including a new Concepts section. Note the breaking change to cipher/TLS allow-list configuration described under Changed.
+
+---
+
+## ✨ Added
 - Rust SPKI parser now recognizes post-quantum algorithm OIDs instead of collapsing them to `Unknown`: ML-DSA-44/65/87 (FIPS 204, RFC 9881), all twelve SLH-DSA parameter sets (FIPS 205, RFC 9909), and the eighteen composite ML-DSA signature OIDs from draft-ietf-lamps-pq-composite-sigs-19. `parse_public_key_info` and `analyze_chain` report e.g. `algorithm: "ml-dsa-65"` with `size` set to the subjectPublicKey bit length (PQ strength is judged by algorithm identity, not size). Dict shape is unchanged; existing RSA/EC behavior is regression-tested. Foundation for the upcoming PQ validators (#28, #29).
 - `certinfo.pq_algorithms()`: exposes the Rust post-quantum algorithm registry (`rust_certinfo/src/pq_algorithms.rs`) to Python as `[{"dotted", "name", "composite"}, ...]`, keeping the Rust table the single source of truth for PQ algorithm identity (#28, #30).
 - Rust `tls/` module: TLS 1.3 handshake building blocks for the upcoming post-quantum key-exchange probe. `key_exchange_groups.rs` (IANA Supported Groups registry with PQ classification, contributor data file), `records.rs` (bounded record framing), `handshake.rs` (ClientHello builder with realistic extensions, ServerHello/HelloRetryRequest parser extracting the negotiated group). Pure parsing, no networking, no Python exposure yet; includes a `parse_server_hello` fuzz target (#28, #32).
@@ -21,23 +45,46 @@ rename the headers to emoji form when cutting a release.
 - `pq_chain` validator (opt-in): walks the presented certificate chain and reports per-certificate post-quantum posture (`certs` list, matching the `chain` validator's shape): `{position, role, key_algorithm, key_is_pq, signature_algorithm_oid, signature_is_pq, is_pq}` plus a `{leaf_pq, intermediate_pq, root_pq}` summary. A cert counts as PQ when its key or signature algorithm is post-quantum (standalone or composite). `is_valid` defaults to "leaf key is PQ" (the part the operator controls); `require_full_chain: true` demands the whole chain. Classical public roots are expected during migration and documented as such. Not in `DEFAULT_VALIDATORS`.
 - `pq_signature` validator (opt-in): judges the leaf certificate's post-quantum posture: `{key_algorithm, key_is_pq, signature_algorithm_oid, signature_is_pq, is_hybrid_composite, is_pq, is_valid}` (per-cert field names match `pq_chain`). `is_valid` defaults to "leaf key is PQ"; `require_pq_signature: true` additionally demands a PQ signature from the CA. Works on every supported interpreter via a new leaf-only analysis fallback: when the chain cannot be retrieved (Python 3.8/3.9 or a chain failure), `cert_data["leaf_analysis"]` is populated from the leaf DER. Not in `DEFAULT_VALIDATORS`.
 
-### Changed
+---
+
+## 🔄 Changed
+- Added `make version` (reports the current version from `pyproject.toml` and `Cargo.toml`) and `make version.patch` / `version.minor` / `version.major` to bump both in lockstep, modeled on `uv version` but spanning the Python and Rust artifacts.
 - `make fuzz` and `make fuzz-long` now offer to install missing prerequisites (`cargo-fuzz`, nightly Rust toolchain) interactively when run from a terminal, instead of just printing the install command and exiting. CI and other non-interactive contexts retain the existing print-and-exit behavior via a `[ -t 0 ]` stdin check.
 - `key_info` validator now recognizes post-quantum keys: certificates using ML-DSA, SLH-DSA, or composite ML-DSA algorithms return `is_valid: true` instead of the misleading `is_valid: null`. PQ strength is judged by algorithm identity (the registry above); RSA/EC behavior is unchanged. (Unknown/undeterminable keys now fail closed with `is_valid: false` per the result envelope, see Fixed.) (#30)
 - Completed the result-envelope modernization (#46): every validator now declares a per-validator `TypedDict` extending `ValidationResult` and annotates its `validate()` return type, so mypy enforces the envelope contract across the whole validator suite. No runtime behavior change: results remain plain dicts.
 - Improved discoverability: sharpened the package `description` and added PyPI `keywords` and trove `classifiers` (including post-quantum / ML-KEM / ML-DSA and Topic :: Security :: Cryptography), and added a "Post-Quantum Readiness" section plus the three `pq_*` validators to the README.
 - Validator dispatcher generalized to a declared data-source model: validators name the data they need via `requires` (e.g. `("cert_data",)`, `("cipher_info", "tls_probe")`); the dispatcher fetches and memoizes each source once per scan and injects them in declaration order. Existing validators are unchanged. A source-fetch failure now produces a uniform structured error result for every dependent validator, fixing a latent bug where a cipher-info fetch error silently dropped cipher validators from the results dict.
 - The cipher-suite and TLS-version allow-lists now live in their validators as per-call user arguments instead of mutable module globals. `weak_cipher` accepts `allowed_cipher_suites` and `tls_version` accepts `allowed_tls_versions` (each defaulting to the built-in set), matching the configurable pattern already used by `chain`. **Breaking:** `certmonitor.cipher_algorithms.ALLOWED_CIPHER_SUITES`, `ALLOWED_TLS_VERSIONS`, and `update_allowed_lists()` have been removed; configure via `validator_args` instead. `parse_cipher_suite` / `update_algorithms` are unchanged. This also removes the global mutable state that previously allowed configuration to leak between runs. The `weak_cipher` default now includes the three DHE-RSA AEAD suites it was missing from Mozilla "Intermediate".
-
-### Changed
 - Upgraded `pyo3` from 0.24 to 0.29, resolving two advisories affecting the shipped extension: RUSTSEC-2026-0176 (out-of-bounds read in `nth`/`nth_back` for `PyList`/`PyTuple` iterators) and RUSTSEC-2026-0177 (missing `Sync` bound on `PyCFunction::new_closure` closures). The only source change required was `Python::allow_threads` to `Python::detach` (a pyo3 rename) in the TLS probe's GIL-release path.
 
-### Fixed
+---
+
+## 🛠️ Fixed
 - `key_info` no longer reports every EC certificate as `is_valid: false`. The Rust parser emitted the EC curve as an OID (e.g. `1.2.840.10045.3.1.7`) while the validator compared against curve short names, so the strong-curve check never matched. `parse_public_key_info` now reports the curve by its documented short name (e.g. `secp256r1`), falling back to the OID string for curves outside the known table. Latent since the in-tree parser rewrite (v0.3.0); curve identity stays in the Rust registry (#48).
 - `weak_cipher` no longer reports every TLS 1.3 connection as using a disallowed cipher. The allowed-cipher list held only TLS 1.2 (OpenSSL-style) names while `ALLOWED_TLS_VERSIONS` permits TLS 1.3, so a TLS 1.3 handshake (the modern default) failed on its strongest cipher. The three standard TLS 1.3 suites (`TLS_AES_128_GCM_SHA256`, `TLS_AES_256_GCM_SHA384`, `TLS_CHACHA20_POLY1305_SHA256`) are now allowed (#50).
 - Fixed test state leakage where `update_allowed_lists` mutated the module-global allow-lists without restoration, letting one test's custom lists bleed into later tests in the same run.
 - Brought four default validators into conformance with the standard result envelope (`is_valid` strict `bool`; `reason` present whenever `is_valid` is `False`): `expiration`, `root_certificate`, and `sensitive_date` set `is_valid: false` on failure but carried the explanation only in `warnings`, so reading `result["reason"]` on a failure raised `KeyError`; each now adds a concise `reason`. `key_info` returned `is_valid: null` for unrecognized algorithms or missing size/curve. It now fails closed (`is_valid: false` with a `reason` distinguishing "cannot determine" from "recognized but weak"). Verified against live hosts with zero envelope violations.
 - TLS probe ClientHello random is now guaranteed to vary between calls. The previous time-plus-stack-address seed could collide when the clock did not advance between two calls (observed on macOS's coarse `SystemTime` resolution), producing identical "random" bytes and a flaky test; a monotonic per-call counter now guarantees distinct values (#33).
+
+---
+
+## 📚 Documentation
+
+Comprehensive documentation is available at [certmonitor.readthedocs.io](https://certmonitor.readthedocs.io/).
+
+---
+
+## 🐍 Python Compatibility
+
+Tested with Python 3.8 through 3.13 with 99% code coverage across all supported versions.
+
+---
+
+## 📝 License
+
+This project is licensed under the MIT License. See the [LICENSE](https://github.com/bradh11/certmonitor/blob/main/LICENSE) file for details.
+
+**Full Changelog**: https://github.com/bradh11/certmonitor/compare/v0.3.0...v0.4.0
 
 ## [0.3.0] - 2026-04-15
 
