@@ -20,11 +20,15 @@ FIXTURES = Path(__file__).parent / "fixtures" / "diff_corpus"
 HEX_RE = re.compile(r"^[0-9a-f]*$")
 # Standard RSA modulus sizes seen in the wild
 ACCEPTABLE_RSA_BITS = {1024, 2048, 3072, 4096, 8192}
-# Curve OIDs we expect to encounter on the public web
-P256_OID = "1.2.840.10045.3.1.7"
-P384_OID = "1.3.132.0.34"
-P521_OID = "1.3.132.0.35"
-KNOWN_CURVE_OIDS = {P256_OID, P384_OID, P521_OID}
+# Curve short names we expect to encounter on the public web. The parser
+# reports curves by name (issue #48), falling back to an OID string only
+# for curves outside its table.
+P256_NAME = "secp256r1"
+P384_NAME = "secp384r1"
+P521_NAME = "secp521r1"
+KNOWN_CURVE_NAMES = {P256_NAME, P384_NAME, P521_NAME}
+# The EC algorithm OID — `curve` must never be set to this (the original bug).
+EC_ALGORITHM_OID = "1.2.840.10045.2.1"
 # Sanity floor for cert validity timestamps (anything before 1990 is junk).
 EARLIEST_REASONABLE_NOT_BEFORE = 631_152_000  # 1990-01-01
 
@@ -97,20 +101,21 @@ class TestPublicKeyInfo:
             if p["info"]["algorithm"] == "rsaEncryption":
                 assert p["info"]["curve"] is None, p["name"]
 
-    def test_ec_curve_is_actual_curve_oid(self, parsed):
-        """Catches the original bug — `curve` must hold a curve OID, not
-        the algorithm OID `1.2.840.10045.2.1`.
+    def test_ec_curve_is_the_curve_not_the_algorithm(self, parsed):
+        """Catches two bugs at once — `curve` must hold the curve identity,
+        never the EC algorithm OID (`1.2.840.10045.2.1`), and it must be a
+        recognized curve short name rather than a raw OID (issue #48).
         """
         ec = [p for p in parsed if p["info"]["algorithm"] == "ecPublicKey"]
         assert ec, "corpus has no EC certs"
         for p in ec:
             curve = p["info"]["curve"]
             assert curve is not None, p["name"]
-            assert curve != "1.2.840.10045.2.1", (
+            assert curve != EC_ALGORITHM_OID, (
                 f"{p['name']}: `curve` field contains the EC algorithm OID — bug regression"
             )
-            assert curve in KNOWN_CURVE_OIDS, (
-                f"{p['name']}: unexpected curve OID {curve!r}"
+            assert curve in KNOWN_CURVE_NAMES, (
+                f"{p['name']}: unexpected curve {curve!r} (expected a short name)"
             )
 
     def test_ec_key_sizes(self, parsed):
@@ -119,7 +124,7 @@ class TestPublicKeyInfo:
                 continue
             curve = p["info"]["curve"]
             size = p["info"]["size"]
-            expected = {P256_OID: 256, P384_OID: 384, P521_OID: 521}[curve]
+            expected = {P256_NAME: 256, P384_NAME: 384, P521_NAME: 521}[curve]
             assert size == expected, (
                 f"{p['name']}: curve {curve} should yield size {expected}, got {size}"
             )

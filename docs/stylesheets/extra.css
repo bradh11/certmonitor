@@ -1,0 +1,83 @@
+/* Center Mermaid diagrams. Material renders them left-aligned by default,
+   which looks off for the vertical flowcharts in the Concepts pages. */
+.mermaid {
+  text-align: center;
+}
+
+/* ---------------------------------------------------------------------------
+   Registered vs. enabled validator map (docs/validators/index.md).
+   A hand-built visual instead of a Mermaid diagram: an outer "Registered"
+   card holding a highlighted "Enabled by default" group and a muted
+   "Opt-in" group, each a set of pill chips. Uses Material's theme variables
+   so it adapts to light and dark mode automatically.
+   --------------------------------------------------------------------------- */
+.validator-map {
+  border: 1px solid var(--md-default-fg-color--lighter);
+  border-radius: .6rem;
+  padding: 1rem 1.1rem 1.1rem;
+  margin: 1.5rem 0;
+}
+
+.validator-map__label {
+  margin: 0 0 .9rem;
+  font-size: .68rem;
+  font-weight: 700;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--md-default-fg-color--light);
+}
+
+.validator-group {
+  border-radius: .5rem;
+  padding: .8rem .9rem .9rem;
+}
+
+.validator-group + .validator-group {
+  margin-top: .8rem;
+}
+
+.validator-group--enabled {
+  background: color-mix(in srgb, var(--md-primary-fg-color) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--md-primary-fg-color) 35%, transparent);
+}
+
+.validator-group--optin {
+  background: var(--md-code-bg-color);
+  border: 1px dashed var(--md-default-fg-color--lighter);
+}
+
+.validator-group__title {
+  margin: 0 0 .65rem;
+  font-size: .82rem;
+  font-weight: 700;
+  color: var(--md-default-fg-color);
+}
+
+.validator-group__title small {
+  font-weight: 400;
+  color: var(--md-default-fg-color--light);
+}
+
+.validator-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .45rem;
+}
+
+.validator-chip {
+  font-family: var(--md-code-font-family, monospace);
+  font-size: .78rem;
+  line-height: 1.4;
+  padding: .18rem .6rem;
+  border-radius: 1rem;
+  background: var(--md-default-bg-color);
+  border: 1px solid var(--md-default-fg-color--lighter);
+  white-space: nowrap;
+}
+
+.validator-chip--on {
+  background: var(--md-primary-fg-color);
+  border-color: var(--md-primary-fg-color);
+  color: var(--md-primary-bg-color);
+  font-weight: 600;
+}

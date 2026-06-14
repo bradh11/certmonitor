@@ -38,3 +38,10 @@ path = "fuzz_targets/parse_certificate.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "parse_server_hello"
+path = "fuzz_targets/parse_server_hello.rs"
+test = false
+doc = false
+bench = false

@@ -1,8 +1,10 @@
 # Basic Usage
 
-CertMonitor makes it easy to retrieve and validate SSL/TLS certificates for any host. Below is a minimal example, followed by more details and example outputs.
+CertMonitor is built to make retrieving and validating a TLS certificate as painless as possible. Let's start with the smallest example that does something useful, then look at exactly what comes back.
 
-## Minimal Example
+## A minimal example
+
+Here's the pattern you'll use most often. Connect to a host, pull the certificate details, and run the validators:
 
 ```python
 from certmonitor import CertMonitor
@@ -14,9 +16,11 @@ with CertMonitor("example.com") as monitor:
     print(validation_results)
 ```
 
----
+Two calls do the work. `get_cert_info()` gives you the parsed certificate, and `validate()` runs the checks against it.
 
-## Certificate Retrieval & Info Extraction (Mermaid Diagram)
+## How retrieval works
+
+Behind that simple call, CertMonitor connects, figures out the protocol, fetches the certificate, and parses it. Depending on what you ask for, it hands back the certificate as PEM, as DER, or as already-parsed info:
 
 ```mermaid
 flowchart TD
@@ -29,11 +33,9 @@ flowchart TD
     E -->|Info| H[Return Parsed Info]
 ```
 
----
+## What `get_cert_info()` returns
 
-## Example Output: Certificate Info
-
-This is a sample of the structured certificate info returned by `get_cert_info()`:
+Let's look at a real example. `get_cert_info()` returns a structured dictionary describing the certificate:
 
 ```json
 {
@@ -73,11 +75,11 @@ This is a sample of the structured certificate info returned by `get_cert_info()
 }
 ```
 
----
+As you can see, it's all there: who the certificate is for (`subject`), who issued it (`issuer`), how long it's valid (`notBefore` and `notAfter`), the alternate names it covers, and the revocation endpoints.
 
-## Example Output: Validation Results
+## What `validate()` returns
 
-This is a sample of the validation results returned by `validate()`:
+Now for the checks. `validate()` returns a dictionary keyed by validator name, with a structured result under each one:
 
 ```json
 {
@@ -91,27 +93,23 @@ This is a sample of the validation results returned by `validate()`:
     "is_valid": true,
     "sans": {"DNS": ["www.example.com", "example.com"], "IP Address": []},
     "count": 2,
-    "contains_host": {"name": "www.example.com", "is_valid": true, "reason": "Matched DNS SAN"},
-    "contains_alternate": {"example.com": {"name": "example.com", "is_valid": true, "reason": "Matched DNS SAN"}},
+    "contains_host": {"name": "www.example.com", "is_valid": true, "reason": "Exact match for www.example.com found in DNS SANs"},
+    "contains_alternate": {"example.com": {"name": "example.com", "is_valid": true, "reason": "Exact match for example.com found in DNS SANs"}},
     "warnings": []
   }
 }
 ```
 
----
+Each validator reports its own `is_valid` flag plus the details behind its decision. That structure is consistent across every validator, so once you can read one result you can read them all.
 
-## Output Explanation
+!!! tip "Don't ignore the warnings list"
+    `is_valid` tells you whether a check passed, but `warnings` can flag things that are technically valid yet still worth your attention. It's worth looking at both. The [Validators](../validators/index.md) section explains each result field in detail.
 
-- The certificate info is a dictionary with details about the subject, issuer, validity, SANs, and revocation endpoints.
-- The validation results are a dictionary keyed by validator name, each with a structured result (see [Validators](../validators/index.md) for details).
+## More to explore
 
----
+### Getting cipher info
 
-## More Examples
-
-### Getting Cipher Info
-
-You can also retrieve cipher suite information:
+The certificate isn't the only artifact worth inspecting. You can also ask for the negotiated cipher suite:
 
 ```python
 with CertMonitor("example.com") as monitor:
@@ -119,14 +117,14 @@ with CertMonitor("example.com") as monitor:
     print(cipher_info)
 ```
 
-Sample output:
+Here's what that looks like:
 
 ```json
 {
   "cipher_suite": {
     "name": "TLS_AES_256_GCM_SHA384",
-    "encryption_algorithm": "AES-256-GCM",
-    "message_authentication_code": "AEAD",
+    "encryption_algorithm": "AES",
+    "message_authentication_code": "SHA384",
     "key_exchange_algorithm": "Not applicable (TLS 1.3 uses ephemeral key exchange by default)"
   },
   "protocol_version": "TLSv1.3",
@@ -134,6 +132,40 @@ Sample output:
 }
 ```
 
----
+This tells you which cipher suite was negotiated, which protocol version was used, and the key strength behind it.
 
-> **Tip:** See the [Usage Guide](index.md) for more advanced examples, including custom validators, error handling, and retrieving raw PEM/DER formats.
+### Getting the raw certificate
+
+Sometimes you want the certificate itself, not the parsed view, so you can hand it to another tool or store it. CertMonitor gives you both standard encodings.
+
+PEM is the base64 text form (the `-----BEGIN CERTIFICATE-----` block you've probably seen):
+
+```python
+with CertMonitor("example.com") as monitor:
+    pem_cert = monitor.get_raw_pem()
+    print(pem_cert)
+```
+
+```text
+-----BEGIN CERTIFICATE-----
+MIIDdzCCAl+gAwIBAgIEAgAAuQ...(truncated for brevity)...IDAQAB
+-----END CERTIFICATE-----
+```
+
+DER is the raw binary form, returned as `bytes`:
+
+```python
+with CertMonitor("example.com") as monitor:
+    der_cert = monitor.get_raw_der()
+    print(der_cert[:20])
+```
+
+```text
+b'0\x82\x03w0\x82\x02_\xa0\x03\x02\x01\x02\x02\x04\x02\x00\x00\xb9'
+```
+
+!!! tip "Which one do I want?"
+    Reach for PEM for most file-based work, human inspection, and tools that expect text. Reach for DER when you need the exact bytes (hashing, fingerprinting, passing to a binary API). The [Retrieving Raw Certificate Data](raw_cert.md) page goes deeper, including converting between the two.
+
+!!! tip "Ready for more?"
+    Head back to the [Usage Overview](index.md) for advanced examples, including custom validators, error handling, and retrieving raw PEM or DER output.

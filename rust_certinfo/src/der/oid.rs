@@ -107,6 +107,28 @@ pub const OID_SECP521R1: &[u8] = &[0x2b, 0x81, 0x04, 0x00, 0x23];
 /// 1.3.132.0.10 — secp256k1 (Bitcoin curve, occasionally seen in self-signed certs)
 pub const OID_SECP256K1: &[u8] = &[0x2b, 0x81, 0x04, 0x00, 0x0a];
 
+/// Map a curve OID to its well-known short name (e.g. `secp256r1`), or
+/// `None` when the curve is not in our table. Callers that surface the
+/// curve to Python use this so the `curve` field carries the documented
+/// name rather than a raw OID; unknown curves fall back to the dotted
+/// OID string. This keeps curve identity in one place (next to the OID
+/// constants) instead of duplicated in the Python layer.
+///
+/// Its only non-test caller is the PyO3 layer (`pyobj`), which is gated
+/// behind the `python` feature. Without that feature (e.g. the fuzz
+/// crate's `--no-default-features` build) this is unused, so suppress the
+/// dead-code warning in exactly that configuration.
+#[cfg_attr(not(feature = "python"), allow(dead_code))]
+pub fn curve_name(oid: Oid<'_>) -> Option<&'static str> {
+    match oid.as_bytes() {
+        b if b == OID_SECP256R1 => Some("secp256r1"),
+        b if b == OID_SECP384R1 => Some("secp384r1"),
+        b if b == OID_SECP521R1 => Some("secp521r1"),
+        b if b == OID_SECP256K1 => Some("secp256k1"),
+        _ => None,
+    }
+}
+
 // Extension OIDs (RFC 5280)
 /// 2.5.29.14 — id-ce-subjectKeyIdentifier
 pub const OID_EXT_SKI: &[u8] = &[0x55, 0x1d, 0x0e];
@@ -157,6 +179,26 @@ mod tests {
     #[test]
     fn secp521r1() {
         roundtrip(OID_SECP521R1, "1.3.132.0.35");
+    }
+
+    #[test]
+    fn curve_names_for_known_curves() {
+        for (bytes, name) in [
+            (OID_SECP256R1, "secp256r1"),
+            (OID_SECP384R1, "secp384r1"),
+            (OID_SECP521R1, "secp521r1"),
+            (OID_SECP256K1, "secp256k1"),
+        ] {
+            let oid = Oid::from_bytes(bytes).unwrap();
+            assert_eq!(curve_name(oid), Some(name));
+        }
+    }
+
+    #[test]
+    fn curve_name_none_for_unknown_curve() {
+        // id-ecPublicKey is an algorithm OID, not a curve OID — must not map.
+        let oid = Oid::from_bytes(OID_EC_PUBLIC_KEY).unwrap();
+        assert_eq!(curve_name(oid), None);
     }
 
     #[test]

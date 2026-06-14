@@ -16,7 +16,7 @@ discovered user parameters, and exposes them for dispatch and introspection.
 
 import inspect
 from abc import ABC, abstractmethod
-from typing import Any, ClassVar, Dict, FrozenSet, Mapping
+from typing import Any, ClassVar, Dict, FrozenSet, Mapping, Tuple
 
 
 class BaseValidator(ABC):
@@ -28,20 +28,32 @@ class BaseValidator(ABC):
         """Return the name used to register and look up this validator."""
 
     @abstractmethod
-    def validate(self, *args: Any, **kwargs: Any) -> Dict[str, Any]:
-        """Run the validator and return a result dict."""
+    def validate(self, *args: Any, **kwargs: Any) -> Mapping[str, Any]:
+        """Run the validator and return a result dict.
+
+        The result must conform to the standard envelope — see
+        :class:`certmonitor.validators.results.ValidationResult`. The
+        return type is ``Mapping`` (not ``Dict``) so overrides may
+        annotate a precise ``TypedDict``; at runtime every result is a
+        plain dict.
+        """
 
 
 class _ValidatorBase(BaseValidator):
     """Internal base that handles user-arg discovery for concrete validators.
 
-    Subclasses set ``_framework_arity`` to the number of positional parameters
-    the dispatcher supplies to ``validate`` (typically 3: the parsed data, the
-    host, and the port). Everything keyword-only after those positional
-    parameters is treated as a user-configurable argument and must be
-    annotated and have a default value.
+    Subclasses declare ``requires`` — an ordered tuple of the named data
+    sources the dispatcher must fetch and inject (e.g. ``("cert_data",)``
+    or ``("cipher_info", "tls_probe")``). The dispatcher supplies those
+    sources as the leading positional parameters of ``validate``, in
+    declaration order, followed by ``host`` and ``port``; the framework
+    arity is therefore ``len(requires) + 2`` and is derived automatically.
+    Everything keyword-only after those positional parameters is treated
+    as a user-configurable argument and must be annotated and defaulted.
     """
 
+    # Ordered data sources the dispatcher injects (see the class docstring).
+    requires: ClassVar[Tuple[str, ...]] = ()
     _framework_arity: ClassVar[int] = 0
     _user_params: ClassVar[Mapping[str, inspect.Parameter]] = {}
     _user_param_names: ClassVar[FrozenSet[str]] = frozenset()
@@ -57,12 +69,15 @@ class _ValidatorBase(BaseValidator):
 
         sig = inspect.signature(cls.validate)
 
-        # Framework params are the first ``_framework_arity`` non-``self``
-        # positional parameters, regardless of what they are named.
+        # Framework params are the leading positional parameters — one per
+        # declared data source, plus host and port — regardless of name.
+        # Derive the arity from ``requires`` so a validator only declares
+        # its sources, never a separate count.
+        arity = len(cls.requires) + 2
+        cls._framework_arity = arity
         user_params: Dict[str, inspect.Parameter] = {}
         problems = []
         positional_seen = 0
-        arity = cls._framework_arity
 
         for param_name, param in sig.parameters.items():
             if param_name == "self":
@@ -118,11 +133,11 @@ class BaseCertValidator(_ValidatorBase):
     """Base class for validators that inspect parsed certificate data."""
 
     validator_type: str = "cert"
-    _framework_arity: ClassVar[int] = 3
+    requires: ClassVar[Tuple[str, ...]] = ("cert_data",)
 
     def validate(
         self, cert_info: Dict[str, Any], host: str, port: int
-    ) -> Dict[str, Any]:
+    ) -> Mapping[str, Any]:
         # Default implementation — subclasses override.
         return None  # type: ignore[return-value]
 
@@ -131,10 +146,10 @@ class BaseCipherValidator(_ValidatorBase):
     """Base class for validators that inspect negotiated cipher suite data."""
 
     validator_type: str = "cipher"
-    _framework_arity: ClassVar[int] = 3
+    requires: ClassVar[Tuple[str, ...]] = ("cipher_info",)
 
     def validate(
         self, cipher_info: Dict[str, Any], host: str, port: int
-    ) -> Dict[str, Any]:
+    ) -> Mapping[str, Any]:
         # Default implementation — subclasses override.
         return None  # type: ignore[return-value]

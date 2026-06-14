@@ -5,7 +5,6 @@ This module tests:
 - parse_cipher_suite function
 - list_algorithms function
 - update_algorithms function
-- update_allowed_lists function
 - LRU cache functionality
 """
 
@@ -13,7 +12,6 @@ from certmonitor.cipher_algorithms import (
     list_algorithms,
     parse_cipher_suite,
     update_algorithms,
-    update_allowed_lists,
 )
 
 
@@ -139,89 +137,6 @@ class TestCipherAlgorithms:
         # Test parsing with new algorithm
         result = parse_cipher_suite("ECDHE-RSA-CUSTOM_CIPHER-SHA256")
         assert result["encryption"] == "CUSTOM_CIPHER"
-
-    def test_update_allowed_lists_tls_versions(self):
-        """Test updating allowed TLS versions."""
-        custom_tls_versions = {"TLSv1.3"}
-
-        update_allowed_lists(custom_tls_versions=custom_tls_versions)
-
-        # The global variable should be updated
-        from certmonitor.cipher_algorithms import ALLOWED_TLS_VERSIONS
-
-        assert ALLOWED_TLS_VERSIONS == {"TLSv1.3"}
-
-    def test_update_allowed_lists_cipher_suites(self):
-        """Test updating allowed cipher suites."""
-        custom_ciphers = {"ECDHE-RSA-AES256-GCM-SHA384"}
-
-        update_allowed_lists(custom_ciphers=custom_ciphers)
-
-        # The global variable should be updated
-        from certmonitor.cipher_algorithms import ALLOWED_CIPHER_SUITES
-
-        assert ALLOWED_CIPHER_SUITES == {"ECDHE-RSA-AES256-GCM-SHA384"}
-
-    def test_update_allowed_lists_both(self):
-        """Test updating both TLS versions and cipher suites."""
-        custom_tls_versions = {"TLSv1.2", "TLSv1.3"}
-        custom_ciphers = {
-            "ECDHE-RSA-AES128-GCM-SHA256",
-            "ECDHE-ECDSA-AES256-GCM-SHA384",
-        }
-
-        update_allowed_lists(
-            custom_tls_versions=custom_tls_versions, custom_ciphers=custom_ciphers
-        )
-
-        from certmonitor.cipher_algorithms import (
-            ALLOWED_CIPHER_SUITES,
-            ALLOWED_TLS_VERSIONS,
-        )
-
-        assert ALLOWED_TLS_VERSIONS == custom_tls_versions
-        assert ALLOWED_CIPHER_SUITES == custom_ciphers
-
-    def test_update_allowed_lists_none_values(self):
-        """Test that None values don't update the lists."""
-        # Store original values
-        from certmonitor.cipher_algorithms import (
-            ALLOWED_CIPHER_SUITES,
-            ALLOWED_TLS_VERSIONS,
-        )
-
-        original_tls = ALLOWED_TLS_VERSIONS.copy()
-        original_ciphers = ALLOWED_CIPHER_SUITES.copy()
-
-        # Call with None values
-        update_allowed_lists(custom_tls_versions=None, custom_ciphers=None)
-
-        # Values should remain unchanged
-        assert ALLOWED_TLS_VERSIONS == original_tls
-        assert ALLOWED_CIPHER_SUITES == original_ciphers
-
-    def test_default_allowed_lists_values(self):
-        """Test that default allowed lists have expected values."""
-        from certmonitor.cipher_algorithms import (
-            ALLOWED_CIPHER_SUITES,
-            ALLOWED_TLS_VERSIONS,
-        )
-
-        # Should contain modern TLS versions
-        assert "TLSv1.2" in ALLOWED_TLS_VERSIONS
-        assert "TLSv1.3" in ALLOWED_TLS_VERSIONS
-
-        # Should not contain weak versions
-        assert "TLSv1.0" not in ALLOWED_TLS_VERSIONS
-        assert "TLSv1.1" not in ALLOWED_TLS_VERSIONS
-        assert "SSLv3" not in ALLOWED_TLS_VERSIONS
-
-        # Should contain strong cipher suites
-        assert "ECDHE-RSA-AES128-GCM-SHA256" in ALLOWED_CIPHER_SUITES
-        assert "ECDHE-ECDSA-AES256-GCM-SHA384" in ALLOWED_CIPHER_SUITES
-
-        # Should not be empty
-        assert len(ALLOWED_CIPHER_SUITES) > 0
 
     def test_algorithm_patterns_edge_cases(self):
         """Test edge cases in algorithm pattern matching."""

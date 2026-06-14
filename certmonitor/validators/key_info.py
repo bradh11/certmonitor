@@ -1,14 +1,51 @@
 # validators/key_info.py
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict, FrozenSet, Optional
+
+from certmonitor import certinfo
 
 from .base import BaseCertValidator
+from .results import ValidationResult
 
 
-# TODO: Implement the KeyInfoValidator - work in progress
+class KeyInfoResult(ValidationResult, total=False):
+    """Result shape for :class:`KeyInfoValidator` (envelope + data)."""
+
+    key_type: str
+    key_size: Optional[int]
+    curve: str
+
+
+# Post-quantum algorithm names, sourced from the Rust registry
+# (rust_certinfo/src/pq_algorithms.rs) via certinfo.pq_algorithms() so
+# Python never carries its own copy of the table — a new algorithm added
+# there is recognized here automatically.
+_PQ_ALGORITHM_NAMES: FrozenSet[str] = frozenset(
+    alg["name"]
+    for alg in certinfo.pq_algorithms()  # type: ignore[attr-defined]
+)
+
+
 class KeyInfoValidator(BaseCertValidator):
     """
-    A validator for checking the key information of an SSL certificate.
+    A validator for checking the public key of an SSL certificate.
+
+    Judges key strength per algorithm family:
+
+    - **RSA**: modulus must be at least 2048 bits.
+    - **EC**: curve must be one of secp256r1 / secp384r1 / secp521r1
+      (the parser reports the curve by short name; unrecognized curves
+      come through as an OID dotted string and are treated as not strong).
+    - **Post-quantum** (ML-DSA, SLH-DSA, and hybrid composite ML-DSA):
+      always strong — PQ strength is judged by algorithm identity, since
+      the FIPS 204/205 parameter sets have no weak sizes or curves. The
+      recognized set comes from the Rust registry exposed via
+      ``certinfo.pq_algorithms()``.
+
+    Per the result envelope, ``is_valid`` is always a strict ``bool``. When
+    strength cannot be determined (unrecognized algorithm, or a missing
+    size/curve) the key fails closed — ``is_valid: False`` with a ``reason``
+    that distinguishes "cannot determine" from "recognized but weak".
 
     Attributes:
         name (str): The name of the validator.
@@ -16,7 +53,7 @@ class KeyInfoValidator(BaseCertValidator):
 
     name: str = "key_info"
 
-    def validate(self, cert: Dict[str, Any], host: str, port: int) -> Dict[str, Any]:
+    def validate(self, cert: Dict[str, Any], host: str, port: int) -> KeyInfoResult:
         """
         Validates the key information of the provided SSL certificate.
 
@@ -27,7 +64,9 @@ class KeyInfoValidator(BaseCertValidator):
 
         Returns:
             dict: A dictionary containing the validation results, including key type, key size,
-                  whether the key is considered strong enough, and curve information if applicable.
+                  whether the key is considered strong enough (see the class docstring for the
+                  per-family rules, including post-quantum algorithms), and curve information
+                  if applicable.
 
         Examples:
             Example output (success):
@@ -42,42 +81,89 @@ class KeyInfoValidator(BaseCertValidator):
                 }
                 ```
 
+            Example output (post-quantum key):
+                This example shows a certificate with an ML-DSA-65 (FIPS 204) key. Post-quantum
+                keys are valid by algorithm identity; ``key_size`` reports the subjectPublicKey
+                bit length and is informational only.
+
+                ```json
+                {
+                    "key_type": "ml-dsa-65",
+                    "key_size": 15616,
+                    "is_valid": true
+                }
+                ```
+
             Example output (failure):
-                This example shows a certificate with a weak 512-bit key, so validation fails and a warning is included.
+                This example shows a certificate with a weak 512-bit key, so validation fails with a reason.
 
                 ```json
                 {
                     "key_type": "rsaEncryption",
                     "key_size": 512,
                     "is_valid": false,
-                    "curve": null,
-                    "warnings": [
-                        "Key size 512 is considered weak."
-                    ]
+                    "reason": "RSA key size 512 is below the 2048-bit minimum."
                 }
                 ```
         """
         public_key_info = cert.get("public_key_info", {})
         if not public_key_info:
-            return {
-                "error": "Unable to extract public key information",
+            empty: KeyInfoResult = {
                 "is_valid": False,
+                "reason": "Unable to extract public key information.",
+                "error": "Unable to extract public key information",
             }
+            return empty
 
         key_type = public_key_info.get("algorithm", "Unknown")
         key_size = public_key_info.get("size")
         curve = public_key_info.get("curve")
 
-        result = {
+        # ``_is_key_strong_enough`` returns ``None`` when strength cannot be
+        # determined (unknown algorithm, or required size/curve missing). The
+        # result envelope requires a strict bool, so map ``None`` to ``False``
+        # — "we could not verify this key is strong" fails closed — and carry
+        # the distinction in ``reason``.
+        strength = self._is_key_strong_enough(key_type, key_size, curve)
+        is_valid = bool(strength)
+
+        result: KeyInfoResult = {
             "key_type": key_type,
             "key_size": key_size,
-            "is_valid": self._is_key_strong_enough(key_type, key_size, curve),
+            "is_valid": is_valid,
         }
-
         if curve:
             result["curve"] = curve
 
+        if not is_valid:
+            result["reason"] = self._weak_key_reason(
+                key_type, key_size, curve, strength
+            )
+
         return result
+
+    @staticmethod
+    def _weak_key_reason(
+        key_type: str,
+        key_size: Optional[int],
+        curve: Optional[str],
+        strength: Optional[bool],
+    ) -> str:
+        """Explain why a key did not validate as strong.
+
+        ``strength is None`` means the strength could not be determined;
+        ``strength is False`` means a recognized-but-weak key.
+        """
+        if strength is None:
+            return f"Cannot determine key strength for algorithm {key_type!r}."
+        if "rsaEncryption" in key_type:
+            return f"RSA key size {key_size} is below the 2048-bit minimum."
+        if "ecPublicKey" in key_type:
+            return (
+                f"EC curve {curve!r} is not in the approved set "
+                "(secp256r1, secp384r1, secp521r1)."
+            )
+        return f"Key algorithm {key_type!r} did not meet strength requirements."
 
     def _is_key_strong_enough(
         self, key_type: str, key_size: Optional[int], curve: Optional[str]
@@ -85,14 +171,26 @@ class KeyInfoValidator(BaseCertValidator):
         """
         Checks if the key is strong enough based on its type, size, and curve.
 
+        Post-quantum algorithms (any name in the Rust registry exposed by
+        ``certinfo.pq_algorithms()``) are always strong; RSA requires a
+        modulus of at least 2048 bits; EC requires a strong named curve.
+
         Args:
-            key_type (str): The type of the key.
-            key_size (int): The size of the key.
-            curve (str): The curve of the key (if applicable).
+            key_type (str): The key algorithm name (e.g. ``"rsaEncryption"``,
+                ``"ecPublicKey"``, ``"ml-dsa-65"``).
+            key_size (int): The size of the key. Ignored for PQ algorithms.
+            curve (str): The curve of the key (EC only).
 
         Returns:
             bool: True if the key is considered strong enough, False if not.
+            None when the key type is unrecognized or required details are
+            missing.
         """
+        if key_type in _PQ_ALGORITHM_NAMES:
+            # Post-quantum strength is judged by algorithm identity: the
+            # FIPS 204/205 parameter sets and the composite variants have
+            # no weak sizes or curves to check.
+            return True
         if "rsaEncryption" in key_type:
             if key_size is None:
                 return None

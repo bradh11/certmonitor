@@ -1,8 +1,15 @@
 # validators/root_certificate_validator.py
 
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 from .base import BaseCertValidator
+from .results import ValidationResult
+
+
+class RootCertificateResult(ValidationResult, total=False):
+    """Result shape for :class:`RootCertificateValidator` (envelope + data)."""
+
+    issuer: Dict[str, Any]
 
 
 class RootCertificateValidator(BaseCertValidator):
@@ -15,7 +22,9 @@ class RootCertificateValidator(BaseCertValidator):
 
     name: str = "root_certificate"
 
-    def validate(self, cert: Dict[str, Any], host: str, port: int) -> Dict[str, Any]:
+    def validate(
+        self, cert: Dict[str, Any], host: str, port: int
+    ) -> RootCertificateResult:
         """
         Validates if the SSL certificate is issued by a trusted root CA.
 
@@ -55,7 +64,8 @@ class RootCertificateValidator(BaseCertValidator):
                     "Certificate does not provide caIssuers information.",
                     "Certificate is self-signed.",
                     "The certificate is issued by an untrusted root CA: Unknown (Unknown)"
-                  ]
+                  ],
+                  "reason": "Certificate is not issued by a trusted root CA: Unknown (Unknown)."
                 }
         """
         cert_info = cert.get("cert_info", {})
@@ -91,7 +101,7 @@ class RootCertificateValidator(BaseCertValidator):
             )
         )
 
-        warnings = []
+        warnings: List[str] = []
         if not has_valid_issuer:
             warnings.append("Certificate does not have valid issuer information.")
         if not has_ocsp:
@@ -105,8 +115,14 @@ class RootCertificateValidator(BaseCertValidator):
                 f"The certificate is issued by an untrusted root CA: {organization_name} ({common_name})"
             )
 
-        return {
+        result: RootCertificateResult = {
             "is_valid": is_trusted,
             "issuer": issuer,
             "warnings": warnings,
         }
+        if not is_trusted:
+            result["reason"] = (
+                "Certificate is not issued by a trusted root CA: "
+                f"{organization_name} ({common_name})."
+            )
+        return result

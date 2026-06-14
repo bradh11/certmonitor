@@ -17,10 +17,69 @@ pub fn to_py_err(err: ParseError) -> PyErr {
     pyo3::exceptions::PyValueError::new_err(format!("X.509 parse error: {}", err))
 }
 
+/// Translate a [`crate::tls::probe::ProbeResult`] into the single dict
+/// shape the Python `pq_key_exchange` validator consumes. Every variant
+/// carries `result` so callers can branch without key-probing:
+///   - group:          {result, id, name, kind, is_pq, protocol, via_hello_retry_request}
+///   - not applicable: {result: "n/a", reason, protocol}
+///   - error:          {result: "error", error, message}
+pub fn probe_result_dict<'py>(
+    py: Python<'py>,
+    result: &crate::tls::probe::ProbeResult,
+) -> PyResult<Bound<'py, PyDict>> {
+    use crate::tls::probe::ProbeResult;
+    let d = PyDict::new(py);
+    match result {
+        ProbeResult::Group {
+            id,
+            name,
+            kind,
+            is_pq,
+            protocol,
+            via_hello_retry_request,
+        } => {
+            d.set_item("result", "group")?;
+            d.set_item("id", id)?;
+            d.set_item("name", name)?;
+            d.set_item("kind", kind)?;
+            d.set_item("is_pq", is_pq)?;
+            d.set_item("protocol", protocol)?;
+            d.set_item("via_hello_retry_request", via_hello_retry_request)?;
+        }
+        ProbeResult::NotApplicable { reason, protocol } => {
+            d.set_item("result", "n/a")?;
+            d.set_item("reason", reason)?;
+            d.set_item("protocol", protocol)?;
+        }
+        ProbeResult::Error { kind, message } => {
+            d.set_item("result", "error")?;
+            d.set_item("error", kind)?;
+            d.set_item("message", message)?;
+        }
+    }
+    Ok(d)
+}
+
+/// Build the list-of-dicts view of the PQ algorithm registry for the
+/// `pq_algorithms` Python function. Each entry is
+/// `{"dotted": str, "name": str, "composite": bool}`.
+pub fn pq_algorithms_list(py: Python<'_>) -> PyResult<Bound<'_, PyList>> {
+    let list = PyList::empty(py);
+    for alg in crate::pq_algorithms::PQ_ALGORITHMS {
+        let d = PyDict::new(py);
+        d.set_item("dotted", alg.dotted)?;
+        d.set_item("name", alg.name)?;
+        d.set_item("composite", alg.composite)?;
+        list.append(d)?;
+    }
+    Ok(list)
+}
+
 /// Build the `{"algorithm": ..., "size": ..., "curve": ...}` dict that
-/// `parse_public_key_info` returns. Mirrors the previous shape exactly,
-/// **except** the `curve` field for EC keys now correctly contains the
-/// curve OID (e.g. `1.2.840.10045.3.1.7`) instead of the algorithm OID.
+/// `parse_public_key_info` returns. The shape is stable Python-facing
+/// API. For EC keys `curve` carries the curve's well-known short name
+/// (e.g. `secp256r1`), falling back to the curve OID dotted string for
+/// curves not in our table. (It is the curve, never the algorithm OID.)
 pub fn key_info_dict<'py>(
     py: Python<'py>,
     spki: &SubjectPublicKeyInfo<'_>,
@@ -38,7 +97,26 @@ pub fn key_info_dict<'py>(
         } => {
             dict.set_item("algorithm", "ecPublicKey")?;
             dict.set_item("size", key_bits)?;
-            dict.set_item("curve", curve_oid.to_id_string())?;
+            // Surface the documented short name (e.g. "secp256r1") so the
+            // key_info validator's curve check matches; unknown curves fall
+            // back to the dotted OID string.
+            let curve = crate::der::oid::curve_name(curve_oid)
+                .map(str::to_string)
+                .unwrap_or_else(|| curve_oid.to_id_string());
+            dict.set_item("curve", curve)?;
+        }
+        PublicKeyAlgorithm::PostQuantum {
+            algorithm,
+            key_bits,
+        } => {
+            // Same {algorithm, size, curve} shape as RSA/EC. For PQ keys
+            // `size` is the subjectPublicKey bit length — informational
+            // only; PQ strength is judged by algorithm identity, never by
+            // size. Consumers (key_info / pq_signature validators) key off
+            // the `algorithm` string.
+            dict.set_item("algorithm", algorithm.name)?;
+            dict.set_item("size", key_bits)?;
+            dict.set_item("curve", py.None())?;
         }
         PublicKeyAlgorithm::Unknown => {
             dict.set_item("algorithm", "unknown")?;
@@ -49,9 +127,8 @@ pub fn key_info_dict<'py>(
     Ok(dict)
 }
 
-/// Build the per-cert dict used by `analyze_chain`. Mirrors the previous
-/// shape exactly so the chain validator and its tests do not need to
-/// change.
+/// Build the per-cert dict used by `analyze_chain`. The shape is stable
+/// Python-facing API consumed by the chain validator.
 fn cert_dict<'py>(
     py: Python<'py>,
     position: usize,
@@ -143,8 +220,8 @@ pub fn is_weak_signature(oid: &str) -> bool {
     )
 }
 
-/// Build the top-level `analyze_chain` result dict. Mirrors the previous
-/// shape so the Python chain validator tests pass unchanged.
+/// Build the top-level `analyze_chain` result dict. The shape is stable
+/// Python-facing API consumed by the chain validator.
 pub fn analyze_chain_dict<'py>(
     py: Python<'py>,
     chain_ders: &[Vec<u8>],

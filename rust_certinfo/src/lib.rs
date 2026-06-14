@@ -21,6 +21,11 @@
 
 mod der;
 mod error;
+mod pq_algorithms;
+// Public so the in-repo fuzz crate (and the upcoming probe, #33) can
+// reach the parsers; deliberately NOT exported to Python yet — the
+// PyO3 surface for TLS probing lands with tls/probe.rs (#33).
+pub mod tls;
 mod x509;
 
 // Public Rust API. The Python wheel doesn't use these — the wheel calls
@@ -47,8 +52,7 @@ mod py {
     /// `{"algorithm": str, "size": int, "curve": str | None}`.
     ///
     /// For EC keys the `curve` field contains the curve OID (e.g.
-    /// `"1.2.840.10045.3.1.7"` for P-256). Earlier builds incorrectly returned
-    /// the algorithm OID here.
+    /// `"1.2.840.10045.3.1.7"` for P-256).
     #[pyfunction]
     pub(super) fn parse_public_key_info(py: Python<'_>, der_data: Vec<u8>) -> PyResult<Py<PyAny>> {
         let cert = Certificate::from_der(&der_data).map_err(to_py_err)?;
@@ -79,12 +83,48 @@ mod py {
         Ok(dict.into())
     }
 
+    /// Return the post-quantum algorithm registry as a list of dicts
+    /// `{"dotted": str, "name": str, "composite": bool}`. Python-side
+    /// consumers (e.g. the `key_info` validator) derive their PQ name
+    /// sets from this, so the table in `pq_algorithms.rs` stays the
+    /// single source of truth.
+    #[pyfunction]
+    pub(super) fn pq_algorithms(py: Python<'_>) -> PyResult<Py<PyAny>> {
+        Ok(pyobj::pq_algorithms_list(py)?.into())
+    }
+
+    /// Probe a TLS 1.3 server for its key-exchange group. Opens a TCP
+    /// connection, sends one ClientHello offering X25519MLKEM768, reads
+    /// the ServerHello, extracts the negotiated (or HRR-requested)
+    /// group, and closes — no crypto, no certificate validation.
+    ///
+    /// Returns a dict in every terminal state (never raises for network
+    /// or protocol conditions); see `pyobj::probe_result_dict` for the
+    /// shape. The socket work runs with the GIL released.
+    #[pyfunction]
+    #[pyo3(signature = (host, port=443, timeout_ms=10000))]
+    pub(super) fn probe_tls_handshake(
+        py: Python<'_>,
+        host: &str,
+        port: u16,
+        timeout_ms: u64,
+    ) -> PyResult<Py<PyAny>> {
+        let timeout = std::time::Duration::from_millis(timeout_ms);
+        // Release the GIL for the blocking socket work so concurrent
+        // scans don't serialize on the probe. (`detach` is pyo3 0.29's
+        // rename of the former `allow_threads`.)
+        let result = py.detach(|| crate::tls::probe::probe(host, port, timeout));
+        Ok(pyobj::probe_result_dict(py, &result)?.into())
+    }
+
     #[pymodule]
     fn certinfo(m: &Bound<'_, PyModule>) -> PyResult<()> {
         m.add_function(wrap_pyfunction!(parse_public_key_info, m)?)?;
         m.add_function(wrap_pyfunction!(extract_public_key_der, m)?)?;
         m.add_function(wrap_pyfunction!(extract_public_key_pem, m)?)?;
         m.add_function(wrap_pyfunction!(analyze_chain, m)?)?;
+        m.add_function(wrap_pyfunction!(pq_algorithms, m)?)?;
+        m.add_function(wrap_pyfunction!(probe_tls_handshake, m)?)?;
         Ok(())
     }
 }

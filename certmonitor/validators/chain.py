@@ -4,6 +4,17 @@ import datetime
 from typing import Any, Dict, List, Optional
 
 from .base import BaseCertValidator
+from .results import ValidationResult
+
+
+class ChainResult(ValidationResult, total=False):
+    """Result shape for :class:`ChainValidator` (envelope + data)."""
+
+    chain_length: int
+    chain_ordered: bool
+    terminates_in_self_signed: bool
+    certs: List[Dict[str, Any]]
+
 
 # Signature algorithm OIDs treated as weak by default. Override per-call via
 # the ``weak_signature_algorithms`` user arg.
@@ -69,7 +80,7 @@ class ChainValidator(BaseCertValidator):
         require_root_in_chain: bool = False,
         allow_self_signed_leaf: bool = False,
         weak_signature_algorithms: Optional[List[str]] = None,
-    ) -> Dict[str, Any]:
+    ) -> ChainResult:
         """
         Validate the certificate chain fetched alongside the leaf cert.
 
@@ -288,7 +299,7 @@ class ChainValidator(BaseCertValidator):
             and (terminates_in_self_signed or not require_root_in_chain)
         )
 
-        result: Dict[str, Any] = {
+        result: ChainResult = {
             "is_valid": is_valid,
             "chain_length": chain_length,
             "chain_ordered": chain_ordered,

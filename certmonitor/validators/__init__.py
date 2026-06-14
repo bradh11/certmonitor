@@ -1,10 +1,15 @@
 # validators/__init__.py
 from typing import Any
 
+from .results import ValidationResult as ValidationResult
+
 from .chain import ChainValidator
 from .expiration import ExpirationValidator
 from .hostname import HostnameValidator
 from .key_info import KeyInfoValidator
+from .pq_chain import PqChainValidator
+from .pq_key_exchange import PqKeyExchangeValidator
+from .pq_signature import PqSignatureValidator
 from .root_certificate_validator import RootCertificateValidator
 from .sensitive_date import SensitiveDateValidator
 from .subject_alt_names import SubjectAltNamesValidator
@@ -27,6 +32,10 @@ VALIDATORS = {
     "tls_version": TLSVersionValidator(),
     "weak_cipher": WeakCipherValidator(),
     "chain": ChainValidator(),
+    # Opt-in (not in DEFAULT_VALIDATORS): post-quantum key-exchange posture.
+    "pq_key_exchange": PqKeyExchangeValidator(),
+    "pq_chain": PqChainValidator(),
+    "pq_signature": PqSignatureValidator(),
     # ... add any other default validators here
 }
 

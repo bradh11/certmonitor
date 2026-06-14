@@ -1,6 +1,6 @@
 # Chain Validator
 
-The `chain` validator inspects the **full certificate chain** the server presented during the TLS handshake and reports structural problems: missing intermediates, out-of-order chains, expired members, weak signature algorithms, and non-CA intermediates. It does not perform cryptographic signature verification — that is deliberately left out to keep the Rust dependency footprint minimal.
+The `chain` validator inspects the **full certificate chain** the server presented during the TLS handshake and reports structural problems: missing intermediates, out-of-order chains, expired members, weak signature algorithms, and non-CA intermediates. It does not perform cryptographic signature verification; that is deliberately left out to keep the Rust dependency footprint minimal.
 
 ## Opting in
 
@@ -37,6 +37,21 @@ Pass via `validator_args={"chain": {...}}`:
 
 The default weak-signature set includes `sha1WithRSAEncryption`, `md5WithRSAEncryption`, `md2WithRSAEncryption`, `ecdsa-with-SHA1`, and `dsa-with-sha1`.
 
+## How it decides
+
+The chain is fetched, each certificate is inspected, and `is_valid` is the AND of every structural condition. Per-certificate warnings are collected regardless; on failure the first warning becomes the top-level `reason`.
+
+```mermaid
+flowchart TD
+    A[validate called] --> B{Chain fetched?<br/>Python 3.10+, no error}
+    B -- No --> Z["is_valid: false + reason"]
+    B -- Yes --> C[Inspect each certificate:<br/>expiry, weak signature, CA flag, role]
+    C --> D{All structural conditions hold?}
+    D --> D1["length &ge; min_chain_length<br/>chain ordered<br/>no expired / not-yet-valid member<br/>leaf not self-signed unless allowed<br/>terminates in root if required"]
+    D1 -- All true --> G["is_valid: true"]
+    D1 -- Any false --> H["is_valid: false<br/>reason = first warning"]
+```
+
 ## Output
 
 ```json
@@ -59,7 +74,7 @@ The default weak-signature set includes `sha1WithRSAEncryption`, `md5WithRSAEncr
       "signature_algorithm_oid": "1.2.840.113549.1.1.11",
       "subject_key_identifier": "ac33ac35b5f88ae27b06d23dc7058997d81c2443",
       "authority_key_identifier": "de1b1eed7915d43e3724c321bbec34396d42b230",
-      "public_key_info": {"algorithm": "ecPublicKey", "size": 256, "curve": "1.2.840.10045.2.1"},
+      "public_key_info": {"algorithm": "ecPublicKey", "size": 256, "curve": "secp256r1"},
       "warnings": []
     }
   ],
@@ -71,12 +86,12 @@ On failure, `is_valid` is `false` and a `reason` field is added.
 
 ## Python version requirement
 
-Chain retrieval relies on `SSLSocket.get_verified_chain()` (Python 3.13+) or the stable `_sslobj.get_unverified_chain()` attribute (Python 3.10–3.12). On Python 3.8 or 3.9 the validator returns an informative error dict rather than silently degrading. The rest of CertMonitor continues to work on 3.8+.
+Chain retrieval relies on `SSLSocket.get_verified_chain()` (Python 3.13+) or the stable `_sslobj.get_unverified_chain()` attribute (Python 3.10-3.12). On Python 3.8 or 3.9 the validator returns an informative error dict rather than silently degrading. The rest of CertMonitor continues to work on 3.8+.
 
 ## What is out of scope
 
 - **Cryptographic signature verification.** Structural validation (`subject(parent) == issuer(child)` plus SKI/AKI matching) catches the real-world misconfigurations this validator is built for. Real signature verification would require pulling `ring` into the Rust dependency tree and is deliberately left for a future iteration.
-- **OCSP / CRL revocation checks.** Same reasoning — network I/O and responder parsing belong in their own validator.
+- **OCSP / CRL revocation checks.** Same reasoning: network I/O and responder parsing belong in their own validator.
 - **Building a path against the system trust store.** `CertMonitor` intentionally uses `ssl.CERT_NONE` so it can profile misconfigured and legacy servers.
 
 ::: certmonitor.validators.chain.ChainValidator

@@ -1,8 +1,13 @@
 # tests/test_validators/test_key_info.py
 
+from pathlib import Path
+
 import pytest
 
+from certmonitor import certinfo
 from certmonitor.validators.key_info import KeyInfoValidator
+
+_FIXTURES = Path(__file__).resolve().parent.parent / "fixtures"
 
 
 class TestKeyInfoValidator:
@@ -128,34 +133,37 @@ class TestKeyInfoValidator:
         assert result["is_valid"] is False
 
     def test_ec_no_curve_info(self):
-        """Test validation of an EC key without curve information."""
+        """Undeterminable EC strength fails closed (strict-bool envelope)."""
         cert = {"public_key_info": {"algorithm": "ecPublicKey", "size": 256}}
         validator = KeyInfoValidator()
         result = validator.validate(cert, "example.com", 443)
 
         assert result["key_type"] == "ecPublicKey"
         assert result["key_size"] == 256
-        assert result["is_valid"] is None  # Cannot determine without curve info
+        assert result["is_valid"] is False  # strict bool: None -> False
+        assert "Cannot determine key strength" in result["reason"]
 
     def test_rsa_no_size_info(self):
-        """Test validation of an RSA key without size information."""
+        """Undeterminable RSA strength fails closed (strict-bool envelope)."""
         cert = {"public_key_info": {"algorithm": "rsaEncryption"}}
         validator = KeyInfoValidator()
         result = validator.validate(cert, "example.com", 443)
 
         assert result["key_type"] == "rsaEncryption"
         assert result["key_size"] is None
-        assert result["is_valid"] is None  # Cannot determine without size info
+        assert result["is_valid"] is False  # strict bool: None -> False
+        assert "Cannot determine key strength" in result["reason"]
 
     def test_unknown_key_type(self):
-        """Test validation of an unknown key type."""
+        """Unknown key type fails closed with a reason (strict-bool envelope)."""
         cert = {"public_key_info": {"algorithm": "unknownKeyType", "size": 2048}}
         validator = KeyInfoValidator()
         result = validator.validate(cert, "example.com", 443)
 
         assert result["key_type"] == "unknownKeyType"
         assert result["key_size"] == 2048
-        assert result["is_valid"] is None  # Cannot determine for unknown key types
+        assert result["is_valid"] is False  # strict bool: None -> False
+        assert "Cannot determine key strength" in result["reason"]
 
     def test_missing_public_key_info(self):
         """Test validation when public_key_info is missing."""
@@ -239,6 +247,87 @@ class TestKeyInfoValidator:
         cert_2047 = {"public_key_info": {"algorithm": "rsaEncryption", "size": 2047}}
         result = validator.validate(cert_2047, "example.com", 443)
         assert result["is_valid"] is False
+
+
+class TestKeyInfoPostQuantum:
+    """PQ algorithms are valid by algorithm identity (issue #30).
+
+    Parametrized over the live Rust registry (certinfo.pq_algorithms())
+    so an algorithm added there is covered here with no test changes.
+    """
+
+    @pytest.mark.parametrize(
+        "alg", certinfo.pq_algorithms(), ids=lambda alg: alg["name"]
+    )
+    def test_pq_algorithm_is_valid(self, alg):
+        cert = {"public_key_info": {"algorithm": alg["name"], "size": 15616}}
+        validator = KeyInfoValidator()
+        result = validator.validate(cert, "example.com", 443)
+
+        assert result["key_type"] == alg["name"]
+        assert result["is_valid"] is True
+
+    def test_unknown_pq_like_name_fails_closed(self):
+        """A PQ-looking name not in the registry fails closed (strict bool)."""
+        cert = {"public_key_info": {"algorithm": "ml-dsa-99", "size": 1024}}
+        validator = KeyInfoValidator()
+        result = validator.validate(cert, "example.com", 443)
+
+        assert result["is_valid"] is False
+        assert "Cannot determine key strength" in result["reason"]
+
+    def test_pq_size_is_irrelevant(self):
+        """PQ strength is judged by identity — size 0 must still pass."""
+        validator = KeyInfoValidator()
+        assert validator._is_key_strong_enough("ml-dsa-65", 0, None) is True
+        assert validator._is_key_strong_enough("ml-dsa-65", None, None) is True
+
+
+class TestKeyInfoRealParserOutput:
+    """Regression tests driving the validator with the *real* Rust parser
+    output (issue #48).
+
+    The hand-built-dict tests above can silently drift from what the parser
+    actually emits — that is exactly how the EC ``curve`` regression slipped
+    through (the parser emitted an OID like ``1.2.840.10045.3.1.7`` while the
+    validator and its mocks compared against the name ``secp256r1``). These
+    tests parse genuine certificate DER so the validator is exercised against
+    the contract the parser truly produces.
+    """
+
+    def _validate_fixture(self, name: str) -> dict:
+        der = (_FIXTURES / name).read_bytes()
+        cert = {"public_key_info": certinfo.parse_public_key_info(der)}
+        return KeyInfoValidator().validate(cert, "example.com", 443)
+
+    def test_real_ec_p256_cert_is_valid(self):
+        """A real P-256 leaf cert must validate as strong (the #48 bug)."""
+        result = self._validate_fixture("chain_0.der")
+
+        assert result["key_type"] == "ecPublicKey"
+        # The parser must surface the curve as the documented short name,
+        # not a raw OID — this is what makes the strong-curve check match.
+        assert result["curve"] == "secp256r1"
+        assert result["is_valid"] is True
+
+    def test_real_rsa_cert_is_valid(self):
+        """A real RSA-2048+ cert still validates as strong."""
+        result = self._validate_fixture("chain_1.der")
+
+        assert result["key_type"] == "rsaEncryption"
+        assert result["key_size"] >= 2048
+        assert result["is_valid"] is True
+
+
+class TestParsePublicKeyInfoCurveFormat:
+    """The parser must emit curve short names, falling back to the OID
+    dotted string for curves outside the known table (issue #48)."""
+
+    def test_known_curve_reported_as_name(self):
+        der = (_FIXTURES / "chain_0.der").read_bytes()
+        info = certinfo.parse_public_key_info(der)
+        assert info["algorithm"] == "ecPublicKey"
+        assert info["curve"] == "secp256r1"
 
 
 if __name__ == "__main__":

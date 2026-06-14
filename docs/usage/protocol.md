@@ -1,19 +1,24 @@
 # Protocol Detection
 
-CertMonitor automatically detects the protocol used by the target host and port. This allows you to use the same API for both SSL/TLS and (in the future) SSH endpoints.
+You don't have to tell CertMonitor what kind of endpoint you're connecting to. It figures that out for you by detecting the protocol used by the target host and port. The payoff is a single, consistent API that works for SSL/TLS today, and (in the future) SSH endpoints too.
 
 ## How Protocol Detection Works
 
-When you create a `CertMonitor` instance and connect to a host, CertMonitor:
+When you create a `CertMonitor` instance and connect to a host, here's what happens behind the scenes:
 
-1. Attempts to open a socket connection to the host and port.
-2. Peeks at the first few bytes sent by the server:
+1. CertMonitor attempts to open a socket connection to the host and port.
+2. It peeks at the first few bytes sent by the server:
     - If the bytes start with `SSH-`, the protocol is detected as SSH.
     - If the bytes match common SSL/TLS handshake patterns, the protocol is detected as SSL/TLS.
     - If no data is received, CertMonitor assumes SSL/TLS by default (since many servers wait for a handshake).
 3. If the protocol cannot be determined, CertMonitor returns a structured error.
 
-## Protocol Detection Flow (Mermaid Diagram)
+!!! note "Why peek at the bytes?"
+    Different protocols announce themselves differently the moment a connection opens. SSH servers send a banner that starts with `SSH-`, while TLS servers expect the client to begin the handshake. Reading those first bytes lets CertMonitor route you to the right handler without you having to configure anything.
+
+## Protocol Detection Flow
+
+The diagram below traces the decision CertMonitor makes when it connects:
 
 ```mermaid
 flowchart TD
@@ -28,7 +33,9 @@ flowchart TD
     F & G & H --> J[Continue with protocol-specific handler]
 ```
 
-## Protocol Handler Selection (Mermaid Sequence Diagram)
+## Protocol Handler Selection
+
+Once the protocol is known, CertMonitor hands off to the matching handler:
 
 ```mermaid
 sequenceDiagram
@@ -43,6 +50,8 @@ sequenceDiagram
 
 ## Example
 
+Let's connect to two different kinds of endpoints and ask CertMonitor what it found. The detected protocol is always available on `monitor.protocol`:
+
 ```python
 from certmonitor import CertMonitor
 
@@ -53,7 +62,7 @@ with CertMonitor("my-ssh-server.example.com", port=22) as monitor:
     print(monitor.protocol)  # 'ssh' (if supported)
 ```
 
----
+Notice that you used the same API both times. CertMonitor sorted out the protocol on its own.
 
 ## Current Support and Roadmap
 
@@ -63,8 +72,8 @@ with CertMonitor("my-ssh-server.example.com", port=22) as monitor:
     - Validate SSH key types, fingerprints, and algorithms
     - Integrate with SSH CA and trust models
 
-If you try to use SSL/TLS-specific features on an SSH endpoint, CertMonitor will return a clear error message.
+!!! warning "SSL/TLS features on an SSH endpoint"
+    Some features (like raw DER/PEM and cipher info) are specific to SSL/TLS. If you call one of them against an SSH endpoint, CertMonitor returns a clear error message rather than failing silently.
 
----
-
-> **Tip:** You can always check the detected protocol via `monitor.protocol` and handle different protocols in your own code if needed.
+!!! tip "Check the protocol yourself"
+    You can always read the detected protocol via `monitor.protocol` and branch on it in your own code if you need to handle different protocols differently.

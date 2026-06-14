@@ -29,99 +29,17 @@
 
 > ⚡️ **Why CertMonitor?**
 >
-> CertMonitor was born out of real-world frustration: outages and security incidents caused by expired certificates, missing Subject Alternative Names, or incomplete certificate chains. This tool is a labor of love—built to solve those pain points with a zero-dependency, native Python approach. <strong>All orchestration and logic are pure Python stdlib, but advanced public key parsing and elliptic curve support are powered by Rust for speed, safety, and correctness.</strong> CertMonitor is always improving, and your feedback is welcome!
-
----
-
-## 🚀 Quick Start
-
-```python
-from certmonitor import CertMonitor
-
-with CertMonitor("example.com") as monitor:
-    print(monitor.get_cert_info())
-    print(monitor.validate())
-```
-
----
-
-## 🛠️ Example Output
-
-### Certificate Info
-
-This is a sample of the structured certificate info returned by `monitor.get_cert_info()`:
-
-```json
-{
-  "subject": {
-    "commonName": "example.com"
-  },
-  "issuer": {
-    "organizationName": "DigiCert Inc",
-    "commonName": "DigiCert TLS RSA SHA256 2020 CA1"
-  },
-  "notBefore": "2024-06-01T00:00:00",
-  "notAfter": "2025-09-01T23:59:59",
-  "serialNumber": "0A1B2C3D4E5F6789",
-  "subjectAltName": {
-    "DNS": ["example.com", "www.example.com"],
-    "IP Address": []
-  },
-  "publicKeyInfo": {
-    "algorithm": "rsaEncryption",
-    "size": 2048,
-    "curve": null
-  }
-}
-```
-
-### PEM Format
-
-This is a sample of the PEM format returned by `monitor.get_raw_pem()`:
-
-```pem
------BEGIN CERTIFICATE-----
-MIID...snip...IDAQAB
------END CERTIFICATE-----
-```
-
-### DER Format
-
-This is a sample of the DER format returned by `monitor.get_raw_der()` (as bytes, shown here as base64):
-
-```text
-MIID...snip...IDAQAB
-```
-
-### Validation Results
-
-```json
-{
-  "expiration": {
-    "is_valid": true,
-    "days_to_expiry": 120,
-    "expires_on": "2025-09-01T23:59:59",
-    "warnings": []
-  },
-  "subject_alt_names": {
-    "is_valid": true,
-    "sans": {"DNS": ["example.com", "www.example.com"], "IP Address": []},
-    "count": 2,
-    "contains_host": {"name": "example.com", "is_valid": true, "reason": "Matched DNS SAN"},
-    "contains_alternate": {"www.example.com": {"name": "www.example.com", "is_valid": true, "reason": "Matched DNS SAN"}},
-    "warnings": []
-  }
-}
-```
+> CertMonitor was born out of real-world frustration: outages and security incidents caused by expired certificates, missing Subject Alternative Names, or incomplete certificate chains. This tool is a labor of love, built to solve those pain points with a zero-dependency, native Python approach. <strong>All orchestration and logic are pure Python stdlib, but advanced public key parsing and elliptic curve support are powered by Rust for speed, safety, and correctness.</strong> CertMonitor is always improving, and your feedback is welcome!
 
 ---
 
 ## ✨ Features
 
-- 🔒 **Zero Dependencies:** 100% standard library. No third-party Python packages required—ever.
+- 🔒 **Zero Dependencies:** 100% standard library. No third-party Python packages required. Ever.
 - 🛡️ **Certificate Validators:** Modular checks for expiration, hostname, SANs, key strength, protocol, ciphers, and more.
 - ⚡ **High Performance:** Async- and batch-friendly. Designed for speed and concurrency.
 - 🧩 **Extensible:** Add your own custom validators for organization-specific checks.
+- 🔮 **Post-Quantum Readiness:** Opt-in validators detect post-quantum (hybrid/pure **ML-KEM**) TLS key exchange and post-quantum certificate keys/signatures (**ML-DSA**, **SLH-DSA**, composite), so you can track quantum-safe migration and *harvest-now-decrypt-later* exposure. See [below](#-post-quantum-readiness).
 - 🐍 **Native Python First:** Works out-of-the-box in any Python 3.8+ environment.
 - 🦀 **Rust-Powered Parsing:** Certificate parsing and public key extraction are handled by a Rust extension for speed, safety, and correctness. <strong>This is required for advanced public key and elliptic curve features, but all orchestration and logic are pure Python stdlib.</strong>
 - 📦 **Portable:** No system dependencies. Drop it into any project or CI pipeline.
@@ -131,7 +49,7 @@ MIID...snip...IDAQAB
 
 ## 🔍 Validators: The Heart of CertMonitor
 
-CertMonitor uses a powerful system of **validators**—modular checks that automatically assess certificate health, security, and compliance. Validators can:
+CertMonitor uses a powerful system of **validators**, modular checks that automatically assess certificate health, security, and compliance. Validators can:
 
 - Detect expired or soon-to-expire certificates
 - Ensure hostnames and SANs match
@@ -151,10 +69,48 @@ You can enable, disable, or extend validators to fit your needs, making CertMoni
 - `weak_cipher`: Validates that the negotiated cipher suite is in the allowed list.
 - `sensitive_date`: Validates that the certificate doesn't expire on built-in or user specified sensitive dates.
 - `chain`: Validates the full TLS certificate chain for structural problems (missing intermediates, out-of-order, expired members, weak signatures).
+- `pq_key_exchange`: Reports whether the TLS 1.3 key exchange is post-quantum (hybrid or pure ML-KEM). This is the *harvest-now-decrypt-later* question. Opt-in.
+- `pq_signature`: Reports the leaf certificate's post-quantum posture (the key and signature algorithm: ML-DSA / SLH-DSA / composite). Opt-in.
+- `pq_chain`: Reports the post-quantum posture of every certificate in the presented chain. Opt-in.
+
+> The `pq_*` validators are **opt-in** (not enabled by default). See [Post-Quantum Readiness](#-post-quantum-readiness) below.
 
 ---
 
-## 📦 Installation
+## 🔮 Post-Quantum Readiness
+
+CertMonitor helps you measure your migration to **post-quantum cryptography (PQC)** across both surfaces that matter, using NIST's finalized standards (FIPS 203 **ML-KEM**, FIPS 204 **ML-DSA**, FIPS 205 **SLH-DSA**):
+
+- **Key exchange (the urgent one).** TLS 1.3 hybrid key exchange (e.g. `X25519MLKEM768`) is what defends today's traffic against *harvest-now-decrypt-later* (HNDL), where an attacker records encrypted traffic now to decrypt once a quantum computer exists. The `pq_key_exchange` validator reads the negotiated group directly off the wire (the Python `ssl` module doesn't expose it) and tells you whether the session is quantum-safe.
+- **Certificate keys & signatures.** As CAs and operators roll out ML-DSA / SLH-DSA and composite (hybrid) certificates, `pq_signature` and `pq_chain` report the post-quantum posture of the leaf and the full chain.
+
+"PQ" includes **hybrid** algorithms (classical + post-quantum), which is what real-world deployments use today. Requiring pure PQ would fail every server currently in production.
+
+```python
+from certmonitor import CertMonitor
+
+with CertMonitor("cloudflare.com", enabled_validators=["pq_key_exchange", "pq_signature", "pq_chain"]) as monitor:
+    results = monitor.validate()
+    print(results["pq_key_exchange"])
+    # {'kem_id': 4588, 'kem_name': 'X25519MLKEM768', 'kem_kind': 'hybrid_pq',
+    #  'is_pq': True, 'is_valid': True}
+```
+
+These validators are **opt-in** (not in the default set) while PQC adoption is still ramping. Full details: [PqKeyExchange](docs/validators/pq_key_exchange.md) · [PqSignature](docs/validators/pq_signature.md) · [PqChain](docs/validators/pq_chain.md).
+
+---
+
+## 📚 Learn How It Works
+
+New to TLS, certificates, or the post-quantum transition? The docs include vendor-neutral explainers with diagrams:
+
+- [How TLS & HTTPS Work](docs/concepts/how-tls-works.md): the handshake, and the key-exchange-vs-signatures split.
+- [Certificates & PKI](docs/concepts/certificates-and-pki.md): what's in a certificate and how the chain of trust works.
+- [Post-Quantum Cryptography](docs/concepts/post-quantum.md): the quantum threat, harvest-now-decrypt-later, and the NIST standards.
+
+---
+
+## 📦 Installation & Quickstart
 
 Install CertMonitor from PyPI using your preferred package manager:
 
@@ -170,52 +126,81 @@ uv add certmonitor
 
 For instructions on installing from source for development, please see the [Development Guide](docs/development.md).
 
----
+Once installed, here's the pattern you'll use most often. Connect to a host, pull the certificate details, and run the validators:
 
-## 🛠️ Usage Examples
-
-### Context Manager Usage (Recommended)
 ```python
 from certmonitor import CertMonitor
 
 with CertMonitor("example.com") as monitor:
     cert_data = monitor.get_cert_info()
-    validation_results = monitor.validate(validator_args={"subject_alt_names": ["www.example.com"]})
+    validation_results = monitor.validate()
     print(cert_data)
     print(validation_results)
 ```
 
-### Basic Usage (Non-Context Manager)
-```python
-monitor = CertMonitor("example.com")
-cert_data = monitor.get_cert_info()
-validation_results = monitor.validate()
-monitor.close()
+Two calls do the work. `get_cert_info()` gives you the parsed certificate, and `validate()` runs the checks against it.
+
+### What `get_cert_info()` returns
+
+A structured dictionary describing the certificate:
+
+```json
+{
+  "subject": {
+    "countryName": "US",
+    "stateOrProvinceName": "California",
+    "localityName": "Los Angeles",
+    "organizationName": "Internet Corporation for Assigned Names and Numbers",
+    "commonName": "www.example.com"
+  },
+  "issuer": {
+    "countryName": "US",
+    "organizationName": "DigiCert Inc",
+    "commonName": "DigiCert Global G2 TLS RSA SHA256 2020 CA1"
+  },
+  "version": 3,
+  "serialNumber": "075BCEF30689C8ADDF13E51AF4AFE187",
+  "notBefore": "2024-01-30T00:00:00",
+  "notAfter": "2025-03-01T23:59:59",
+  "subjectAltName": {
+    "DNS": ["www.example.com", "example.com"],
+    "IP Address": []
+  },
+  "OCSP": ["http://ocsp.digicert.com"],
+  "caIssuers": ["http://cacerts.digicert.com/DigiCertGlobalG2TLSRSASHA2562020CA1-1.crt"],
+  "crlDistributionPoints": [
+    "http://crl3.digicert.com/DigiCertGlobalG2TLSRSASHA2562020CA1-1.crl",
+    "http://crl4.digicert.com/DigiCertGlobalG2TLSRSASHA2562020CA1-1.crl"
+  ]
+}
 ```
 
-### Using IP Address
-You can also use an IPv4 or IPv6 address to retrieve and validate the SSL certificate. Note: Using an IP address may not match the certificate's hostname.
-```python
-with CertMonitor("20.76.201.171") as monitor:
-    cert = monitor.get_cert_info()
-    validation_results = monitor.validate()
-    print(cert)
-    print(validation_results)
+It's all there: who the certificate is for (`subject`), who issued it (`issuer`), how long it's valid (`notBefore` and `notAfter`), the alternate names it covers, and the revocation endpoints.
+
+### What `validate()` returns
+
+A dictionary keyed by validator name, with a structured result under each one:
+
+```json
+{
+  "expiration": {
+    "is_valid": true,
+    "days_to_expiry": 120,
+    "expires_on": "2025-03-01T23:59:59",
+    "warnings": []
+  },
+  "subject_alt_names": {
+    "is_valid": true,
+    "sans": {"DNS": ["www.example.com", "example.com"], "IP Address": []},
+    "count": 2,
+    "contains_host": {"name": "www.example.com", "is_valid": true, "reason": "Exact match for www.example.com found in DNS SANs"},
+    "contains_alternate": {"example.com": {"name": "example.com", "is_valid": true, "reason": "Exact match for example.com found in DNS SANs"}},
+    "warnings": []
+  }
+}
 ```
 
-### Retrieving Raw Certificate Data
-These methods are only available for SSL/TLS connections:
-```python
-raw_der = monitor.get_raw_der()  # Returns DER bytes
-raw_pem = monitor.get_raw_pem()  # Returns PEM string
-```
-
-### Retrieving Cipher Information
-You can retrieve and validate cipher suite information:
-```python
-cipher_info = monitor.get_cipher_info()
-print(cipher_info)
-```
+Each validator reports its own `is_valid` flag plus the details behind its decision. That structure is consistent across every validator, so once you can read one result you can read them all.
 
 ---
 
@@ -258,13 +243,13 @@ if isinstance(cert, dict) and "error" in cert:
 
 CertMonitor's certificate parser handles untrusted bytes from every TLS handshake it monitors. We take that seriously:
 
-- **Zero runtime dependencies.** The Python layer uses only the standard library. The Rust extension's X.509 / DER parser is written in-house against the Rust standard library — no third-party parsing crates in the runtime dependency tree.
+- **Zero runtime dependencies.** The Python layer uses only the standard library. The Rust extension's X.509 / DER parser is written in-house against the Rust standard library, with no third-party parsing crates in the runtime dependency tree.
 - **`#![forbid(unsafe_code)]`** at the Rust crate root. No `unsafe` blocks anywhere in the parser. Memory safety is enforced by the Rust compiler, not by manual auditing.
 - **Every parser path returns `Result`.** Malformed input produces a structured error, never a crash. No `.unwrap()` on user-input-derived data.
-- **1.7 billion fuzz iterations, zero crashes.** The parser is continuously fuzz-tested with [cargo-fuzz](https://github.com/rust-lang/cargo-fuzz) (libFuzzer) against adversarial byte sequences. A 1-hour soak run explores 310 code-coverage points and 503 libfuzzer features with zero panics. Run it yourself: `make fuzz`.
-- **130-cert real-world corpus on every CI run.** Every commit is tested against captured certificates from 101 production hosts spanning Google Trust Services, DigiCert, Let's Encrypt, Sectigo, Cloudflare, and more — covering both RSA and ECDSA key types.
-- **425+ Python tests at 99% line coverage, 56 Rust unit tests.** The full test suite runs across Python 3.8–3.13 and Rust stable on macOS, Ubuntu, and Windows.
-- **`cargo audit` on every PR.** The Rust dependency tree is 20 crates total (all PyO3 build-time helpers), scanned for known vulnerabilities on every pull request.
+- **2.8 billion fuzz iterations, zero crashes.** The parser is continuously fuzz-tested with [cargo-fuzz](https://github.com/rust-lang/cargo-fuzz) (libFuzzer) against adversarial byte sequences. A 1-hour soak run explores 310 code-coverage points and 505 libfuzzer features with zero panics. Run it yourself: `make fuzz`.
+- **130-cert real-world corpus on every CI run.** Every commit is tested against captured certificates from 101 production hosts spanning Google Trust Services, DigiCert, Let's Encrypt, Sectigo, Cloudflare, and more, covering both RSA and ECDSA key types.
+- **540+ Python tests at 99% line coverage, plus 99 Rust unit tests.** The full test suite runs across Python 3.8 to 3.13 and Rust stable on macOS, Ubuntu, and Windows.
+- **`cargo audit` on every PR.** CertMonitor declares a single direct Rust dependency, `pyo3` (the Python bridge). The whole compiled tree is 15 crates, all pyo3 and its helpers, with no third-party parsing crates, scanned for known vulnerabilities on every pull request.
 
 ---
 

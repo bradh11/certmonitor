@@ -31,7 +31,7 @@ pub fn parse_utc_time(value: &[u8]) -> Result<i64, ParseError> {
     if value.len() != 13 || value[12] != b'Z' {
         return Err(ParseError::InvalidTime);
     }
-    let year_short = parse_uint(&value[0..2])? as u32;
+    let year_short = parse_uint(&value[0..2])?;
     let year = if year_short < 50 {
         2000 + year_short
     } else {
@@ -51,7 +51,7 @@ pub fn parse_generalized_time(value: &[u8]) -> Result<i64, ParseError> {
     if value.len() != 15 || value[14] != b'Z' {
         return Err(ParseError::InvalidTime);
     }
-    let year = parse_uint(&value[0..4])? as u32;
+    let year = parse_uint(&value[0..4])?;
     let month = parse_uint(&value[4..6])?;
     let day = parse_uint(&value[6..8])?;
     let hour = parse_uint(&value[8..10])?;

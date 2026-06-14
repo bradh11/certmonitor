@@ -2,23 +2,20 @@
 
 import re
 from functools import lru_cache
-from typing import Any, Dict, Optional, Pattern, Set, Union, cast
+from typing import Any, Dict, Pattern, Union, cast
 
 """
-This module defines:
-- Patterns for parsing cipher suites into their components.
-- Centrally managed allowed TLS versions and cipher suites.
-- Functions to update these allowed lists at runtime.
-
-By using allowed lists, the validator fails if the target negotiates
-a version or cipher suite not present in these lists.
+This module defines the patterns for parsing a negotiated cipher suite
+name into its components (encryption, key exchange, MAC), used by
+``CertMonitor.get_cipher_info`` for the structured cipher breakdown.
 
 Users and maintainers can:
 1. View current algorithms using `list_algorithms()`.
 2. Update cipher parsing patterns using `update_algorithms()`.
-3. Update allowed TLS versions and cipher suites using `update_allowed_lists()`.
 
-Default values are based on commonly accepted industry standards.
+The acceptable TLS versions and cipher suites are policy owned by their
+validators (`tls_version` and `weak_cipher`), each configurable per call
+via validator arguments, rather than global state here.
 """
 
 # Type alias for the algorithms dictionary (can contain either strings or compiled patterns)
@@ -108,37 +105,3 @@ def update_algorithms(custom_algorithms: Dict[str, Dict[str, str]]) -> None:
             ALL_ALGORITHMS[category][alg_name] = re.compile(pattern)
 
     parse_cipher_suite.cache_clear()
-
-
-# Default allowed lists for TLS versions and cipher suites.
-# If a negotiated version or cipher is not in these sets, validation fails.
-ALLOWED_TLS_VERSIONS = {"TLSv1.2", "TLSv1.3"}
-
-ALLOWED_CIPHER_SUITES = {
-    # Following industry guidelines (e.g., Mozilla's "Intermediate" TLS configuration)
-    "ECDHE-ECDSA-AES128-GCM-SHA256",
-    "ECDHE-RSA-AES128-GCM-SHA256",
-    "ECDHE-ECDSA-CHACHA20-POLY1305",
-    "ECDHE-RSA-CHACHA20-POLY1305",
-    "ECDHE-ECDSA-AES256-GCM-SHA384",
-    "ECDHE-RSA-AES256-GCM-SHA384",
-}
-
-
-def update_allowed_lists(
-    custom_tls_versions: Optional[Set[str]] = None,
-    custom_ciphers: Optional[Set[str]] = None,
-) -> None:
-    """
-    Update the sets of allowed TLS versions and cipher suites.
-
-    Args:
-        custom_tls_versions (set): A set of allowed TLS versions. E.g., {"TLSv1.2", "TLSv1.3"}
-        custom_ciphers (set): A set of allowed cipher suites. E.g., {"ECDHE-RSA-AES128-GCM-SHA256"}
-    """
-    global ALLOWED_TLS_VERSIONS, ALLOWED_CIPHER_SUITES
-    if custom_tls_versions is not None:
-        ALLOWED_TLS_VERSIONS = custom_tls_versions
-
-    if custom_ciphers is not None:
-        ALLOWED_CIPHER_SUITES = custom_ciphers
