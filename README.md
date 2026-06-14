@@ -1,6 +1,6 @@
 <p align="center">
   <a href="https://certmonitor.readthedocs.io/">
-    <img src="docs/images/logo.svg" alt="CertMonitor Logo" width="120" height="120">
+    <img src="https://cdn.jsdelivr.net/gh/bradh11/certmonitor@main/docs/images/logo.svg" alt="CertMonitor Logo" width="120" height="120">
   </a>
 </p>
 
