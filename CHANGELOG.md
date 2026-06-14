@@ -13,13 +13,17 @@ rename the headers to emoji form when cutting a release.
 ## [Unreleased]
 
 ### Added
-- TBD
+- Python 3.14 support, now part of the CI test matrix.
+- Python 3.15 pre-release support: CI exercises 3.15 betas via `allow-prereleases` so the package is ready ahead of the final release.
 
 ### Changed
-- TBD
+- **Breaking:** Dropped support for Python 3.8 and 3.9 (both end-of-life). The new minimum is Python 3.10 (`requires-python = ">=3.10,<3.16"`), which also lets the chain validators rely on stdlib chain-retrieval APIs unconditionally.
+- Modernized the codebase to Python 3.10+ idioms: built-in generics (`list`/`dict`), `X | None` unions, and a full ruff `pyupgrade` (UP) sweep, with `target-version = "py310"` enforcing it going forward. No runtime behavior change.
+- Raised the Rust extension's abi3 floor to `abi3-py310` to match the new Python minimum.
+- CI: the test matrix is now Python 3.10 through 3.15, and the GitHub Actions were refreshed (checkout v6, setup-python v6, setup-uv v8, codecov v5 with token upload, action-gh-release v2).
 
 ### Fixed
-- TBD
+- The README logo now uses an absolute CDN URL so it renders on the PyPI project page (relative paths only resolve on GitHub).
 
 ## [0.4.0] - 2026-06-14
 
