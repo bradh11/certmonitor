@@ -39,7 +39,7 @@
 - **Unified commands:** 5 (format, lint, test)
 - **Language-specific:** 5 (python-*, rust-*)
 - **Security commands:** 1 (security, audit)
-- **CI-equivalent testing:** ✅ 9-step process
+- **CI-equivalent testing:** ✅ 10-step process
 
 ---
 
@@ -115,9 +115,9 @@
 
 
 ### CI-Equivalent Testing
-- **Test workflow steps:** 9/9
+- **Test workflow steps:** 10
 - **CI-equivalent testing:** ✅ Yes
-- **Workflow status:** 🚀 Full 9-step testing process available
+- **Workflow status:** 🚀 Full 10-step testing process available
 
 
 ### Development Commands
@@ -153,7 +153,7 @@ make report
 ### Enhanced Development Commands
 ```bash
 # 🚀 Recommended CI-equivalent workflow
-make test          # Full 9-step test suite (format, lint, typecheck, test, build)
+make test          # Full CI-equivalent test suite (format, lint, typecheck, test, build)
 make check         # Quick quality checks (format + lint)
 make develop       # Install for development
 

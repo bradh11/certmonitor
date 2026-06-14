@@ -7,6 +7,7 @@ and code quality metrics to ensure the codebase remains modular and maintainable
 """
 
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -387,20 +388,18 @@ def get_makefile_metrics() -> dict[str, Any]:
             elif any(pattern in cmd for pattern in security_patterns):
                 results["security_commands"].append(cmd)
 
-        # Count test steps by looking for numbered steps in test target
+        # Count test steps by looking for numbered "N/M" step markers in the
+        # test target. The denominator is the advertised step count, so this
+        # stays correct no matter how many steps the target grows to.
         if "test:" in content:
-            test_section = (
-                content.split("test:")[1].split("\n\n")[0] if "test:" in content else ""
-            )
-            step_count = (
-                test_section.count("/9")
-                + test_section.count("/8")
-                + test_section.count("/7")
-            )
-            if step_count > 0:
-                results["test_steps"] = (
-                    9 if "/9" in test_section else (8 if "/8" in test_section else 7)
-                )
+            test_section = content.split("test:")[1].split("\n\n")[0]
+            denominators = [int(d) for d in re.findall(r"\b\d+/(\d+)\b", test_section)]
+            if denominators:
+                results["test_steps"] = max(denominators)
+                results["ci_equivalent"] = True
+            elif "CI equivalent" in test_section:
+                # Fallback: the target advertises itself as CI-equivalent even
+                # if the step markers ever change format.
                 results["ci_equivalent"] = True
 
     except Exception:
@@ -579,11 +578,11 @@ def generate_report() -> str:
 ### CI-Equivalent Testing
 """
 
-    report += f"- **Test workflow steps:** {makefile_metrics['test_steps']}/9\n"
+    report += f"- **Test workflow steps:** {makefile_metrics['test_steps']}\n"
     report += f"- **CI-equivalent testing:** {'✅ Yes' if makefile_metrics['ci_equivalent'] else '❌ No'}\n"
 
     if makefile_metrics["ci_equivalent"]:
-        report += "- **Workflow status:** 🚀 Full 9-step testing process available\n"
+        report += f"- **Workflow status:** 🚀 Full {makefile_metrics['test_steps']}-step testing process available\n"
     else:
         report += "- **Workflow status:** ⚠️ Basic testing only\n"
 
@@ -673,7 +672,7 @@ make report
     if makefile_metrics["makefile_exists"] and makefile_metrics["ci_equivalent"]:
         report += """```bash
 # 🚀 Recommended CI-equivalent workflow
-make test          # Full 9-step test suite (format, lint, typecheck, test, build)
+make test          # Full CI-equivalent test suite (format, lint, typecheck, test, build)
 make check         # Quick quality checks (format + lint)
 make develop       # Install for development
 
