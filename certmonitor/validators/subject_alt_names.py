@@ -1,7 +1,7 @@
 # validators/subject_alt_names.py
 
 import ipaddress
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from .base import BaseCertValidator
 from .results import ValidationResult
@@ -15,10 +15,10 @@ class SubjectAltNamesResult(ValidationResult, total=False):
     ``contains_host`` / ``contains_alternate`` records.
     """
 
-    sans: Optional[Dict[str, List[str]]]
+    sans: dict[str, list[str]] | None
     count: int
-    contains_host: Dict[str, Any]
-    contains_alternate: Dict[str, Any]
+    contains_host: dict[str, Any]
+    contains_alternate: dict[str, Any]
 
 
 class SubjectAltNamesValidator(BaseCertValidator):
@@ -34,11 +34,11 @@ class SubjectAltNamesValidator(BaseCertValidator):
 
     def validate(
         self,
-        cert: Dict[str, Any],
+        cert: dict[str, Any],
         host: str,
         port: int,
         *,
-        alternate_names: Optional[List[str]] = None,
+        alternate_names: list[str] | None = None,
     ) -> SubjectAltNamesResult:
         """
         Validates the SANs in the provided SSL certificate.
@@ -192,8 +192,8 @@ class SubjectAltNamesValidator(BaseCertValidator):
         return result
 
     def _check_name_in_sans_with_reason(
-        self, name: str, dns_sans: List[str], ip_sans: List[str]
-    ) -> Tuple[bool, str]:
+        self, name: str, dns_sans: list[str], ip_sans: list[str]
+    ) -> tuple[bool, str]:
         """Checks if the given name is present in the SANs and provides a reason.
 
         Args:

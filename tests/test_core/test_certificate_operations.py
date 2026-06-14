@@ -291,8 +291,9 @@ class TestCertificateFetching:
             "ordered": True,
             "terminates_in_self_signed": False,
         }
-        with patch("certmonitor.core.certinfo") as mock_certinfo, patch.object(
-            monitor, "_ensure_connection", return_value=None
+        with (
+            patch("certmonitor.core.certinfo") as mock_certinfo,
+            patch.object(monitor, "_ensure_connection", return_value=None),
         ):
             mock_certinfo.parse_public_key_info.return_value = {
                 "algorithm": "rsaEncryption",
@@ -323,8 +324,9 @@ class TestCertificateFetching:
         monitor.handler = mock_handler
         monitor.connected = True
 
-        with patch("certmonitor.core.certinfo") as mock_certinfo, patch.object(
-            monitor, "_ensure_connection", return_value=None
+        with (
+            patch("certmonitor.core.certinfo") as mock_certinfo,
+            patch.object(monitor, "_ensure_connection", return_value=None),
         ):
             mock_certinfo.parse_public_key_info.return_value = {
                 "algorithm": "rsaEncryption",
@@ -355,8 +357,9 @@ class TestCertificateFetching:
         monitor.handler = mock_handler
         monitor.connected = True
 
-        with patch("certmonitor.core.certinfo") as mock_certinfo, patch.object(
-            monitor, "_ensure_connection", return_value=None
+        with (
+            patch("certmonitor.core.certinfo") as mock_certinfo,
+            patch.object(monitor, "_ensure_connection", return_value=None),
         ):
             mock_certinfo.parse_public_key_info.return_value = {
                 "algorithm": "rsaEncryption",

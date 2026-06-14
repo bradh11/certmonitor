@@ -34,8 +34,9 @@ with CertMonitor("example.com", enabled_validators=["pq_chain"]) as m:
 #   m.validate(validator_args={"pq_chain": {"require_full_chain": True}})
 ```
 
-Chain retrieval requires Python 3.10+ (same constraint as the `chain`
-validator); older interpreters get a structured error.
+Chain retrieval uses the same stdlib APIs as the `chain` validator, available
+on every supported Python version. If the chain cannot be fetched (for example
+an unreachable issuer), you get a structured error instead of the report below.
 
 ## How it decides
 
@@ -44,7 +45,7 @@ key by default (or the whole chain with `require_full_chain`).
 
 ```mermaid
 flowchart TD
-    A[validate called] --> B{Chain available?<br/>Python 3.10+}
+    A[validate called] --> B{Chain available?}
     B -- No --> Z["structured error"]
     B -- Yes --> C[For each certificate:<br/>is_pq = key_is_pq OR signature_is_pq]
     C --> D[Summarize by role:<br/>leaf_pq / intermediate_pq / root_pq]

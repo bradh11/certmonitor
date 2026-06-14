@@ -16,7 +16,8 @@ discovered user parameters, and exposes them for dispatch and introspection.
 
 import inspect
 from abc import ABC, abstractmethod
-from typing import Any, ClassVar, Dict, FrozenSet, Mapping, Tuple
+from typing import Any, ClassVar
+from collections.abc import Mapping
 
 
 class BaseValidator(ABC):
@@ -53,10 +54,10 @@ class _ValidatorBase(BaseValidator):
     """
 
     # Ordered data sources the dispatcher injects (see the class docstring).
-    requires: ClassVar[Tuple[str, ...]] = ()
+    requires: ClassVar[tuple[str, ...]] = ()
     _framework_arity: ClassVar[int] = 0
     _user_params: ClassVar[Mapping[str, inspect.Parameter]] = {}
-    _user_param_names: ClassVar[FrozenSet[str]] = frozenset()
+    _user_param_names: ClassVar[frozenset[str]] = frozenset()
 
     def __init_subclass__(cls, **kwargs: Any) -> None:
         super().__init_subclass__(**kwargs)
@@ -75,7 +76,7 @@ class _ValidatorBase(BaseValidator):
         # its sources, never a separate count.
         arity = len(cls.requires) + 2
         cls._framework_arity = arity
-        user_params: Dict[str, inspect.Parameter] = {}
+        user_params: dict[str, inspect.Parameter] = {}
         problems = []
         positional_seen = 0
 
@@ -133,10 +134,10 @@ class BaseCertValidator(_ValidatorBase):
     """Base class for validators that inspect parsed certificate data."""
 
     validator_type: str = "cert"
-    requires: ClassVar[Tuple[str, ...]] = ("cert_data",)
+    requires: ClassVar[tuple[str, ...]] = ("cert_data",)
 
     def validate(
-        self, cert_info: Dict[str, Any], host: str, port: int
+        self, cert_info: dict[str, Any], host: str, port: int
     ) -> Mapping[str, Any]:
         # Default implementation — subclasses override.
         return None  # type: ignore[return-value]
@@ -146,10 +147,10 @@ class BaseCipherValidator(_ValidatorBase):
     """Base class for validators that inspect negotiated cipher suite data."""
 
     validator_type: str = "cipher"
-    requires: ClassVar[Tuple[str, ...]] = ("cipher_info",)
+    requires: ClassVar[tuple[str, ...]] = ("cipher_info",)
 
     def validate(
-        self, cipher_info: Dict[str, Any], host: str, port: int
+        self, cipher_info: dict[str, Any], host: str, port: int
     ) -> Mapping[str, Any]:
         # Default implementation — subclasses override.
         return None  # type: ignore[return-value]

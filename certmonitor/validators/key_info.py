@@ -1,6 +1,6 @@
 # validators/key_info.py
 
-from typing import Any, Dict, FrozenSet, Optional
+from typing import Any
 
 from certmonitor import certinfo
 
@@ -12,7 +12,7 @@ class KeyInfoResult(ValidationResult, total=False):
     """Result shape for :class:`KeyInfoValidator` (envelope + data)."""
 
     key_type: str
-    key_size: Optional[int]
+    key_size: int | None
     curve: str
 
 
@@ -20,7 +20,7 @@ class KeyInfoResult(ValidationResult, total=False):
 # (rust_certinfo/src/pq_algorithms.rs) via certinfo.pq_algorithms() so
 # Python never carries its own copy of the table — a new algorithm added
 # there is recognized here automatically.
-_PQ_ALGORITHM_NAMES: FrozenSet[str] = frozenset(
+_PQ_ALGORITHM_NAMES: frozenset[str] = frozenset(
     alg["name"]
     for alg in certinfo.pq_algorithms()  # type: ignore[attr-defined]
 )
@@ -53,7 +53,7 @@ class KeyInfoValidator(BaseCertValidator):
 
     name: str = "key_info"
 
-    def validate(self, cert: Dict[str, Any], host: str, port: int) -> KeyInfoResult:
+    def validate(self, cert: dict[str, Any], host: str, port: int) -> KeyInfoResult:
         """
         Validates the key information of the provided SSL certificate.
 
@@ -145,9 +145,9 @@ class KeyInfoValidator(BaseCertValidator):
     @staticmethod
     def _weak_key_reason(
         key_type: str,
-        key_size: Optional[int],
-        curve: Optional[str],
-        strength: Optional[bool],
+        key_size: int | None,
+        curve: str | None,
+        strength: bool | None,
     ) -> str:
         """Explain why a key did not validate as strong.
 
@@ -166,8 +166,8 @@ class KeyInfoValidator(BaseCertValidator):
         return f"Key algorithm {key_type!r} did not meet strength requirements."
 
     def _is_key_strong_enough(
-        self, key_type: str, key_size: Optional[int], curve: Optional[str]
-    ) -> Optional[bool]:
+        self, key_type: str, key_size: int | None, curve: str | None
+    ) -> bool | None:
         """
         Checks if the key is strong enough based on its type, size, and curve.
 

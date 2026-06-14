@@ -1,7 +1,7 @@
 # validators/chain.py
 
 import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from .base import BaseCertValidator
 from .results import ValidationResult
@@ -13,7 +13,7 @@ class ChainResult(ValidationResult, total=False):
     chain_length: int
     chain_ordered: bool
     terminates_in_self_signed: bool
-    certs: List[Dict[str, Any]]
+    certs: list[dict[str, Any]]
 
 
 # Signature algorithm OIDs treated as weak by default. Override per-call via
@@ -29,7 +29,7 @@ _DEFAULT_WEAK_SIG_OIDS: frozenset = frozenset(
 )
 
 
-def _format_dn(fields: Dict[str, Any]) -> str:
+def _format_dn(fields: dict[str, Any]) -> str:
     cn = fields.get("commonName")
     o = fields.get("organizationName")
     if cn and o:
@@ -49,9 +49,9 @@ class ChainValidator(BaseCertValidator):
     handshake (leaf through root) and checks for the problems operators
     actually hit in production: missing intermediates, out-of-order chains,
     expired members, weak signature algorithms, and non-CA intermediates.
-    It does **not** perform cryptographic signature verification — that is
-    intentionally left to Phase 2 to keep the Rust dependency footprint at
-    ``pyo3 + x509-parser``.
+    It does **not** perform cryptographic signature verification; that is
+    intentionally left to a future iteration to keep the Rust dependency
+    footprint minimal (the in-tree parser, no third-party crates).
 
     The validator ships **disabled by default**. Opt in via:
 
@@ -61,8 +61,8 @@ class ChainValidator(BaseCertValidator):
 
     or by setting ``ENABLED_VALIDATORS`` in the environment.
 
-    Chain retrieval requires Python 3.10 or newer. On 3.8/3.9 this validator
-    reports a clear error rather than silently degrading.
+    Chain retrieval uses stdlib APIs available on all supported Python
+    versions (3.10+).
 
     Attributes:
         name (str): The name of the validator.
@@ -72,14 +72,14 @@ class ChainValidator(BaseCertValidator):
 
     def validate(
         self,
-        cert: Dict[str, Any],
+        cert: dict[str, Any],
         host: str,
         port: int,
         *,
         min_chain_length: int = 2,
         require_root_in_chain: bool = False,
         allow_self_signed_leaf: bool = False,
-        weak_signature_algorithms: Optional[List[str]] = None,
+        weak_signature_algorithms: list[str] | None = None,
     ) -> ChainResult:
         """
         Validate the certificate chain fetched alongside the leaf cert.
@@ -109,7 +109,7 @@ class ChainValidator(BaseCertValidator):
                 The shape is stable and documented in
                 ``docs/validators/chain.md``.
         """
-        warnings: List[str] = []
+        warnings: list[str] = []
 
         chain_error = cert.get("chain_error")
         if chain_error:
@@ -127,8 +127,7 @@ class ChainValidator(BaseCertValidator):
         if analysis is None:
             reason = (
                 "Certificate chain was not fetched. This typically means the "
-                "Python interpreter is older than 3.10 or the SSL handler did "
-                "not populate the chain."
+                "SSL handler did not populate the chain."
             )
             return {
                 "is_valid": False,
@@ -160,15 +159,15 @@ class ChainValidator(BaseCertValidator):
         chain_length: int = analysis["chain_length"]
         chain_ordered: bool = analysis["ordered"]
         terminates_in_self_signed: bool = analysis["terminates_in_self_signed"]
-        raw_certs: List[Dict[str, Any]] = list(analysis.get("certs", []))
+        raw_certs: list[dict[str, Any]] = list(analysis.get("certs", []))
 
         now = datetime.datetime.now(datetime.timezone.utc)
         any_expired = False
         any_not_yet_valid = False
 
-        cert_reports: List[Dict[str, Any]] = []
+        cert_reports: list[dict[str, Any]] = []
         for idx, raw in enumerate(raw_certs):
-            cert_warnings: List[str] = []
+            cert_warnings: list[str] = []
 
             not_before_ts = raw["not_before_unix"]
             not_after_ts = raw["not_after_unix"]

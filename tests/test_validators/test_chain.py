@@ -1,7 +1,7 @@
 # tests/test_validators/test_chain.py
 
 import datetime
-from typing import Any, Dict
+from typing import Any
 
 import pytest
 
@@ -14,7 +14,7 @@ def validator():
     return ChainValidator()
 
 
-def _wrap(analysis: Dict[str, Any], chain_error=None) -> Dict[str, Any]:
+def _wrap(analysis: dict[str, Any], chain_error=None) -> dict[str, Any]:
     return {
         "cert_info": {},
         "chain_analysis": analysis,

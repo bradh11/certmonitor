@@ -84,9 +84,9 @@ flowchart TD
 
 On failure, `is_valid` is `false` and a `reason` field is added.
 
-## Python version requirement
+## How the chain is retrieved
 
-Chain retrieval relies on `SSLSocket.get_verified_chain()` (Python 3.13+) or the stable `_sslobj.get_unverified_chain()` attribute (Python 3.10-3.12). On Python 3.8 or 3.9 the validator returns an informative error dict rather than silently degrading. The rest of CertMonitor continues to work on 3.8+.
+Chain retrieval relies on `SSLSocket.get_verified_chain()` (Python 3.13+) or the stable `_sslobj.get_unverified_chain()` attribute (Python 3.10-3.12). Both are available across every Python version CertMonitor supports (3.10+), so no extra configuration is needed.
 
 ## What is out of scope
 

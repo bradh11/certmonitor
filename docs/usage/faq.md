@@ -56,4 +56,4 @@ Absolutely. CertMonitor is built to be extensible, so you can add your own valid
 
 ## What platforms does CertMonitor support?
 
-CertMonitor runs on any platform with Python 3.8+, with no third-party Python runtime dependencies. Pre-built wheels (which include the Rust components) are provided for major platforms where available. See the installation instructions for details.
+CertMonitor runs on any platform with Python 3.10+, with no third-party Python runtime dependencies. Pre-built wheels (which include the Rust components) are provided for major platforms where available. See the installation instructions for details.

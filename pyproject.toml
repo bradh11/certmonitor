@@ -7,7 +7,7 @@ authors = [
 ]
 license = "MIT"
 readme = "README.md"
-requires-python = ">=3.8,<3.14"
+requires-python = ">=3.10,<3.16"
 keywords = [
     "tls",
     "ssl",
@@ -36,12 +36,11 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.8",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Programming Language :: Rust",
     "Topic :: Security",
     "Topic :: Security :: Cryptography",
@@ -78,9 +77,21 @@ module-name = "certmonitor.certinfo"
 # python-source = "certmonitor"
 features = ["pyo3/extension-module"]
 
+[tool.ruff]
+target-version = "py310"
+
+[tool.ruff.lint]
+# Keep ruff's default rules (E4/E7/E9, F) and add pyupgrade (UP) so the
+# codebase stays modern for the Python 3.10+ floor (builtin generics,
+# `X | None` unions). extend-select avoids enabling E501 and friends.
+extend-select = ["UP"]
+# UP038 rewrites isinstance(x, (A, B)) to isinstance(x, A | B), which is
+# measurably slower at runtime; keep the tuple form.
+ignore = ["UP038"]
+
 [tool.mypy]
 # MyPy configuration for CertMonitor
-python_version = "3.8"
+python_version = "3.10"
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = true

@@ -4,7 +4,7 @@ import logging
 import socket
 import ssl
 import warnings
-from typing import Any, Dict, List, Optional, Tuple, Union, cast
+from typing import Any, cast
 
 from .base import BaseProtocolHandler
 
@@ -12,12 +12,12 @@ from .base import BaseProtocolHandler
 class SSLHandler(BaseProtocolHandler):
     def __init__(self, host: str, port: int, error_handler: Any) -> None:
         super().__init__(host, port, error_handler)
-        self.socket: Optional[socket.socket] = None
-        self.secure_socket: Optional[ssl.SSLSocket] = None
-        self.tls_version: Optional[str] = None
+        self.socket: socket.socket | None = None
+        self.secure_socket: ssl.SSLSocket | None = None
+        self.tls_version: str | None = None
 
-    def get_supported_protocols(self) -> List[int]:
-        supported_protocols: List[int] = []
+    def get_supported_protocols(self) -> list[int]:
+        supported_protocols: list[int] = []
         # NOTE: Legacy TLS/SSL versions are intentionally included for security assessment
         # This tool needs to detect and analyze weak configurations in legacy systems
         for protocol in [
@@ -36,7 +36,7 @@ class SSLHandler(BaseProtocolHandler):
                 pass
         return supported_protocols
 
-    def connect(self) -> Optional[Dict[str, Any]]:
+    def connect(self) -> dict[str, Any] | None:
         protocols = self.get_supported_protocols()
         for protocol in protocols:
             try:
@@ -91,7 +91,7 @@ class SSLHandler(BaseProtocolHandler):
 
         # If all protocols fail
         return cast(
-            Dict[str, Any],
+            dict[str, Any],
             self.error_handler.handle_error(
                 "SSLError",
                 "Failed to establish SSL connection with any protocol",
@@ -100,10 +100,10 @@ class SSLHandler(BaseProtocolHandler):
             ),
         )
 
-    def fetch_raw_cert(self) -> Dict[str, Any]:
+    def fetch_raw_cert(self) -> dict[str, Any]:
         if not self.secure_socket:
             return cast(
-                Dict[str, Any],
+                dict[str, Any],
                 self.error_handler.handle_error(
                     "ConnectionError",
                     "SSL connection not established",
@@ -115,7 +115,7 @@ class SSLHandler(BaseProtocolHandler):
             cert = self.secure_socket.getpeercert(binary_form=True)
             if cert is None:
                 return cast(
-                    Dict[str, Any],
+                    dict[str, Any],
                     self.error_handler.handle_error(
                         "CertificateError",
                         "No certificate available",
@@ -133,22 +133,21 @@ class SSLHandler(BaseProtocolHandler):
             }
         except Exception as e:
             return cast(
-                Dict[str, Any],
+                dict[str, Any],
                 self.error_handler.handle_error(
                     "CertificateError", str(e), self.host, self.port
                 ),
             )
 
-    def _fetch_chain_der(self) -> Tuple[Optional[List[bytes]], Optional[str]]:
+    def _fetch_chain_der(self) -> tuple[list[bytes] | None, str | None]:
         """Retrieve the peer certificate chain as a list of DER byte strings.
 
         Python 3.13 exposes ``SSLSocket.get_verified_chain()``, which returns
         DER bytes directly. Python 3.10–3.12 only exposes the chain through
         the private ``_sslobj`` attribute as ``_ssl.Certificate`` instances,
         so we pull those, ask each for its PEM, and convert back to DER using
-        the public ``ssl.PEM_cert_to_DER_cert`` helper. On 3.8/3.9 there is
-        no stdlib-only way to obtain the chain and we return an informative
-        error instead.
+        the public ``ssl.PEM_cert_to_DER_cert`` helper. If neither API is
+        available, an informative error is returned.
         """
         if not self.secure_socket:
             return None, "SSL connection not established"
@@ -169,14 +168,14 @@ class SSLHandler(BaseProtocolHandler):
                 return None, f"Failed to retrieve certificate chain: {exc}"
 
         return None, (
-            "Certificate chain retrieval requires Python 3.10 or newer; "
-            "on this interpreter only the leaf certificate is available."
+            "Certificate chain retrieval is not available on this interpreter; "
+            "only the leaf certificate could be obtained."
         )
 
-    def fetch_raw_cipher(self) -> Union[Tuple[str, str, Optional[int]], Dict[str, Any]]:
+    def fetch_raw_cipher(self) -> tuple[str, str, int | None] | dict[str, Any]:
         if not self.secure_socket:
             return cast(
-                Dict[str, Any],
+                dict[str, Any],
                 self.error_handler.handle_error(
                     "ConnectionError",
                     "SSL connection not established",
@@ -187,7 +186,7 @@ class SSLHandler(BaseProtocolHandler):
         cipher_info = self.secure_socket.cipher()
         if cipher_info is None:
             return cast(
-                Dict[str, Any],
+                dict[str, Any],
                 self.error_handler.handle_error(
                     "CipherError",
                     "No cipher information available",
@@ -200,7 +199,7 @@ class SSLHandler(BaseProtocolHandler):
             return cipher_info
         # This should not happen in practice, but we handle it defensively
         return cast(  # type: ignore[unreachable]
-            Dict[str, Any],
+            dict[str, Any],
             self.error_handler.handle_error(
                 "CipherError", "Cipher information is not a tuple", self.host, self.port
             ),

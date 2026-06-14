@@ -51,9 +51,9 @@ The default three run out of the box. The opt-in validators are registered and r
 - [TLSVersion](tls_version.md): Validates the negotiated TLS version.
 - [WeakCipher](weak_cipher.md): Validates that the negotiated cipher suite is in the allowed list.
 - [SensitiveDate](sensitive_date.md): Validates that the certificate doesn't expire on built-in or user specified sensitive dates.
-- [Chain](chain.md): Inspects the full TLS certificate chain for structural problems (missing intermediates, out-of-order, expired members). Requires Python 3.10+.
+- [Chain](chain.md): Inspects the full TLS certificate chain for structural problems (missing intermediates, out-of-order, expired members).
 - [PqKeyExchange](pq_key_exchange.md): Judges whether the negotiated TLS key exchange is post-quantum (hybrid or pure ML-KEM).
-- [PqChain](pq_chain.md): Reports the post-quantum posture of every certificate in the presented chain. Requires Python 3.10+.
+- [PqChain](pq_chain.md): Reports the post-quantum posture of every certificate in the presented chain.
 - [PqSignature](pq_signature.md): Judges the leaf certificate's post-quantum posture (key and signature algorithm).
 
 ## What the output looks like

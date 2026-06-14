@@ -1,19 +1,19 @@
 # validators/tls_version.py
 
-from typing import Any, Dict, FrozenSet, List, Optional
+from typing import Any
 
 from .base import BaseCipherValidator
 from .results import ValidationResult
 
 # Default acceptable TLS versions. TLS 1.1 and older are deprecated.
 # Override per call with the ``allowed_tls_versions`` user arg.
-_DEFAULT_ALLOWED_TLS_VERSIONS: FrozenSet[str] = frozenset({"TLSv1.2", "TLSv1.3"})
+_DEFAULT_ALLOWED_TLS_VERSIONS: frozenset[str] = frozenset({"TLSv1.2", "TLSv1.3"})
 
 
 class TLSVersionResult(ValidationResult, total=False):
     """Result shape for :class:`TLSVersionValidator` (envelope + data)."""
 
-    protocol_version: Optional[str]
+    protocol_version: str | None
 
 
 class TLSVersionValidator(BaseCipherValidator):
@@ -28,11 +28,11 @@ class TLSVersionValidator(BaseCipherValidator):
 
     def validate(
         self,
-        cipher_info: Dict[str, Any],
+        cipher_info: dict[str, Any],
         host: str,
         port: int,
         *,
-        allowed_tls_versions: Optional[List[str]] = None,
+        allowed_tls_versions: list[str] | None = None,
     ) -> TLSVersionResult:
         """
         Validates the TLS protocol version used by the connection.
@@ -72,7 +72,7 @@ class TLSVersionValidator(BaseCipherValidator):
                 }
                 ```
         """
-        allowed: FrozenSet[str] = (
+        allowed: frozenset[str] = (
             frozenset(allowed_tls_versions)
             if allowed_tls_versions is not None
             else _DEFAULT_ALLOWED_TLS_VERSIONS
