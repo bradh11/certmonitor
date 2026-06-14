@@ -129,6 +129,10 @@ test: develop
 	uv run mypy certmonitor/
 	@echo "✅ Type checking complete"
 	@echo ""
+	@echo "🔎 Type checking with ty (advisory, non-blocking, preview)..."
+	-uvx ty check certmonitor/
+	@echo "ℹ️  ty is informational only and does not gate this suite"
+	@echo ""
 	@echo "🔒 8/10 Security vulnerability check (Rust)..."
 	cargo audit
 	@echo "✅ Rust security audit complete"
