@@ -22,6 +22,7 @@ rename the headers to emoji form when cutting a release.
 - Raised the Rust extension's abi3 floor to `abi3-py310` to match the new Python minimum.
 - CI: the test matrix is now Python 3.10 through 3.15, and the GitHub Actions were refreshed (checkout v6, setup-python v6, setup-uv v8.2.0, codecov v5 with token upload, action-gh-release v2).
 - `make test` now runs the Rust unit tests (`cargo test`) as part of the local CI-equivalent suite; previously they ran only in CI.
+- CI runs astral's `ty` type checker as a non-blocking, informational step alongside mypy, so we can track it while it matures (it stays in preview and does not gate merges).
 
 ### Fixed
 - The README logo now uses an absolute CDN URL so it renders on the PyPI project page (relative paths only resolve on GitHub).
