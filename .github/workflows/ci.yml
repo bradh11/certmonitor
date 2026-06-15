@@ -135,12 +135,13 @@ jobs:
           uv run pip install mypy types-requests
           uv run mypy certmonitor/ --ignore-missing-imports --show-error-codes
 
-      # Informational only: ty is astral's preview (0.0.x) type checker. It is
-      # stricter than mypy (e.g. on validator LSP), so it does not gate merges
-      # yet. Tracked so we can watch it mature toward a future migration.
-      - name: Type checking with ty (advisory, non-blocking)
-        continue-on-error: true
-        run: uvx ty check certmonitor/
+      # FUTURE: consider running astral's `ty` type checker here once it
+      # stabilizes (currently a 0.0.x preview). It is stricter than mypy
+      # (e.g. on the validator override signatures), so it is not wired into
+      # CI yet. Run it locally with `make typecheck-ty` to see its output.
+      # - name: Type checking with ty (advisory, non-blocking)
+      #   continue-on-error: true
+      #   run: uvx ty check certmonitor/
 
       - name: Check code complexity
         run: |

@@ -1,6 +1,6 @@
 # Makefile for certmonitor project
 
-.PHONY: develop build wheel test test-quick docs clean lint format format-check verify-wheel check report ci help typecheck python-lint python-format rust-format rust-format-check rust-lint security fuzz fuzz-long version version.patch version.minor version.major _sync-cargo-version
+.PHONY: develop build wheel test test-quick docs clean lint format format-check verify-wheel check report ci help typecheck typecheck-ty python-lint python-format rust-format rust-format-check rust-lint security fuzz fuzz-long version version.patch version.minor version.major _sync-cargo-version
 
 # Show available targets and their descriptions
 help:
@@ -24,6 +24,7 @@ help:
 	@echo "  rust-format  Run Rust-only formatting"
 	@echo "  rust-lint    Run Rust-only linting"
 	@echo "  typecheck    Run mypy type checking"
+	@echo "  typecheck-ty Run ty type checking (advisory preview, not gating)"
 	@echo "  security     Run security vulnerability check (Rust + Python)"
 	@echo "  ci           Alias for 'test' (full CI checks)"
 	@echo ""
@@ -129,10 +130,6 @@ test: develop
 	uv run mypy certmonitor/
 	@echo "✅ Type checking complete"
 	@echo ""
-	@echo "🔎 Type checking with ty (advisory, non-blocking, preview)..."
-	-uvx ty check certmonitor/
-	@echo "ℹ️  ty is informational only and does not gate this suite"
-	@echo ""
 	@echo "🔒 8/10 Security vulnerability check (Rust)..."
 	cargo audit
 	@echo "✅ Rust security audit complete"
@@ -157,6 +154,14 @@ check: lint format
 typecheck:
 	@echo "🔧 Running mypy type checking..."
 	uv run mypy certmonitor/
+
+# Advisory type check with astral's ty (currently a 0.0.x preview). mypy is the
+# enforced gate; this is informational only — run it when you want to see what
+# ty thinks. It is intentionally NOT part of 'make test'. Several diagnostics
+# are by-design (validator override signatures) or already suppressed for mypy.
+typecheck-ty:
+	@echo "🔎 Running ty type checking (advisory, preview)..."
+	-uvx ty check certmonitor/
 
 # Generate modularization and quality report
 report:
