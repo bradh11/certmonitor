@@ -1,6 +1,6 @@
 # validators/pq_signature.py
 
-from typing import Any, ClassVar, Dict, FrozenSet, Optional
+from typing import Any, ClassVar
 
 from certmonitor import certinfo
 
@@ -12,20 +12,20 @@ from .results import ValidationResult
 # copy of the table. Keys (SPKI) are matched by name; certificate
 # signature algorithms are matched by dotted OID. Composite entries are
 # tracked separately so the validator can report hybrid composites.
-_PQ_KEY_NAMES: FrozenSet[str] = frozenset(
+_PQ_KEY_NAMES: frozenset[str] = frozenset(
     alg["name"]
     for alg in certinfo.pq_algorithms()  # type: ignore[attr-defined]
 )
-_PQ_SIG_OIDS: FrozenSet[str] = frozenset(
+_PQ_SIG_OIDS: frozenset[str] = frozenset(
     alg["dotted"]
     for alg in certinfo.pq_algorithms()  # type: ignore[attr-defined]
 )
-_COMPOSITE_KEY_NAMES: FrozenSet[str] = frozenset(
+_COMPOSITE_KEY_NAMES: frozenset[str] = frozenset(
     alg["name"]
     for alg in certinfo.pq_algorithms()  # type: ignore[attr-defined]
     if alg["composite"]
 )
-_COMPOSITE_SIG_OIDS: FrozenSet[str] = frozenset(
+_COMPOSITE_SIG_OIDS: frozenset[str] = frozenset(
     alg["dotted"]
     for alg in certinfo.pq_algorithms()  # type: ignore[attr-defined]
     if alg["composite"]
@@ -75,7 +75,7 @@ class PqSignatureValidator(BaseCertValidator):
 
     def validate(
         self,
-        cert: Dict[str, Any],
+        cert: dict[str, Any],
         host: str,
         port: int,
         *,
@@ -172,7 +172,7 @@ class PqSignatureValidator(BaseCertValidator):
         return result
 
     @staticmethod
-    def _leaf(cert: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    def _leaf(cert: dict[str, Any]) -> dict[str, Any] | None:
         """The leaf cert dict from chain_analysis, else leaf_analysis."""
         for source in ("chain_analysis", "leaf_analysis"):
             analysis = cert.get(source)

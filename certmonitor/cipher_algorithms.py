@@ -2,7 +2,8 @@
 
 import re
 from functools import lru_cache
-from typing import Any, Dict, Pattern, Union, cast
+from typing import Any, cast
+from re import Pattern
 
 """
 This module defines the patterns for parsing a negotiated cipher suite
@@ -19,9 +20,9 @@ via validator arguments, rather than global state here.
 """
 
 # Type alias for the algorithms dictionary (can contain either strings or compiled patterns)
-AlgorithmDict = Dict[str, Union[str, Pattern[str]]]
+AlgorithmDict = dict[str, str | Pattern[str]]
 
-ALL_ALGORITHMS: Dict[str, AlgorithmDict] = {
+ALL_ALGORITHMS: dict[str, AlgorithmDict] = {
     "encryption": {
         "AES": r"AES",
         "CHACHA20": r"CHACHA20",
@@ -65,7 +66,7 @@ for category in ALL_ALGORITHMS.values():
 
 
 @lru_cache(maxsize=128)
-def parse_cipher_suite(cipher_suite: str) -> Dict[str, str]:
+def parse_cipher_suite(cipher_suite: str) -> dict[str, str]:
     """
     Parse a cipher suite string to identify encryption, key exchange, and MAC algorithms.
     """
@@ -82,7 +83,7 @@ def parse_cipher_suite(cipher_suite: str) -> Dict[str, str]:
     return result
 
 
-def list_algorithms() -> Dict[str, Any]:
+def list_algorithms() -> dict[str, Any]:
     """
     List all known algorithms by category.
     """
@@ -92,7 +93,7 @@ def list_algorithms() -> Dict[str, Any]:
     return alg_list
 
 
-def update_algorithms(custom_algorithms: Dict[str, Dict[str, str]]) -> None:
+def update_algorithms(custom_algorithms: dict[str, dict[str, str]]) -> None:
     """
     Update the ALL_ALGORITHMS dictionary with user-provided custom algorithms.
     """

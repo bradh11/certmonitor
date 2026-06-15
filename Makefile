@@ -1,6 +1,6 @@
 # Makefile for certmonitor project
 
-.PHONY: develop build wheel test test-quick docs clean lint format format-check verify-wheel check report ci help typecheck python-lint python-format rust-format rust-format-check rust-lint security fuzz fuzz-long version version.patch version.minor version.major _sync-cargo-version
+.PHONY: develop build wheel test test-quick docs clean lint format format-check verify-wheel check report ci help typecheck typecheck-ty python-lint python-format rust-format rust-format-check rust-lint security fuzz fuzz-long version version.patch version.minor version.major _sync-cargo-version
 
 # Show available targets and their descriptions
 help:
@@ -24,6 +24,7 @@ help:
 	@echo "  rust-format  Run Rust-only formatting"
 	@echo "  rust-lint    Run Rust-only linting"
 	@echo "  typecheck    Run mypy type checking"
+	@echo "  typecheck-ty Run ty type checking (advisory preview, not gating)"
 	@echo "  security     Run security vulnerability check (Rust + Python)"
 	@echo "  ci           Alias for 'test' (full CI checks)"
 	@echo ""
@@ -101,42 +102,46 @@ test: develop
 	@echo "🧪 Running comprehensive test suite (CI equivalent)..."
 	@echo "==================================================="
 	@echo ""
-	@echo "📋 1/9 Python code formatting check..."
+	@echo "📋 1/10 Python code formatting check..."
 	uv run ruff format --check .
 	@echo "✅ Python formatting check complete"
 	@echo ""
-	@echo "🔍 2/9 Python linting check..."
+	@echo "🔍 2/10 Python linting check..."
 	uv run ruff check .
 	@echo "✅ Python linting check complete"
 	@echo ""
-	@echo "🦀 3/9 Rust code formatting check..."
+	@echo "🦀 3/10 Rust code formatting check..."
 	cargo fmt --all -- --check
 	@echo "✅ Rust formatting check complete"
 	@echo ""
-	@echo "🔧 4/9 Rust linting check..."
+	@echo "🔧 4/10 Rust linting check..."
 	cargo clippy --all-targets --all-features -- -D warnings
 	@echo "✅ Rust linting check complete"
 	@echo ""
-	@echo "🧪 5/9 Running pytest with coverage..."
+	@echo "🦀 5/10 Rust unit tests..."
+	cargo test
+	@echo "✅ Rust tests complete"
+	@echo ""
+	@echo "🧪 6/10 Running pytest with coverage..."
 	uv run pytest --cov=certmonitor --cov-report=term-missing --cov-fail-under=95
 	@echo "✅ Tests and coverage complete"
 	@echo ""
-	@echo "🔧 6/9 Python type checking..."
+	@echo "🔧 7/10 Python type checking..."
 	uv run mypy certmonitor/
 	@echo "✅ Type checking complete"
 	@echo ""
-	@echo "🔒 7/9 Security vulnerability check (Rust)..."
+	@echo "🔒 8/10 Security vulnerability check (Rust)..."
 	cargo audit
 	@echo "✅ Rust security audit complete"
 	@echo ""
-	@echo "🛡️  8/9 Python security scanning..."
+	@echo "🛡️  9/10 Python security scanning..."
 	uv run bandit -r certmonitor/ -f json -o bandit-report.json -c .bandit
 	@echo "✅ Python security scan complete"
 	@echo ""
-	@echo "🏗️  9/9 Build verification..."
+	@echo "🏗️  10/10 Build verification..."
 	@$(MAKE) wheel >/dev/null 2>&1 && echo "✅ Build successful" || echo "❌ Build failed"
 	@echo ""
-	@echo "📊 10/10 Generating modularization report..."
+	@echo "📊 Generating modularization report..."
 	@python scripts/generate_report.py
 	@echo ""
 	@echo "🎉 All checks complete! Ready for PR/push."
@@ -149,6 +154,14 @@ check: lint format
 typecheck:
 	@echo "🔧 Running mypy type checking..."
 	uv run mypy certmonitor/
+
+# Advisory type check with astral's ty (currently a 0.0.x preview). mypy is the
+# enforced gate; this is informational only — run it when you want to see what
+# ty thinks. It is intentionally NOT part of 'make test'. Several diagnostics
+# are by-design (validator override signatures) or already suppressed for mypy.
+typecheck-ty:
+	@echo "🔎 Running ty type checking (advisory, preview)..."
+	-uvx ty check certmonitor/
 
 # Generate modularization and quality report
 report:

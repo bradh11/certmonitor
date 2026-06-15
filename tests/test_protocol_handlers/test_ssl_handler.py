@@ -1,6 +1,5 @@
 # tests/test_protocol_handlers/test_ssl_handler.py
 
-import socket
 import ssl
 from unittest.mock import MagicMock, patch
 
@@ -75,7 +74,7 @@ class TestSSLHandler:
     @patch("socket.create_connection")
     def test_connect_socket_error(self, mock_create_connection, ssl_handler):
         """Test connection failure due to socket error."""
-        mock_create_connection.side_effect = socket.error("Connection refused")
+        mock_create_connection.side_effect = OSError("Connection refused")
 
         with patch.object(
             ssl_handler,
@@ -221,16 +220,22 @@ class TestSSLHandler:
             fake_cert_b,
         ]
 
-        with patch("ssl.DER_cert_to_PEM_cert", return_value="pem"), patch(
-            "ssl.PEM_cert_to_DER_cert", side_effect=[b"DER_A", b"DER_B"]
+        with (
+            patch("ssl.DER_cert_to_PEM_cert", return_value="pem"),
+            patch("ssl.PEM_cert_to_DER_cert", side_effect=[b"DER_A", b"DER_B"]),
         ):
             result = ssl_handler.fetch_raw_cert()
 
         assert result["chain_der"] == [b"DER_A", b"DER_B"]
         assert result["chain_error"] is None
 
-    def test_fetch_raw_cert_chain_unavailable_on_old_python(self, ssl_handler):
-        """3.8/3.9 path: neither public API nor _sslobj.get_unverified_chain."""
+    def test_fetch_raw_cert_chain_unavailable(self, ssl_handler):
+        """Defensive path: neither public API nor _sslobj.get_unverified_chain.
+
+        Every supported interpreter (3.10+) exposes at least one of these, so
+        this branch is not reachable in practice, but the handler degrades
+        gracefully to the leaf cert with an informative error if it ever is.
+        """
         mock_secure_socket = MagicMock(spec=["getpeercert"])
         ssl_handler.secure_socket = mock_secure_socket
 
@@ -244,7 +249,7 @@ class TestSSLHandler:
             result = ssl_handler.fetch_raw_cert()
 
         assert result["chain_der"] is None
-        assert "Python 3.10" in result["chain_error"]
+        assert "not available on this interpreter" in result["chain_error"]
 
     def test_fetch_raw_cert_chain_public_api_exception(self, ssl_handler):
         mock_secure_socket = MagicMock(spec=["getpeercert", "get_verified_chain"])
@@ -623,10 +628,10 @@ class TestSSLHandler:
                 # Second call (retry) raises a different exception
                 raise ssl.SSLError("Some other SSL error during retry")
 
-        with patch("socket.socket", return_value=mock_socket), patch(
-            "ssl.SSLContext"
-        ) as mock_context_class, patch.object(
-            handler, "get_supported_protocols", return_value=["TLSv1_2"]
+        with (
+            patch("socket.socket", return_value=mock_socket),
+            patch("ssl.SSLContext") as mock_context_class,
+            patch.object(handler, "get_supported_protocols", return_value=["TLSv1_2"]),
         ):
             mock_context = MagicMock()
             mock_context_class.return_value = mock_context
