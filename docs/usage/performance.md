@@ -6,6 +6,18 @@ Start with a small concurrency limit, measure your own endpoints, and increase i
 
 ## Scan a batch
 
+For a synchronous script, `scan_hosts()` handles the workers and connection cleanup for you:
+
+```python
+from certmonitor import scan_hosts
+
+hosts = ["example.com", "www.python.org", "pypi.org"]
+for scan in scan_hosts(hosts, max_workers=4, timeout=5):
+    print(scan["host"], scan["snapshot_at"])
+    for name, result in scan["results"].items():
+        print(" ", name, result["status"], result.get("reason", ""))
+```
+
 Results arrive in completion order, so a slow host doesn't hold up completed results. Each result includes the host, port, observation timestamp, and the usual validator results. At most `max_workers` endpoints are in flight; the input can be an iterator instead of a list.
 
 The default validators run unless you supply `enabled_validators`. This helper has a deliberately small interface. If you need per-host alternate names, custom CA files, or separate connection addresses, create your own `CertMonitor` inside each worker.
@@ -42,7 +54,7 @@ if __name__ == "__main__":
     asyncio.run(main())
 ```
 
-The semaphore limits active scans to four. This example still creates one task per host, so use a bounded producer/worker queue for a very large inventory.
+The semaphore limits active scans to four. This example still creates one task per host, so use a bounded producer/worker queue for a very large inventory. The synchronous `scan_hosts()` helper already limits pending work.
 
 ## Understand the limits
 
@@ -57,4 +69,4 @@ The Rust TLS probe releases the GIL during its network work. The certificate par
 
 Calls on a monitor reuse collected certificate data. For a new observation, call `refresh()` and then validate again. Keep `snapshot_at` with your results so a dashboard can distinguish the time you observed a certificate from the time it displayed the result.
 
-See [Context Manager vs Manual Close](context_manager.md) for the connection lifecycle.
+See [Context Manager vs Manual Close](context_manager.md) for the connection lifecycle and [the API reference](../reference/certmonitor.md) for `scan_hosts()`.
