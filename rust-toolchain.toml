@@ -1,0 +1,7 @@
+# Pins the Rust toolchain for local builds and CI so a new stable release
+# (and its new clippy lints) never breaks a build by surprise. Bump this
+# deliberately, together with the wheels job in .github/workflows/ci.yml.
+[toolchain]
+channel = "1.98.1"
+components = ["rustfmt", "clippy"]
+profile = "minimal"
