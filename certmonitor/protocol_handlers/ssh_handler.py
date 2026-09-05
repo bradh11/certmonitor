@@ -10,7 +10,9 @@ from .base import BaseProtocolHandler
 class SSHHandler(BaseProtocolHandler):
     def connect(self) -> dict[str, Any] | None:
         try:
-            self.socket = socket.create_connection((self.host, self.port), timeout=10)
+            self.socket = socket.create_connection(
+                (self.host, self.port), timeout=self.timeout
+            )
             return None
         except OSError as e:
             return cast(

@@ -34,17 +34,22 @@ Notice how much more there is to get right here. That `finally` block is doing e
 
 ## Example output
 
-Both styles return the same results:
+Both styles return the same result shape. Here is an illustrative excerpt:
 
 ```json
 {
   "subject": {"commonName": "example.com"},
   "issuer": {"organizationName": "DigiCert Inc"},
-  "notBefore": "2024-06-01T00:00:00",
-  "notAfter": "2025-09-01T23:59:59"
-  // ...
+  "notBefore": "Jun  1 00:00:00 2024 GMT",
+  "notAfter": "Sep  1 23:59:59 2025 GMT"
 }
 ```
 
 !!! tip "When in doubt, use `with`"
-    Reach for the context manager unless you have a specific reason to manage connections manually, such as advanced connection pooling. It's safer and there's simply less to remember.
+    Reach for the context manager unless you have a specific reason to manage connections manually, such as a long-lived monitoring object. It's safer and there's simply less to remember.
+
+## Collect a fresh observation
+
+Closing releases the connection but retains the last snapshot for inspection. That is useful when you want to read results after leaving the `with` block. It does not make those results current forever.
+
+Inside an active monitoring workflow, use `monitor.refresh()` to discard the old snapshot and collect again, then call `monitor.validate()`. Reconnecting after `close()` keeps the snapshot; only `refresh()` discards it. `monitor.snapshot_at` records when the certificate was collected; keep it alongside stored results.

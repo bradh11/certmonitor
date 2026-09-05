@@ -91,7 +91,10 @@ class TestCertificateRetrieval:
             "port": 443,
         }
 
-        with patch.object(cert_monitor, "_fetch_raw_cert", return_value=error_response):
+        with (
+            patch.object(cert_monitor, "_fetch_raw_cert", return_value=error_response),
+            patch.object(cert_monitor, "_ensure_connection", return_value=None),
+        ):
             result = cert_monitor.get_cert_info()
 
         # Should return the error response instead of raising an exception
@@ -493,6 +496,7 @@ class TestDataTransformation:
         }
 
         monitor.handler = mock_handler
+        monitor.connected = True
 
         # Mock certinfo.parse_public_key_info to return public key data
         with patch("certmonitor.core.certinfo") as mock_certinfo:

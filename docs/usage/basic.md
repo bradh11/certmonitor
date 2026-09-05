@@ -1,3 +1,8 @@
+---
+title: "Check SSL Certificate Expiration and Validity with Python"
+description: "Use CertMonitor in Python to retrieve SSL/TLS certificate details and check certificate expiration, hostname identity, and CA trust."
+---
+
 # Basic Usage
 
 CertMonitor is built to make retrieving and validating a TLS certificate as painless as possible. Let's start with the smallest example that does something useful, then look at exactly what comes back.
@@ -16,7 +21,25 @@ with CertMonitor("example.com") as monitor:
     print(validation_results)
 ```
 
-Two calls do the work. `get_cert_info()` gives you the parsed certificate, and `validate()` runs the checks against it.
+`get_cert_info()` gives you the parsed certificate, and `validate()` runs the checks against it. If you only need the checks, call `validate()` directly; it collects the certificate for you.
+
+## Run it
+
+Save the example as `check_cert.py`, then run it with the Python environment where you installed CertMonitor:
+
+```sh
+python check_cert.py
+```
+
+You'll see two dictionaries: the certificate details, followed by the validator results. The certificate can change when the server renews it, so your output will not necessarily match the illustrations below.
+
+## Walk through the code
+
+1. **Create the monitor.** `CertMonitor("example.com")` sets the target and uses port 443. Entering the `with` block connects; leaving it closes the collection connection.
+2. **Read the certificate.** `get_cert_info()` collects and parses a snapshot. You can inspect an expired or untrusted certificate because collection is permissive.
+3. **Run the checks.** `validate()` runs `expiration`, `hostname`, and `root_certificate` by default. Trust uses a separate verified handshake; a successful retrieval alone is not a trust verdict.
+
+If a host cannot be reached, the retrieval method returns an error dictionary. The enabled validators still get failed results explaining what was unavailable. [Error Handling](error_handling.md) shows how to turn those into useful logs or alerts.
 
 ## How retrieval works
 
@@ -35,7 +58,7 @@ flowchart TD
 
 ## What `get_cert_info()` returns
 
-Let's look at a real example. `get_cert_info()` returns a structured dictionary describing the certificate:
+Let's look at the shape. `get_cert_info()` returns a structured dictionary describing the certificate. This illustrative snapshot uses historical dates; it is not a live result from `example.com`:
 
 ```json
 {
@@ -53,8 +76,8 @@ Let's look at a real example. `get_cert_info()` returns a structured dictionary 
   },
   "version": 3,
   "serialNumber": "075BCEF30689C8ADDF13E51AF4AFE187",
-  "notBefore": "2024-01-30T00:00:00",
-  "notAfter": "2025-03-01T23:59:59",
+  "notBefore": "Jan 30 00:00:00 2024 GMT",
+  "notAfter": "Mar  1 23:59:59 2025 GMT",
   "subjectAltName": {
     "DNS": [
       "www.example.com",
@@ -75,27 +98,50 @@ Let's look at a real example. `get_cert_info()` returns a structured dictionary 
 }
 ```
 
-As you can see, it's all there: who the certificate is for (`subject`), who issued it (`issuer`), how long it's valid (`notBefore` and `notAfter`), the alternate names it covers, and the revocation endpoints.
+As you can see, it's all there: who the certificate is for (`subject`), who issued it (`issuer`), how long it's valid (`notBefore` and `notAfter`), the alternate names it covers, and the revocation endpoints. The dates use the SSL date format shown above. Those endpoint URLs are metadata; CertMonitor does not fetch them to check revocation.
 
 ## What `validate()` returns
 
 Now for the checks. `validate()` returns a dictionary keyed by validator name, with a structured result under each one:
 
+This is the full result of a scan against example.com at the time of writing. Certificate details and dates depend on the endpoint.
+
 ```json
 {
   "expiration": {
     "is_valid": true,
-    "days_to_expiry": 120,
-    "expires_on": "2025-03-01T23:59:59",
-    "warnings": []
+    "days_to_expiry": 51,
+    "expires_on": "2026-10-27T22:17:21+00:00",
+    "warnings": [],
+    "lifetime_days": 90,
+    "status": "pass",
+    "code": "expiration.pass"
   },
-  "subject_alt_names": {
+  "hostname": {
     "is_valid": true,
-    "sans": {"DNS": ["www.example.com", "example.com"], "IP Address": []},
-    "count": 2,
-    "contains_host": {"name": "www.example.com", "is_valid": true, "reason": "Exact match for www.example.com found in DNS SANs"},
-    "contains_alternate": {"example.com": {"name": "example.com", "is_valid": true, "reason": "Exact match for example.com found in DNS SANs"}},
-    "warnings": []
+    "alt_names": [
+      "example.com",
+      "*.example.com"
+    ],
+    "identity_source": "subjectAltName",
+    "common_name": "example.com",
+    "common_name_matches": true,
+    "matched_name": "example.com",
+    "status": "pass",
+    "code": "hostname.pass"
+  },
+  "root_certificate": {
+    "is_valid": true,
+    "status": "pass",
+    "trust_verified": true,
+    "revocation_status": "not_checked",
+    "warnings": [],
+    "issuer": {
+      "countryName": "US",
+      "organizationName": "SSL Corporation",
+      "commonName": "Cloudflare TLS Issuing ECC CA 3"
+    },
+    "code": "root_certificate.pass"
   }
 }
 ```
@@ -157,7 +203,10 @@ DER is the raw binary form, returned as `bytes`:
 ```python
 with CertMonitor("example.com") as monitor:
     der_cert = monitor.get_raw_der()
-    print(der_cert[:20])
+    if isinstance(der_cert, bytes):
+        print(der_cert[:20])
+    else:
+        print(der_cert["error"], der_cert["message"])
 ```
 
 ```text

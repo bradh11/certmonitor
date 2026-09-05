@@ -37,6 +37,7 @@ from certmonitor.validators.results import ValidationResult
 class MinKeySizeResult(ValidationResult, total=False):
     """Declares the result shape so mypy checks it (optional but recommended)."""
 
+    key_type: str | None
     key_size: Optional[int]
     min_size: int
 
@@ -47,19 +48,24 @@ class MinKeySizeValidator(BaseCertValidator):
     def validate(
         self, cert: Dict[str, Any], host: str, port: int, *, min_size: int = 3072
     ) -> MinKeySizeResult:
-        key_size = cert.get("public_key_info", {}).get("size")
-        is_valid = key_size is not None and key_size >= min_size
+        key_info = cert.get("public_key_info", {})
+        key_type = key_info.get("algorithm")
+        key_size = key_info.get("size")
+        is_valid = key_type == "rsaEncryption" and isinstance(key_size, int) and key_size >= min_size
         result: MinKeySizeResult = {
             "is_valid": is_valid,
+            "key_type": key_type,
             "key_size": key_size,
             "min_size": min_size,
         }
         if not is_valid:
             result["reason"] = (
-                f"Key size {key_size} is too small (minimum required: {min_size})"
+                f"Policy requires RSA with at least {min_size} bits; got {key_type} ({key_size} bits)."
             )
         return result
 ```
+
+This is an RSA-only policy, so EC and PQ keys also fail this particular check. Bit lengths are not comparable across algorithm families; use the built-in [KeyInfo](../validators/key_info.md) validator for its per-family rules.
 
 Notice the pattern. `min_size` is keyword-only (it sits after the `*`), annotated, and has a default. And `reason` is only added when the check fails, which is exactly what the result contract asks for.
 
@@ -94,9 +100,10 @@ Here, the host's 2048-bit key falls short of the 4096-bit minimum we asked for, 
 ```json
 {
   "is_valid": false,
+  "key_type": "rsaEncryption",
   "key_size": 2048,
   "min_size": 4096,
-  "reason": "Key size 2048 is too small (minimum required: 4096)"
+  "reason": "Policy requires RSA with at least 4096 bits; got rsaEncryption (2048 bits)."
 }
 ```
 
@@ -109,7 +116,7 @@ sequenceDiagram
     participant User
     participant CertMonitor
     User->>CertMonitor: Define CustomValidator
-    User->>CertMonitor: register_validator(CustomValidator)
+    User->>CertMonitor: register_validator(CustomValidator())
     User->>CertMonitor: enabled_validators=["custom"]
     CertMonitor->>User: validate() calls CustomValidator.validate()
     CertMonitor->>User: Returns result

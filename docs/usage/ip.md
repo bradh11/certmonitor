@@ -1,50 +1,62 @@
 # Using IP Addresses
 
-Most of the time you'll point CertMonitor at a domain name. But sometimes you don't have one, or you want to check a specific host behind a load balancer. Good news: CertMonitor accepts IP addresses too, both IPv4 and IPv6, exactly where you'd put a hostname.
+Most of the time you'll point CertMonitor at a domain name. But sometimes you want to check a specific host behind a load balancer, or your certificate really is issued for an IP address. Those are two different jobs. Let's walk through both.
 
-## An IPv4 address
+## Check a certificate issued for an IP
 
-Let's say you want to check a host by its IPv4 address. Just pass it in like any other target:
+Pass the address where you'd normally put the hostname. Both IPv4 and IPv6 are accepted. The addresses below are reserved documentation ranges; replace them with endpoints you operate.
+
+### An IPv4 address
 
 ```python
 from certmonitor import CertMonitor
 
-with CertMonitor("93.184.216.34") as monitor:  # example.com's IPv4
-    cert_info = monitor.get_cert_info()
-    print(cert_info)
+with CertMonitor("192.0.2.10") as monitor:
+    print(monitor.validate())
 ```
 
-## An IPv6 address
+### An IPv6 address
 
-IPv6 works the same way. Pass the address as a string:
+IPv6 works the same way. Pass the address as a string, without brackets:
 
 ```python
-with CertMonitor("2606:2800:220:1:248:1893:25c8:1946") as monitor:  # example.com's IPv6
-    cert_info = monitor.get_cert_info()
-    print(cert_info)
+from certmonitor import CertMonitor
+
+with CertMonitor("2001:db8::10") as monitor:
+    print(monitor.validate())
 ```
 
-## What you get back
+The `hostname` validator checks the address against **IP Address SANs**. A DNS SAN containing the same text, or an IP written in the Common Name, does not satisfy that identity check. IPv6 also needs a working route from your machine.
 
-The output looks just like it does for a domain name:
+## Check a particular backend for a DNS name
 
-```json
-{
-  "subject": {"commonName": "example.com"},
-  "issuer": {"organizationName": "DigiCert Inc"},
-  "notBefore": "2024-06-01T00:00:00",
-  "notAfter": "2025-09-01T23:59:59"
-  // ...
-}
+Suppose `api.example.com` normally resolves through a load balancer, but you want to inspect one backend directly. Keep the DNS name as the identity and set `connection_host` to the backend address:
+
+```python
+from certmonitor import CertMonitor
+
+with CertMonitor(
+    "api.example.com",
+    connection_host="192.0.2.10",  # Replace with your backend address.
+) as monitor:
+    print(monitor.validate())
 ```
 
-## Things to watch out for
+The `host` argument stays what the certificate must be valid for; the connection options only change how you reach it:
 
-A few edge cases are worth knowing about before you rely on IP targets:
+| Option | What it controls |
+|---|---|
+| `host` | The identity checked by `hostname`, and the default for the two options below. |
+| `connection_host` | The address used for the TCP connection. |
+| `server_hostname` | TLS Server Name Indication (SNI), so the server can select its certificate. Defaults to `host`. |
 
-- Not every host has a certificate issued for its IP address. When the certificate only covers a hostname, validation against the IP may fail.
-- IPv6 support depends on your system and network configuration. If your network can't route IPv6, the connection won't get off the ground.
-- If a connection can't be established, CertMonitor returns a structured error rather than raising, so you can inspect what happened.
+Setting SNI does not itself validate identity. If you ever need to check a different name than the one you connected with, that is a validator decision, so it lives on the `hostname` validator: `validator_args={"hostname": {"expected_identity": "api.example.com"}}`.
 
-!!! tip "Everything else just works"
-    You can use all the same validators and features with an IP address that you'd use with a domain name. Nothing else about your code needs to change.
+!!! tip "Private CA on the backend?"
+    Pass `cafile="/path/to/your/ca-bundle.pem"` for the separate trust check. See [RootCertificate](../validators/root_certificate.md) for an example. A connection address override also applies to that verified handshake.
+
+## Read failures in context
+
+A connection error means CertMonitor could not collect the certificate. A failed `hostname` result means it collected a certificate that didn't match the requested identity. Read `status` and `reason` before changing your target.
+
+The optional PQ probe follows the same split: it connects to `connection_host` and offers `server_hostname` as SNI.

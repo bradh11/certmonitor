@@ -1,5 +1,6 @@
 # core.py
 
+from datetime import datetime, timezone
 import ipaddress
 import logging
 import os
@@ -8,7 +9,7 @@ import ssl
 import tempfile
 import warnings
 from typing import Any, cast
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 
 from certmonitor import certinfo, config
 from certmonitor.cipher_algorithms import parse_cipher_suite
@@ -27,13 +28,62 @@ class CertMonitor:
         host: str,
         port: int = 443,
         enabled_validators: list[str] | None = None,
+        *,
+        connection_host: str | None = None,
+        server_hostname: str | None = None,
+        timeout: float = 10,
+        cafile: str | None = None,
+        capath: str | None = None,
+        client_cert: str | None = None,
+        client_key: str | None = None,
     ):
-        """Initialize the CertMonitor with the specified host and port."""
+        """Initialize a monitor for a host without opening a connection.
+
+        Use a context manager to connect and close automatically. Retrieval and
+        validation methods can also connect lazily. By default, validation checks
+        expiration, SAN-based hostname identity, and trust through a separate
+        verified handshake. Collection itself is permissive.
+
+        Args:
+            host: The identity the certificate is checked against. Also the
+                default TCP destination and TLS SNI name.
+            port: Target TCP port. Defaults to 443.
+            enabled_validators: Names to run. ``None`` uses the environment-backed
+                configuration; an empty list disables all checks.
+            connection_host: Override the TCP destination, such as a backend IP.
+            server_hostname: Override the TLS SNI name sent to the server.
+            timeout: Positive timeout in seconds for each network operation,
+                including each protocol attempt made while collecting the
+                certificate. This is not a whole-scan deadline; platform DNS
+                resolution cannot be interrupted by this timeout.
+            cafile: PEM CA bundle for the separate verified trust handshake.
+            capath: OpenSSL-compatible CA directory for the verified trust handshake.
+            client_cert: Client certificate chain file for mutual TLS.
+            client_key: Separate client private-key file, if needed.
+
+        Raises:
+            ValueError: If ``timeout`` is not positive.
+
+        Example:
+            ```python
+            with CertMonitor("example.com") as monitor:
+                print(monitor.validate())
+            ```
+        """
+        if timeout <= 0:
+            raise ValueError("timeout must be positive")
+        self.connection_host = connection_host or host
+        self.server_hostname = server_hostname or host
+        self.timeout = timeout
+        self.cafile, self.capath = cafile, capath
+        self.client_cert, self.client_key = client_cert, client_key
+        self.snapshot_at: str | None = None
+        self._verify_contexts: dict[bool, ssl.SSLContext] = {}
         self.host = host
         self.port = port
         self.is_ip = self._is_ip_address(host)
-        self.der = None
-        self.pem = None
+        self.der: bytes | None = None
+        self.pem: str | None = None
         self.cert_info = None
         self.cert_data: dict[str, Any] = {}
         self.public_key_der = None
@@ -72,9 +122,18 @@ class CertMonitor:
         self.protocol = cast(str, protocol_result)
 
         if self.protocol == "ssl":
-            self.handler = SSLHandler(self.host, self.port, self.error_handler)
+            self.handler = SSLHandler(
+                self.connection_host, self.port, self.error_handler
+            )
+            self.handler.server_hostname = self.server_hostname
+            self.handler.timeout = self.timeout
+            self.handler.client_cert = self.client_cert
+            self.handler.client_key = self.client_key
         elif self.protocol == "ssh":
-            self.handler = SSHHandler(self.host, self.port, self.error_handler)
+            self.handler = SSHHandler(
+                self.connection_host, self.port, self.error_handler
+            )
+            self.handler.timeout = self.timeout
         else:
             return cast(
                 dict[str, Any],
@@ -95,21 +154,45 @@ class CertMonitor:
         return None
 
     def close(self) -> None:
-        """Close the connection and reset the handler."""
-        if self.handler:
-            self.handler.close()
-        self.handler = None
+        """Close the connection, retaining the last snapshot for inspection."""
+        try:
+            if self.handler:
+                self.handler.close()
+        finally:
+            self.handler = None
+            self.connected = False
+
+    def _clear_snapshot(self) -> None:
+        """Discard collected data before refresh or a new connection."""
+        self.cert_data = {}
+        self.cert_info = None
+        self.der = self.pem = None
+        self.public_key_der = self.public_key_pem = None
+        self.public_key_info = None
+        self.snapshot_at = None
+
+    def refresh(self) -> dict[str, Any]:
+        """Close the old connection and collect a new timestamped snapshot."""
+        self.close()
+        self._clear_snapshot()
+        return self.get_cert_info()
 
     def detect_protocol(self) -> str | dict[str, Any]:
         """Detect the protocol used by the host."""
         try:
-            with socket.create_connection((self.host, self.port), timeout=10) as sock:
+            with socket.create_connection(
+                (self.connection_host, self.port), timeout=self.timeout
+            ) as sock:
                 sock.setblocking(False)
                 try:
                     data = sock.recv(4, socket.MSG_PEEK)
                     if data.startswith(b"SSH-"):
                         return "ssh"
-                    elif data[0] in [22, 128, 160]:  # Common first bytes for SSL/TLS
+                    elif data and data[0] in [
+                        22,
+                        128,
+                        160,
+                    ]:  # Common first bytes for SSL/TLS
                         return "ssl"
                     else:
                         return cast(
@@ -153,11 +236,13 @@ class CertMonitor:
                     # Use hasattr to check if check_connection method exists
                     if hasattr(self.handler, "check_connection"):
                         # Call check_connection and let any exceptions bubble up
-                        cast(Any, self.handler).check_connection()
+                        if cast(Any, self.handler).check_connection() is False:
+                            raise ConnectionError("Connection is closed")
                     # If no exception was raised, connection is still valid
             except ConnectionError:
                 logging.warning("Connection lost, attempting to reconnect")
-                self.connected = False
+                self.close()
+                self._clear_snapshot()
                 connect_result = self.connect()
                 if connect_result is not None:  # This means there was an error
                     return connect_result
@@ -270,6 +355,8 @@ class CertMonitor:
                     "error": f"Failed to analyze leaf certificate: {e}"
                 }
 
+        self.snapshot_at = datetime.now(timezone.utc).isoformat()
+        cert_data["snapshot_at"] = self.snapshot_at
         self.cert_data = cert_data
         return cert_data
 
@@ -370,10 +457,14 @@ class CertMonitor:
         elif isinstance(data, dict):
             result = {}
             for key, value in data.items():
-                if key in ["subject", "issuer"]:
+                if key in ["subject", "issuer"] and not isinstance(value, dict):
                     result[key] = _handle_duplicate_keys(
                         [item for sublist in value for item in sublist]
                     )
+                elif key == "subjectAltName":
+                    from .utils.identity import normalize_sans
+
+                    result[key] = normalize_sans(value)
                 else:
                     result[key] = self._to_structured_dict(value)
             return result
@@ -584,16 +675,17 @@ class CertMonitor:
             validator_args (dict, optional): Additional arguments for specific validators.
                 Example:
                 {
-                    "subject_alt_names": ["example.com", "test.com"]
+                    "subject_alt_names": {"alternate_names": ["www.example.com"]}
                 }
 
         Returns:
             dict: A dictionary keyed by validator name, each value being the result of that validator.
 
         Example:
-            results = monitor.validate()
-            print(results["expiration"])      # Output for expiration validator
-            print(results["weak_cipher"])     # Output for weak cipher validator
+            with CertMonitor("example.com", enabled_validators=["expiration", "weak_cipher"]) as monitor:
+                results = monitor.validate()
+                print(results["expiration"])
+                print(results["weak_cipher"])
         """
         results: dict[str, Any] = {}
 
@@ -602,6 +694,7 @@ class CertMonitor:
             if requested_validator not in self.validators:
                 results[requested_validator] = {
                     "is_valid": False,
+                    "status": "unsupported",
                     "reason": f"Validator '{requested_validator}' is not implemented.",
                 }
 
@@ -620,7 +713,9 @@ class CertMonitor:
 
         def resolve_source(source_name: str) -> Any:
             if source_name not in source_cache:
-                source_cache[source_name] = self._fetch_source(source_name)
+                source_cache[source_name] = self._fetch_source(
+                    source_name, resolve_source
+                )
             return source_cache[source_name]
 
         for validator in active:
@@ -649,21 +744,57 @@ class CertMonitor:
                 continue
 
             results[validator.name] = self._invoke_validator(
-                validator, (*resolved, self.host, self.port), validator_args
+                validator,
+                (*resolved, self.host, self.port),
+                validator_args,
             )
 
+        for name, result in results.items():
+            result.setdefault(
+                "status",
+                "error"
+                if result.get("error")
+                else "fail"
+                if not result.get("is_valid")
+                else "warn"
+                if result.get("warnings")
+                else "pass",
+            )
+            result.setdefault("code", f"{name}.{result['status']}")
         return results
 
-    def _fetch_source(self, source_name: str) -> Any:
+    def _fetch_source(
+        self,
+        source_name: str,
+        resolve: Callable[[str], Any] | None = None,
+    ) -> Any:
         """Fetch one named data source for the validator dispatcher.
 
         Sources are intentionally small and registry-like so new ones
-        (e.g. ``tls_probe``) are a single ``elif`` rather than a new
+        (e.g. `tls_probe`) are a single `elif` rather than a new
         dispatch branch. Each may return its normal value or a structured
-        error dict; ``_source_error`` decides which.
+        error dict; `_source_error` decides which. `resolve` is the
+        dispatcher's per-call cache, used when one source depends on another
+        so a failed fetch is never retried within the same `validate()` call.
         """
+        resolve = resolve or self._fetch_source
         if source_name == "cert_data":
-            return getattr(self, "cert_data", None)
+            if not self.cert_data:
+                info = self.get_cert_info()
+                if "error" in info:
+                    return info
+            return self.cert_data
+        if source_name == "verified_trust":
+            cert_data = resolve("cert_data")
+            collection_error = self._source_error("cert_data", cert_data)
+            if collection_error is not None:
+                collection_error.setdefault("error", "MissingCertificate")
+                collection_error.update(issuer={}, warnings=[])
+                return collection_error
+            verification = self._verify_trust()
+            verification["issuer"] = cert_data.get("cert_info", {}).get("issuer", {})
+            verification.setdefault("warnings", [])
+            return verification
         if source_name == "cipher_info":
             return self.get_cipher_info()
         if source_name == "tls_probe":
@@ -671,6 +802,103 @@ class CertMonitor:
         return {
             "error": "UnknownSource",
             "message": f"No fetcher registered for data source {source_name!r}.",
+        }
+
+    def _verify_context(self, legacy: bool) -> ssl.SSLContext:
+        """Return a verifying context, built once per monitor and setting.
+
+        The strict context uses the interpreter's defaults (TLS 1.2 or newer,
+        modern ciphers). The legacy context mirrors the permissive collector so
+        that hosts reachable only with older protocol or cipher settings still
+        receive a trust verdict. Both verify the chain against the configured
+        or system CA store; only hostname checking is left to the `hostname`
+        validator.
+        """
+        context = self._verify_contexts.get(legacy)
+        if context is None:
+            context = ssl.create_default_context(cafile=self.cafile, capath=self.capath)
+            context.check_hostname = False
+            if legacy:
+                context.minimum_version = ssl.TLSVersion.MINIMUM_SUPPORTED
+                context.set_ciphers("ALL:@SECLEVEL=0")
+            if self.client_cert:
+                context.load_cert_chain(self.client_cert, self.client_key)
+            self._verify_contexts[legacy] = context
+        return context
+
+    def _verified_peer(self, legacy: bool) -> bytes:
+        """Complete a verified handshake and return the DER leaf it observed."""
+        context = self._verify_context(legacy)
+        with socket.create_connection(
+            (self.connection_host, self.port), timeout=self.timeout
+        ) as sock:
+            with context.wrap_socket(
+                sock, server_hostname=self.server_hostname
+            ) as secure:
+                return secure.getpeercert(binary_form=True) or b""
+
+    def _verify_trust(self) -> dict[str, Any]:
+        """Verify a separate handshake, requiring the collected leaf to match.
+
+        A strict handshake is tried first. If it cannot be negotiated, or it
+        observes a different leaf than the collector, the handshake is retried
+        with the collector's legacy protocol and cipher settings so the
+        verdict describes the same certificate that was collected.
+        """
+        if self.protocol != "ssl" or not self.der:
+            return {
+                "is_valid": False,
+                "status": "error",
+                "error": "MissingCertificate",
+                "reason": "A collected TLS certificate is required for trust verification.",
+            }
+        mismatch = False
+        last_error: Exception | None = None
+        for legacy in (False, True):
+            try:
+                peer = self._verified_peer(legacy)
+            except ssl.SSLCertVerificationError as exc:
+                # verify_message is OpenSSL's short explanation ("self-signed
+                # certificate"); str(exc) wraps it in library noise.
+                message = getattr(exc, "verify_message", None) or str(exc)
+                return {
+                    "is_valid": False,
+                    "status": "fail",
+                    "reason": f"Certificate verification failed: {message}",
+                    "verify_code": exc.verify_code,
+                    "trust_verified": False,
+                }
+            except (OSError, ValueError) as exc:
+                last_error = exc
+                continue
+            if peer != self.der:
+                mismatch = True
+                continue
+            result: dict[str, Any] = {
+                "is_valid": True,
+                "status": "pass",
+                "trust_verified": True,
+                "revocation_status": "not_checked",
+                "warnings": [],
+            }
+            if legacy:
+                result["warnings"].append(
+                    "Trust was verified using legacy protocol and cipher settings; "
+                    "the strict TLS 1.2+ handshake could not confirm the collected certificate."
+                )
+            return result
+        if mismatch:
+            return {
+                "is_valid": False,
+                "status": "error",
+                "error": "SnapshotMismatch",
+                "reason": "Verification observed a different certificate; refresh and retry.",
+            }
+        return {
+            "is_valid": False,
+            "status": "error",
+            "error": type(last_error).__name__,
+            "reason": str(last_error),
         }
 
     def _fetch_tls_probe(self) -> dict[str, Any]:
@@ -705,10 +933,23 @@ class CertMonitor:
                 "reason": f"{version} has no post-quantum key exchange",
             }
         try:
-            return cast(
+            observation = cast(
                 dict[str, Any],
-                certinfo.probe_tls_handshake(self.host, self.port),  # type: ignore[attr-defined]
+                certinfo.probe_tls_handshake(  # type: ignore[attr-defined]
+                    self.connection_host,
+                    self.port,
+                    int(self.timeout * 1000),
+                    server_name=self.server_hostname,
+                ),
             )
+            observation.update(
+                endpoint=f"{self.connection_host}:{self.port}",
+                observed_at=datetime.now(timezone.utc).isoformat(),
+                offered_groups=[4588, 29, 23],
+                handshake_completed=False,
+                authenticated=False,
+            )
+            return observation
         except Exception as exc:  # noqa: BLE001 — never let the probe raise into dispatch
             return {
                 "result": "error",
@@ -729,12 +970,16 @@ class CertMonitor:
                     if isinstance(value, dict) and "error" in value
                     else "Certificate data is missing due to a connection or retrieval error."
                 )
-                return {
+                result = {
                     "is_valid": False,
+                    "status": "error",
                     "reason": f"Certificate-based validation could not be performed: {reason}",
                 }
+                if isinstance(value, dict) and "error" in value:
+                    result["error"] = value["error"]
+                return result
             return None
-        if source_name == "tls_probe":
+        if source_name in ("tls_probe", "verified_trust"):
             # The probe always returns a usable result dict (group / n/a /
             # error); the consuming validator interprets it, so it is never
             # a "source failure" that skips the validator.
@@ -743,6 +988,8 @@ class CertMonitor:
             label = "Cipher" if source_name == "cipher_info" else source_name
             return {
                 "is_valid": False,
+                "status": "error",
+                "error": value["error"],
                 "reason": f"{label}-based validation could not be performed: {value['error']}",
             }
         return None
@@ -791,6 +1038,8 @@ class CertMonitor:
             else:
                 return {
                     "is_valid": False,
+                    "status": "error",
+                    "error": "InvalidValidatorArgs",
                     "reason": (
                         f"Invalid args for validator {validator.name!r}: "
                         f"expected a dict of keyword arguments, got {type(raw).__name__}."
@@ -802,6 +1051,8 @@ class CertMonitor:
         if unknown:
             return {
                 "is_valid": False,
+                "status": "error",
+                "error": "UnknownValidatorArgs",
                 "reason": (
                     f"Unknown args for validator {validator.name!r}: "
                     f"{sorted(unknown)}. Accepted args: {sorted(user_param_names)}."
@@ -809,10 +1060,16 @@ class CertMonitor:
             }
 
         try:
-            return cast(dict[str, Any], validator.validate(*framework_args, **kwargs))
-        except TypeError as exc:
+            # Validators may return any Mapping, including a read-only mapping
+            # or a shared dict. Enrich our own copy, never their retained result.
+            return dict(validator.validate(*framework_args, **kwargs))
+        except (TypeError, ValueError) as exc:
+            # Validators raise these for arguments they cannot accept; the
+            # exception class is kept so callers can tell the two apart.
             return {
                 "is_valid": False,
+                "status": "error",
+                "error": type(exc).__name__,
                 "reason": f"Validator {validator.name!r} rejected args: {exc}",
             }
 

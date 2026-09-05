@@ -1,5 +1,8 @@
 # CertMonitor Modularization & Quality Report
 
+> Generated snapshot, not live project metrics. Run `make report` to regenerate it for your checkout.
+
+
 ## 📊 Executive Summary
 
 ### Test Modularization Status

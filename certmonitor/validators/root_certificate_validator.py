@@ -1,15 +1,14 @@
-# validators/root_certificate_validator.py
-
-from typing import Any
-
+from typing import Any, ClassVar, cast
 from .base import BaseCertValidator
 from .results import ValidationResult
 
 
 class RootCertificateResult(ValidationResult, total=False):
-    """Result shape for :class:`RootCertificateValidator` (envelope + data)."""
+    """Result shape for `RootCertificateValidator` (envelope + data)."""
 
     issuer: dict[str, Any]
+    trust_verified: bool
+    revocation_status: str
 
 
 class RootCertificateValidator(BaseCertValidator):
@@ -21,6 +20,7 @@ class RootCertificateValidator(BaseCertValidator):
     """
 
     name: str = "root_certificate"
+    requires: ClassVar[tuple[str, ...]] = ("verified_trust",)
 
     def validate(
         self, cert: dict[str, Any], host: str, port: int
@@ -28,8 +28,14 @@ class RootCertificateValidator(BaseCertValidator):
         """
         Validates if the SSL certificate is issued by a trusted root CA.
 
+        This reports the dispatcher's separate, cryptographically verified TLS
+        handshake against the system or configured CA store. The verified leaf
+        must match the collected snapshot. Metadata alone cannot establish trust;
+        a direct call without verification evidence reports TrustNotVerified.
+        Revocation is not checked.
+
         Args:
-            cert (dict): The SSL certificate.
+            cert (dict): Verified-trust evidence from the dispatcher, including the issuer.
             host (str): The hostname (not used in this validator).
             port (int): The port number (not used in this validator).
 
@@ -51,7 +57,7 @@ class RootCertificateValidator(BaseCertValidator):
                 }
 
             Example output (failure):
-                This example shows a certificate that is not signed by a trusted root CA, so validation fails and warnings are included.
+                This example shows a certificate that is not signed by a trusted root CA, so validation fails and a verification reason is included.
 
                 {
                   "is_valid": false,
@@ -59,70 +65,23 @@ class RootCertificateValidator(BaseCertValidator):
                     "commonName": "Unknown",
                     "organizationName": "Unknown"
                   },
-                  "warnings": [
-                    "Certificate does not provide OCSP information.",
-                    "Certificate does not provide caIssuers information.",
-                    "Certificate is self-signed.",
-                    "The certificate is issued by an untrusted root CA: Unknown (Unknown)"
-                  ],
-                  "reason": "Certificate is not issued by a trusted root CA: Unknown (Unknown)."
+                  "warnings": [],
+                  "status": "fail",
+                  "trust_verified": false,
+                  "verify_code": 18,
+                  "reason": "certificate verify failed: self-signed certificate"
                 }
         """
-        cert_info = cert.get("cert_info", {})
-        issuer = cert_info.get("issuer", {})
-        subject = cert_info.get("subject", {})
-        common_name = issuer.get("commonName", "Unknown")
-        organization_name = issuer.get("organizationName", "Unknown")
-
-        # Check for presence of OCSP and caIssuers fields
-        has_ocsp = bool(cert_info.get("OCSP"))
-        has_ca_issuers = bool(cert_info.get("caIssuers"))
-
-        # Check if issuer information is missing or empty
-        has_valid_issuer = bool(
-            issuer and (issuer.get("commonName") or issuer.get("organizationName"))
-        )
-
-        # Check if the certificate is self-signed
-        # A certificate is self-signed if issuer == subject AND both are not empty
-        # OR if both issuer and subject are empty (which is also invalid/suspicious)
-        is_self_signed = (issuer == subject) and (
-            issuer != {} or (issuer == {} and subject == {})
-        )
-
-        # Heuristic check: If the issuer's common name or organization name contains 'Untrusted', flag it
-        is_trusted = (
-            has_valid_issuer
-            and (has_ocsp and has_ca_issuers)
-            and not is_self_signed
-            and (
-                "untrusted" not in common_name.lower()
-                and "untrusted" not in organization_name.lower()
-            )
-        )
-
-        warnings: list[str] = []
-        if not has_valid_issuer:
-            warnings.append("Certificate does not have valid issuer information.")
-        if not has_ocsp:
-            warnings.append("Certificate does not provide OCSP information.")
-        if not has_ca_issuers:
-            warnings.append("Certificate does not provide caIssuers information.")
-        if is_self_signed:
-            warnings.append("Certificate is self-signed.")
-        if not is_trusted:
-            warnings.append(
-                f"The certificate is issued by an untrusted root CA: {organization_name} ({common_name})"
-            )
-
-        result: RootCertificateResult = {
-            "is_valid": is_trusted,
-            "issuer": issuer,
-            "warnings": warnings,
+        if "is_valid" in cert and "status" in cert:
+            result = cast(RootCertificateResult, dict(cert))
+            result.setdefault("issuer", {})
+            result.setdefault("warnings", [])
+            return result
+        return {
+            "is_valid": False,
+            "issuer": cert.get("cert_info", {}).get("issuer", {}),
+            "warnings": [],
+            "status": "error",
+            "error": "TrustNotVerified",
+            "reason": "Certificate metadata alone cannot establish trust.",
         }
-        if not is_trusted:
-            result["reason"] = (
-                "Certificate is not issued by a trusted root CA: "
-                f"{organization_name} ({common_name})."
-            )
-        return result

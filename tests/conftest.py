@@ -401,3 +401,28 @@ def mock_cert_data():
         "public_key_der": b"mock_public_key_der",
         "public_key_pem": "-----BEGIN PUBLIC KEY-----\nMOCK_PUBLIC_KEY_PEM\n-----END PUBLIC KEY-----",
     }
+
+
+@pytest.fixture(autouse=True)
+def block_external_dns(monkeypatch):
+    """Keep Python network tests offline; local TLS fixtures remain usable."""
+    import ipaddress
+    import socket
+
+    original = socket.getaddrinfo
+    external = []
+
+    def guarded(host, *args, **kwargs):
+        value = host.decode() if isinstance(host, bytes) else host
+        try:
+            local = ipaddress.ip_address(value).is_loopback
+        except ValueError:
+            local = value == "localhost"
+        if not local:
+            external.append(value)
+            raise AssertionError(f"Unexpected external DNS lookup: {value}")
+        return original(host, *args, **kwargs)
+
+    monkeypatch.setattr(socket, "getaddrinfo", guarded)
+    yield
+    assert not external, f"Tests must mock external DNS lookups: {external}"

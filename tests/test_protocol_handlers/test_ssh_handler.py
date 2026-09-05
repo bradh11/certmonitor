@@ -32,7 +32,7 @@ class TestSSHHandler:
         assert result is None
         assert ssh_handler.socket == mock_socket
         mock_create_connection.assert_called_once_with(
-            ("test.example.com", 22), timeout=10
+            ("test.example.com", 22), timeout=10.0
         )
 
     @patch("socket.create_connection")

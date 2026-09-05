@@ -12,14 +12,66 @@ rename the headers to emoji form when cutting a release.
 
 ## [Unreleased]
 
+### Upgrading from 0.4.0
+This release corrects cases where validation could report a misleading pass, and it changes the SAN validator to check only requested alternate names. It is not a behavior-identical replacement for 0.4.0; review these differences before upgrading.
+
+What stays compatible:
+
+- `CertMonitor(host, port, enabled_validators)` keeps its positional arguments.
+  New connection options are keyword-only.
+- Defaults remain `expiration`, `hostname`, and `root_certificate`.
+- Calling `get_cert_info()` before `validate()` still works. Validation can now
+  collect certificate data automatically.
+- Results remain dictionaries with boolean `is_valid`. Validator registration
+  and the legacy alternate-name list argument remain supported; the latter
+  retains its existing deprecation warning.
+- `close()` resets connection state and retains the last snapshot for inspection
+  after context exit. Only `refresh()` discards it; reconnecting to read
+  cipher details after `close()` keeps the collected certificate.
+- Trust results retain `issuer` and `warnings`; wildcard hostname matches retain
+  the pattern in `matched_name`. Collection preserves email and URI SAN entries.
+- Custom validator mappings are copied before the dispatcher adds metadata,
+  so shared and read-only mappings are supported.
+
+Intentional changes:
+
+| Area | Change | Migration |
+|---|---|---|
+| Hostname | SAN matching determines validity; CN is informational. | Certificates need matching DNS/IP SANs. Inspect `common_name_matches` separately. |
+| SAN representation | Singleton values are lists. | Read `subjectAltName["DNS"]` as a list, even for one name. |
+| Alternate names | With `alternate_names`, only the requested alternates decide `is_valid` and every one must match; `contains_host` is still reported. Without them the validator checks the primary host, as before. | Pass `alternate_names` for the names you require; `hostname` remains the primary identity check. |
+| Root trust | A separate verified handshake replaces metadata heuristics. Direct metadata-only validator calls return `TrustNotVerified`. Hosts that only negotiate with legacy protocol or cipher settings are verified with matching settings and carry a warning. | Use `CertMonitor.validate()`. Configure `cafile` or `capath` for private PKI and allow the extra handshake. |
+| Rotation | A different leaf on the verification connection returns `SnapshotMismatch`. | Refresh and retry; use `connection_host` to target individual backend nodes. |
+| Expiration | notBefore and sub-day urgency are checked. The total lifetime is compared with `max_lifetime_days`, which defaults to 398 days and warns rather than fails. | Lower `max_lifetime_days` to tighten the policy, raise it for a private PKI, or pass `None` to disable it. Read `lifetime_days` from the result. |
+| Chain policy | Non-CA issuers and weak signatures fail by default. | Read structural validity separately from verified trust. Explicit `reject_weak_signatures=False` preserves warning-only weak-signature policy. |
+| PQ probe | Results describe unauthenticated capability observations; TLS alerts are errors. The probe honors `connection_host` and `server_hostname`. | Do not infer protection of application traffic from capability results. |
+| Result metadata | `status`, `code`, and observation fields are added. Argument mistakes in `validator_args` report `status: error` with `InvalidValidatorArgs` or `UnknownValidatorArgs`. | Permit additive keys in result schemas. Use status/error fields rather than parsing human-readable messages. |
+| Timeouts | `timeout` bounds each network operation, including each protocol attempt during collection. | Budget up to `timeout` times the number of protocol attempts for hosts that drop modern handshakes. |
+
+Collection remains permissive. Revocation checking is not implemented; successful
+trust verification reports `revocation_status: not_checked`.
+
 ### Added
 - Release CI builds Linux x64/ARM64 (glibc 2.28+), macOS Intel/ARM64, and Windows x64 wheels plus a source distribution, and publishes to PyPI only after every distribution has been built.
 - Project URLs and additional keywords in the package metadata. The documentation site gains a Read the Docs canonical URL, a light/dark toggle, and copy buttons on code blocks.
+- Keyword-only `CertMonitor` options: `connection_host` and `server_hostname` to connect to one address or SNI name while `host` stays the identity being checked; `timeout`; `cafile` and `capath` for a private CA; and `client_cert` / `client_key` for mutual TLS.
+- `refresh()` collects a new snapshot, and `snapshot_at` records when a certificate was collected.
+- Every `validate()` result carries `status` (`pass`, `warn`, `fail`, `error`, `unsupported`) and a stable `<validator>.<status>` code. Mistakes in `validator_args` report `status: error` with `InvalidValidatorArgs` or `UnknownValidatorArgs`.
+- The `expiration` result includes `lifetime_days`.
 - Python 3.14 support, now part of the CI test matrix.
 - Python 3.15 pre-release support: CI exercises 3.15 betas via `allow-prereleases` so the package is ready ahead of the final release.
 
 ### Changed
-- **Breaking:** Dropped support for Python 3.8 and 3.9 (both end-of-life). The new minimum is Python 3.10 (`requires-python = ">=3.10,<3.16"`), which also lets the chain validators rely on stdlib chain-retrieval APIs unconditionally.
+- Reviewed the tutorials and reference documentation for current behavior, preserved API docstrings, and improved navigation, code examples, and light/dark reading styles.
+- **Breaking:** `root_certificate` establishes trust with a separate verified TLS handshake against the system or configured CA store instead of issuer metadata heuristics. The verified leaf must match the collected snapshot (`SnapshotMismatch` otherwise). Hosts that only negotiate with legacy protocol or cipher settings are verified with matching settings and carry a warning. Revocation is reported as `not_checked`.
+- `hostname` accepts an `expected_identity` argument (via `validator_args`) to check a different name than the one the monitor connected with.
+- **Breaking:** `hostname` validates identity with DNS and IP Address SANs only. The Common Name is reported in `common_name` and `common_name_matches` but never decides `is_valid`. `matched_name` is the SAN entry that matched. Singleton SAN values are normalized to lists.
+- `subject_alt_names` fails if any requested `alternate_names` entry (list or tuple) is missing, and falls back to checking the primary host when none are requested. `contains_host` is always reported.
+- `expiration` checks `notBefore` and sub-day urgency, accepts fractional thresholds, and warns when the total lifetime exceeds `max_lifetime_days`, which defaults to 398 days and can be tightened, relaxed, or disabled with `None`.
+- **Breaking:** `chain` fails on non-CA issuers and weak signatures by default; `reject_weak_signatures=False` restores warning-only handling. Structural validity is reported separately from cryptographic trust.
+- `pq_key_exchange` results carry observation evidence (`endpoint`, `observed_at`, `offered_groups`, `handshake_completed`, `authenticated`). TLS alerts are reported as inconclusive errors, the native probe bounds its write timeout, and it honors `connection_host` and `server_hostname` separately.
+- `validate()` collects the certificate automatically. `close()` resets connection state but retains the last snapshot; only `refresh()` discards it. `timeout` bounds each network operation, including each protocol attempt made while collecting.
+- **Breaking:** Dropped support for Python 3.8 and 3.9 (both end-of-life). The new minimum is Python 3.10 (`requires-python = ">=3.10,<3.16"`), with socket chain APIs and private fallbacks used when available.
 - Modernized the codebase to Python 3.10+ idioms: built-in generics (`list`/`dict`), `X | None` unions, and a full ruff `pyupgrade` (UP) sweep, with `target-version = "py310"` enforcing it going forward. No runtime behavior change.
 - Raised the Rust extension's abi3 floor to `abi3-py310` to match the new Python minimum.
 - CI: the test matrix is now Python 3.10 through 3.15, and the GitHub Actions were refreshed (checkout v6, setup-python v6, setup-uv v8.2.0, codecov v5 with token upload, action-gh-release v2).

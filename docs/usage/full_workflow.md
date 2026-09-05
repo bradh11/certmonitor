@@ -9,6 +9,7 @@ Let's say you want to inspect a host end to end. Here's everything in one script
 ```python
 from certmonitor import CertMonitor
 import json
+import base64
 
 validators = [
     "subject_alt_names", "expiration", "hostname", "root_certificate", "key_info", "tls_version", "weak_cipher"
@@ -19,7 +20,9 @@ with CertMonitor("example.com", enabled_validators=validators) as monitor:
     print("Certificate Info:")
     print(json.dumps(cert_info, indent=2))
 
-    validation_results = monitor.validate()
+    validation_results = monitor.validate(
+        validator_args={"subject_alt_names": {"alternate_names": ["www.example.com"]}}
+    )
     print("Validation Results:")
     print(json.dumps(validation_results, indent=2))
 
@@ -33,14 +36,16 @@ with CertMonitor("example.com", enabled_validators=validators) as monitor:
 
     der = monitor.get_raw_der()
     print("DER Format (base64):")
-    import base64
-    print(base64.b64encode(der).decode())
+    if isinstance(der, bytes):
+        print(base64.b64encode(der).decode("ascii"))
+    else:
+        print(der["error"], der["message"])
 ```
 
-Notice the shape of this: you open one `with` block, and every call inside it reuses the same connection. When the block exits, CertMonitor cleans up for you.
+Notice the shape of this: you open one `with` block, and the certificate calls reuse the collected snapshot. When the block exits, CertMonitor cleans up for you. Protocol detection, trust verification, and an enabled PQ probe can use additional connections.
 
 !!! tip "Why the context manager?"
-    Using `with CertMonitor(...)` makes sure the connection is opened once and closed promptly when you're done. It's the recommended way to use CertMonitor, and it keeps your code tidy.
+    Using `with CertMonitor(...)` makes sure the collection connection is closed promptly when you're done. It's the recommended way to use CertMonitor, and it keeps your code tidy.
 
 !!! info "DER, PEM, and cipher info are SSL/TLS only"
     `get_raw_pem()`, `get_raw_der()`, and `get_cipher_info()` deal with X.509 certificates and the TLS handshake, so they apply to SSL/TLS endpoints. CertMonitor auto-detects the protocol, so on an SSH endpoint these aren't available.
@@ -54,20 +59,65 @@ Here's roughly what each call gives you back. The output is trimmed for readabil
 {
   "subject": {"commonName": "example.com"},
   "issuer": {"organizationName": "DigiCert Inc"},
-  "notBefore": "2024-06-01T00:00:00",
-  "notAfter": "2025-09-01T23:59:59"
-  // ...
+  "notBefore": "Jun  1 00:00:00 2024 GMT",
+  "notAfter": "Sep  1 23:59:59 2025 GMT"
 }
 ```
 
 ### Validation Results
+
+Here are two entries from a scan against example.com at the time of writing. The script also returns the other enabled validators; their output is covered in the [validator catalog](../validators/index.md).
+
 ```json
 {
-  "expiration": {"is_valid": true, "days_to_expiry": 120, "expires_on": "2025-09-01T23:59:59", "warnings": []},
-  "subject_alt_names": {"is_valid": true, "sans": {"DNS": ["example.com", "www.example.com"], "IP Address": []}, "count": 2, "contains_host": {"name": "example.com", "is_valid": true, "reason": "Exact match for example.com found in DNS SANs"}, "contains_alternate": {"www.example.com": {"name": "www.example.com", "is_valid": true, "reason": "Exact match for www.example.com found in DNS SANs"}}, "warnings": []}
-  // ...
+  "hostname": {
+    "is_valid": true,
+    "alt_names": [
+      "example.com",
+      "*.example.com"
+    ],
+    "identity_source": "subjectAltName",
+    "common_name": "example.com",
+    "common_name_matches": true,
+    "matched_name": "example.com",
+    "status": "pass",
+    "code": "hostname.pass"
+  },
+  "subject_alt_names": {
+    "is_valid": true,
+    "sans": {
+      "DNS": [
+        "example.com",
+        "*.example.com"
+      ],
+      "IP Address": []
+    },
+    "count": 2,
+    "contains_host": {
+      "name": "example.com",
+      "is_valid": true,
+      "reason": "Exact match for example.com found in DNS SANs"
+    },
+    "contains_alternate": {
+      "example.com": {
+        "name": "example.com",
+        "is_valid": true,
+        "reason": "Exact match for example.com found in DNS SANs"
+      },
+      "www.example.com": {
+        "name": "www.example.com",
+        "is_valid": true,
+        "reason": "www.example.com matches wildcard SAN(s): *.example.com"
+      }
+    },
+    "warnings": [],
+    "status": "pass",
+    "code": "subject_alt_names.pass"
+  }
 }
 ```
+
+The primary identity and alternate names are separate checks. A pass for one doesn't imply a pass for the other.
 
 ### Cipher Info
 ```json
@@ -97,7 +147,7 @@ MIIDdzCCAl+gAwIBAgIEAgAAuQ...(truncated for brevity)...IDAQAB
 
 ## Error Handling Example
 
-Connections don't always succeed, and that's fine. CertMonitor never throws a surprise at you here. When a connection fails, it returns a structured error you can inspect and act on.
+Connections don't always succeed, and that's fine. For ordinary network failures, it returns a structured error you can inspect and act on.
 
 Let's point it at a host that doesn't exist:
 
@@ -112,13 +162,13 @@ You get back something like this:
 ```json
 {
   "error": "ConnectionError",
-  "reason": "[Errno -2] Name or service not known",
+  "message": "[Errno -2] Name or service not known",
   "host": "badhost.invalid",
   "port": 443
 }
 ```
 
-Notice that the error is just a dictionary, with the `error` type, a human-readable `reason`, and the `host` and `port` that were attempted. That makes it easy to log, alert on, or branch on in your own code.
+Notice that the error is just a dictionary, with the `error` type, a human-readable `message`, and the `host` and `port` that were attempted. That makes it easy to log, alert on, or branch on in your own code.
 
 !!! tip "Want more?"
     See the [Usage Guide](index.md) for more advanced examples and troubleshooting tips.

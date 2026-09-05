@@ -5,7 +5,7 @@ Flags certificates that expire on a date you'd rather not be doing an emergency 
 !!! note "Opt-in"
     Enable via `enabled_validators=["sensitive_date", ...]` or `ENABLED_VALIDATORS`. Weekend and leap-day checks run automatically; pass `dates` to add your own.
 
-## Example
+## Try it
 
 ```python
 from certmonitor import CertMonitor
@@ -19,6 +19,8 @@ with CertMonitor("example.com", enabled_validators=["sensitive_date"]) as monito
 ```
 
 A certificate expiring on a weekend (built-in check) fails:
+
+These examples show selected fields from illustrative scans. `validate()` also adds `status` and `code`, described in the [result contract](index.md#the-result-contract).
 
 ```json
 {
@@ -59,6 +61,6 @@ The accepted entry shapes:
 !!! tip "It's about when, not whether"
     A `false` here doesn't mean the certificate is insecure. It means the expiry lands somewhere inconvenient. Use it to nudge renewals onto a business day well ahead of a freeze.
 
-## API
+## Reference
 
 ::: certmonitor.validators.sensitive_date.SensitiveDateValidator

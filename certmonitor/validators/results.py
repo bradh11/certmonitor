@@ -26,8 +26,13 @@ Key             Type               Rule
 ==============  =================  ====================================
 
 All other keys are validator-specific **data** fields: snake_case,
-documented on the validator's docs page, and stable across releases. The
-five reserved keys above are never reused for data.
+documented on the validator's docs page, with behavior changes called out
+in the migration guide. The
+reserved keys above are never reused for data.
+
+The dispatcher adds ``status`` (pass/warn/fail/error/unsupported) and
+``code`` (``<validator>.<status>``). Individual validators may provide
+a status when the result is operationally inconclusive or unsupported.
 
 Operational failures are still results: a validator whose data source
 cannot be fetched reports ``is_valid: False`` with a ``reason`` (plus
@@ -58,11 +63,13 @@ class _ValidationResultBase(TypedDict):
 class ValidationResult(_ValidationResultBase, total=False):
     """Standard validator result envelope (see module docstring).
 
-    ``is_valid`` is required; the four optional keys below are reserved
+    ``is_valid`` is required; the optional keys below are reserved
     and may only carry envelope semantics. Validator-specific data fields
     are declared by extending this class with ``total=False``.
     """
 
+    status: str
+    code: str
     reason: str
     warnings: list[str]
     error: str

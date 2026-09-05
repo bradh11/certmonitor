@@ -11,7 +11,7 @@ Here's the shape to reach for. Let's say you want the `subject_alt_names` valida
 ```python
 from certmonitor import CertMonitor
 
-with CertMonitor("example.com") as monitor:
+with CertMonitor("example.com", enabled_validators=["subject_alt_names"]) as monitor:
     results = monitor.validate(
         validator_args={
             "subject_alt_names": {
@@ -22,16 +22,16 @@ with CertMonitor("example.com") as monitor:
     print(results["subject_alt_names"])
 ```
 
-The keys inside each per-validator dict have to match the validator's parameter names exactly.
+Enable the validator first: passing `validator_args` configures a check but does not turn it on. The keys inside each per-validator dict have to match the enabled validator's parameter names exactly.
 
 !!! tip "Typos are caught loudly"
-    If you pass an argument name the validator doesn't recognize, you won't get a silent no-op. The mistake comes back as a structured error in the result:
+    If you pass an argument name an enabled validator doesn't recognize, you won't get a silent no-op. The mistake comes back as a structured error in the result:
 
     ```python
     results = monitor.validate(
         validator_args={"subject_alt_names": {"alt_names": ["example.com"]}}
     )
-    # results["subject_alt_names"] == {
+    # Abbreviated result for subject_alt_names: {
     #     "is_valid": False,
     #     "reason": "Unknown args for validator 'subject_alt_names': ['alt_names']. "
     #               "Accepted args: ['alternate_names']."
@@ -49,7 +49,7 @@ from datetime import date
 from certmonitor import CertMonitor
 from certmonitor.validators.sensitive_date import SensitiveDate
 
-with CertMonitor("example.com") as monitor:
+with CertMonitor("example.com", enabled_validators=["sensitive_date"]) as monitor:
     results = monitor.validate(
         validator_args={
             "sensitive_date": {
@@ -72,13 +72,13 @@ When a date matches, you get told twice. It shows up as a structured entry in `s
 Not sure which validators take arguments, or what those arguments are called? You don't have to guess. Use `describe_validators()` to introspect every registered validator:
 
 ```python
-with CertMonitor("example.com") as monitor:
+with CertMonitor("example.com", enabled_validators=["subject_alt_names"]) as monitor:
     for name, info in monitor.describe_validators().items():
         if info["args"]:
             print(name, info["args"])
 ```
 
-Each entry includes the argument's annotation, its default value, and the validator's class docstring. That's everything you need to build CLI help, dashboards, or your own config validators.
+Each entry includes the argument's annotation, its default value, and the first line of the validator's class docstring. That's everything you need to build CLI help, dashboards, or your own config validators.
 
 ## Deprecated bare-list shorthand
 
@@ -120,9 +120,14 @@ class MyCustomValidator(BaseCertValidator):
 Once you register it with `register_validator()`, the new validator picks up the dynamic args dispatch with no extra wiring:
 
 ```python
-results = monitor.validate(
-    validator_args={"my_custom": {"threshold": 5, "labels": ["prod"]}}
-)
+from certmonitor.validators import register_validator
+
+register_validator(MyCustomValidator())
+with CertMonitor("example.com", enabled_validators=["my_custom"]) as monitor:
+    results = monitor.validate(
+        validator_args={"my_custom": {"threshold": 5, "labels": ["prod"]}}
+    )
+    print(results["my_custom"])
 ```
 
 There are no core changes to make. The framework reads your `validate()` signature once, at class definition time, and discovers the user arguments from there.

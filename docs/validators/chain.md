@@ -1,10 +1,15 @@
+---
+title: "X.509 Certificate Chain Analysis in Python"
+description: "Analyze TLS certificate chains for missing intermediates, ordering, validity dates, CA constraints, and weak signatures. Report structure separately from trust."
+---
+
 # Chain Validator
 
-The `chain` validator inspects the **full certificate chain** the server presented during the TLS handshake and reports structural problems: missing intermediates, out-of-order chains, expired members, weak signature algorithms, and non-CA intermediates. It does not perform cryptographic signature verification; that is deliberately left out to keep the Rust dependency footprint minimal.
+The `chain` validator inspects the **full certificate chain** the server presented during the TLS handshake and reports structural problems: missing intermediates, out-of-order chains, expired members, weak signature algorithms, and non-CA intermediates. It inspects the presented structure. Cryptographic signature and trust-path verification are handled separately by [RootCertificate](root_certificate.md).
 
 ## Opting in
 
-The chain validator is **registered but disabled by default** because it performs heavier work than the other validators and needs Python 3.10 or newer to retrieve the chain. Enable it by naming it explicitly:
+The chain validator is **registered but disabled by default** because chain analysis is an additional policy check. Enable it by naming it explicitly:
 
 ```python
 from certmonitor import CertMonitor
@@ -21,19 +26,12 @@ with CertMonitor(
 Or via the environment:
 
 ```sh
-ENABLED_VALIDATORS=expiration,hostname,root_certificate,chain
+export ENABLED_VALIDATORS=expiration,hostname,root_certificate,chain
 ```
 
 ## User-configurable arguments
 
-Pass via `validator_args={"chain": {...}}`:
-
-| Argument | Type | Default | Description |
-| --- | --- | --- | --- |
-| `min_chain_length` | `int` | `2` | Minimum acceptable number of certificates in the chain. The default rejects servers that only send the leaf. |
-| `require_root_in_chain` | `bool` | `False` | Require the chain to terminate in a self-signed root. Most well-configured public servers omit the root, so the default emits a warning rather than failing. |
-| `allow_self_signed_leaf` | `bool` | `False` | Accept a self-signed leaf. Useful for internal services. |
-| `weak_signature_algorithms` | `Optional[List[str]]` | `None` | Override the default weak-signature OID set. Pass `[]` to disable the weak-signature warning entirely. |
+Pass via `validator_args={"chain": {...}}`. Each argument, its type, and its default are documented in the [reference](#reference) below, straight from the validator's docstring.
 
 The default weak-signature set includes `sha1WithRSAEncryption`, `md5WithRSAEncryption`, `md2WithRSAEncryption`, `ecdsa-with-SHA1`, and `dsa-with-sha1`.
 
@@ -43,20 +41,26 @@ The chain is fetched, each certificate is inspected, and `is_valid` is the AND o
 
 ```mermaid
 flowchart TD
-    A[validate called] --> B{Chain fetched?<br/>Python 3.10+, no error}
+    A[validate called] --> B{Chain fetched?<br/>retrieval API available, no error}
     B -- No --> Z["is_valid: false + reason"]
     B -- Yes --> C[Inspect each certificate:<br/>expiry, weak signature, CA flag, role]
     C --> D{All structural conditions hold?}
-    D --> D1["length &ge; min_chain_length<br/>chain ordered<br/>no expired / not-yet-valid member<br/>leaf not self-signed unless allowed<br/>terminates in root if required"]
+    D --> D1["length &ge; min_chain_length<br/>chain ordered<br/>no expired / not-yet-valid member<br/>leaf not self-signed unless allowed<br/>issuers have CA flag<br/>no weak signatures if rejected<br/>terminates in root if required"]
     D1 -- All true --> G["is_valid: true"]
     D1 -- Any false --> H["is_valid: false<br/>reason = first warning"]
 ```
 
 ## Output
 
+Illustrative historical scan, abbreviated to show only the leaf entry in `certs`. A complete result has one entry per certificate (three in this example).
+
+These examples show selected fields from illustrative scans. `validate()` also adds `status` and `code`, described in the [result contract](index.md#the-result-contract).
+
 ```json
 {
   "is_valid": true,
+  "structural_valid": true,
+  "trust_verified": false,
   "chain_length": 3,
   "chain_ordered": true,
   "terminates_in_self_signed": true,
@@ -86,12 +90,25 @@ On failure, `is_valid` is `false` and a `reason` field is added.
 
 ## How the chain is retrieved
 
-Chain retrieval relies on `SSLSocket.get_verified_chain()` (Python 3.13+) or the stable `_sslobj.get_unverified_chain()` attribute (Python 3.10-3.12). Both are available across every Python version CertMonitor supports (3.10+), so no extra configuration is needed.
+Chain retrieval uses the available socket chain API, with private `_sslobj` fallbacks on older interpreters. Private APIs are implementation details and may be unavailable; retrieval failures produce structured errors. Even a method named `get_verified_chain()` does not establish trust on CertMonitor's permissive collection socket.
+
+The result includes `structural_valid` and `trust_verified: false`. Non-CA
+issuers fail. Weak signatures also fail by default; set
+`reject_weak_signatures=False` to retain warnings without rejection.
+Issuer/subject equality, including the `is_self_signed` label, does not
+verify a signature.
 
 ## What is out of scope
 
-- **Cryptographic signature verification.** Structural validation (`subject(parent) == issuer(child)` plus SKI/AKI matching) catches the real-world misconfigurations this validator is built for. Real signature verification would require pulling `ring` into the Rust dependency tree and is deliberately left for a future iteration.
+- **Cryptographic signature verification.** Structural validation (`subject(parent) == issuer(child)` plus SKI/AKI matching) catches the real-world misconfigurations this validator is built for. Cryptographic trust verification runs separately in [RootCertificate](root_certificate.md), using OpenSSL.
 - **OCSP / CRL revocation checks.** Same reasoning: network I/O and responder parsing belong in their own validator.
-- **Building a path against the system trust store.** `CertMonitor` intentionally uses `ssl.CERT_NONE` so it can profile misconfigured and legacy servers.
+- **Building a path against the system trust store.** Collection intentionally uses `ssl.CERT_NONE` so it can profile misconfigured and legacy servers. The separate root-certificate check uses the system or configured CA store.
+
+
+
+!!! note "A presented chain is not a built trust path"
+    Servers normally omit the root. CertMonitor does not fetch missing intermediates from AIA URLs. The minimum-length rule is your structural policy: a single leaf can be sufficient for a certificate signed directly by a trusted root, even though it fails the default length of two.
+
+## Reference
 
 ::: certmonitor.validators.chain.ChainValidator

@@ -12,15 +12,12 @@ post-quantum and is additionally flagged via `is_hybrid_composite`.
 
 By default `is_valid: true` means **the leaf key is post-quantum** (the
 part the operator controls), matching the `pq_chain` default so a
-PQ-keyed, classically-signed certificate (the realistic migration shape)
+PQ-keyed, classically-signed certificate (one possible migration shape)
 gets one consistent verdict across validators. Pass
 `require_pq_signature: true` via validator args to additionally demand a
 post-quantum signature from the CA.
 
-Unlike the chain validators, this works on **every supported
-interpreter**: the leaf data comes from the chain analysis when
-available, with a leaf-only fallback otherwise (the leaf certificate is
-always in hand).
+The leaf data comes from chain analysis when available, with a leaf-only fallback otherwise. If collection or parsing fails, the validator returns a failed result with a reason. Recognizing an algorithm is not cryptographic signature verification.
 
 ## Opt-in
 
@@ -60,7 +57,9 @@ key or the signature is post-quantum.
 
 ## Example output
 
-A post-quantum leaf, classically signed (the realistic migration shape):
+A post-quantum leaf, classically signed (one possible migration shape):
+
+These examples show selected fields from illustrative scans. `validate()` also adds `status` and `code`, described in the [result contract](index.md#the-result-contract).
 
 ```json
 {
@@ -88,5 +87,7 @@ A classical leaf:
     "reason": "Leaf key algorithm (rsaEncryption) is not post-quantum."
 }
 ```
+
+## Reference
 
 ::: certmonitor.validators.pq_signature.PqSignatureValidator

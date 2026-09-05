@@ -39,4 +39,4 @@ Let's walk through what came back:
 !!! info "Want to know what the parts mean?"
     The [How TLS & HTTPS Work](../concepts/how-tls-works.md) page explains key exchange, authentication, and why the cipher suite matters.
 
-See also: [API Reference: CertMonitor.get_cipher_info()](../reference/certmonitor.md#get_cipher_info)
+See also: [API Reference: CertMonitor.get_cipher_info()](../reference/certmonitor.md#certmonitor.core.CertMonitor.get_cipher_info)
