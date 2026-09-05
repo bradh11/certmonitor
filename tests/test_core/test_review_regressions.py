@@ -191,3 +191,52 @@ class TestVerifiedTrust:
             monitor._verify_context(False)
             monitor._verify_context(True)
         assert create.call_count == 2
+
+
+class TestRemainingBranches:
+    def test_non_positive_timeout_is_rejected(self):
+        with pytest.raises(ValueError):
+            CertMonitor("example.com", timeout=0)
+
+    def test_trust_requires_a_tls_certificate(self):
+        monitor = CertMonitor("example.com")
+        monitor.protocol = "ssh"
+        assert monitor._verify_trust()["error"] == "MissingCertificate"
+
+    def test_unknown_source_is_a_structured_error(self):
+        assert (
+            CertMonitor("example.com")._fetch_source("nope")["error"] == "UnknownSource"
+        )
+
+    def test_probe_exceptions_become_probe_errors(self):
+        monitor = CertMonitor("example.com")
+        monitor.protocol = "ssl"
+        with patch(
+            "certmonitor.core.certinfo.probe_tls_handshake",
+            side_effect=RuntimeError("boom"),
+        ):
+            result = monitor._fetch_tls_probe()
+        assert result["result"] == "error"
+        assert result["error"] == "ProbeError"
+        assert "boom" in result["message"]
+
+
+class TestIdentityEdgeCases:
+    def test_undecodable_names_never_match(self):
+        from certmonitor.utils.identity import dns_match
+
+        assert dns_match("\udcff.example.com", "example.com") is False
+        assert dns_match("", "example.com") is False
+        assert dns_match("*.example.com", "*.example.com") is False
+
+    def test_missing_san_extension_is_explained(self):
+        from certmonitor.validators.hostname import HostnameValidator
+
+        result = HostnameValidator().validate(
+            {"cert_info": {"subject": {"commonName": "example.com"}}},
+            "example.com",
+            443,
+        )
+        assert result["is_valid"] is False
+        assert "Subject Alternative Name extension" in result["reason"]
+        assert result["common_name_matches"] is True
