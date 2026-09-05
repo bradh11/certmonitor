@@ -6,12 +6,12 @@ These are package-private (leading underscore) and not part of the public API.
 """
 
 from datetime import datetime
-from typing import Any, Dict
+from typing import Any
 
 _NOT_AFTER_FORMAT = "%b %d %H:%M:%S %Y GMT"
 
 
-def parse_not_after(cert: Dict[str, Any]) -> datetime:
+def parse_not_after(cert: dict[str, Any]) -> datetime:
     """Parse the ``notAfter`` field from a validator's ``cert`` argument.
 
     Centralizes the format string so that any future change to how certmonitor

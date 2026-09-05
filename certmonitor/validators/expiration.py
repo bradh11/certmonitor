@@ -1,7 +1,7 @@
 # validators/expiration.py
 
 import datetime
-from typing import Any, Dict, List
+from typing import Any
 
 from ._utils import parse_not_after
 from .base import BaseCertValidator
@@ -25,7 +25,7 @@ class ExpirationValidator(BaseCertValidator):
 
     name: str = "expiration"
 
-    def validate(self, cert: Dict[str, Any], host: str, port: int) -> ExpirationResult:
+    def validate(self, cert: dict[str, Any], host: str, port: int) -> ExpirationResult:
         """
         Validates the expiration date of the provided SSL certificate.
 
@@ -66,14 +66,14 @@ class ExpirationValidator(BaseCertValidator):
                 }
                 ```
         """
-        # Use timezone.utc for Python 3.8+ compatibility
+        # Timezone-aware UTC so the comparison against notAfter is correct.
         now = datetime.datetime.now(datetime.timezone.utc)
         not_after = parse_not_after(cert).replace(tzinfo=datetime.timezone.utc)
 
         is_valid = now < not_after
         days_to_expiry = (not_after - now).days
 
-        warnings: List[str] = []
+        warnings: list[str] = []
         if days_to_expiry < 0:
             warnings.append(
                 f"Certificate is expired and has been expired for ({days_to_expiry} days)"

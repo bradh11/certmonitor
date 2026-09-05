@@ -28,7 +28,6 @@ import statistics
 import sys
 import time
 from pathlib import Path
-from typing import List, Tuple
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
@@ -39,7 +38,7 @@ from certmonitor import CertMonitor, certinfo  # noqa: E402
 # (Google Trust Services, DigiCert, Let's Encrypt, Sectigo, Amazon, etc.),
 # chain depths, key types (RSA + ECDSA), and to avoid hosts that are known
 # to require unusual user agents or aggressive rate limiting.
-HOSTS: List[str] = [
+HOSTS: list[str] = [
     # Google
     "google.com",
     "www.google.com",
@@ -159,7 +158,7 @@ HOSTS: List[str] = [
 ]
 
 
-def _percentile(sorted_samples: List[float], p: float) -> float:
+def _percentile(sorted_samples: list[float], p: float) -> float:
     if not sorted_samples:
         return 0.0
     k = min(int(len(sorted_samples) * p), len(sorted_samples) - 1)
@@ -174,7 +173,7 @@ def microbench(iterations: int) -> None:
     for _ in range(200):
         certinfo.analyze_chain(chain)
 
-    samples: List[float] = []
+    samples: list[float] = []
     for _ in range(iterations):
         t = time.perf_counter()
         certinfo.analyze_chain(chain)
@@ -199,7 +198,7 @@ def microbench(iterations: int) -> None:
 
 def _run_one(
     host: str, port: int, timeout: float
-) -> Tuple[str, bool, float, int, bool, str]:
+) -> tuple[str, bool, float, int, bool, str]:
     """Run CertMonitor synchronously. Returns (host, ok, elapsed_s, chain_len, chain_valid, error)."""
     start = time.perf_counter()
     try:
@@ -233,7 +232,7 @@ def _run_one(
 
 async def _bounded(
     sem: asyncio.Semaphore, host: str, port: int, timeout: float
-) -> Tuple[str, bool, float, int, bool, str]:
+) -> tuple[str, bool, float, int, bool, str]:
     async with sem:
         try:
             return await asyncio.wait_for(
@@ -245,7 +244,7 @@ async def _bounded(
 
 
 async def pipeline_bench(
-    hosts: List[str], concurrency: int, port: int, timeout: float, verbose: bool
+    hosts: list[str], concurrency: int, port: int, timeout: float, verbose: bool
 ) -> None:
     print("=" * 64)
     print(

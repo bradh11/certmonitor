@@ -24,17 +24,17 @@ jobs:
     
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         
       - name: Set up Python 3.11
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.11"
           
       - name: Set up uv
-        uses: astral-sh/setup-uv@v1
+        uses: astral-sh/setup-uv@v8.2.0
         with:
-          version: "0.6.17"
+          enable-cache: true
           
       - name: Install dependencies
         run: uv sync --group dev
@@ -60,21 +60,22 @@ jobs:
     if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop' || github.event_name == 'release'
     strategy:
       matrix:
-        python-version: ["3.8", "3.9", "3.10", "3.11", "3.12", "3.13"]  # Full Python matrix
+        python-version: ["3.10", "3.11", "3.12", "3.13", "3.14", "3.15"]  # Full Python matrix
     
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         
       - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python-version }}
+          allow-prereleases: true
           
       - name: Set up uv
-        uses: astral-sh/setup-uv@v1
+        uses: astral-sh/setup-uv@v8.2.0
         with:
-          version: "0.6.17"
+          enable-cache: true
           
       - name: Install dependencies
         run: uv sync --group dev
@@ -89,11 +90,12 @@ jobs:
             
       - name: Upload coverage (Python 3.11 only)
         if: matrix.python-version == '3.11'
-        uses: codecov/codecov-action@v3
+        uses: codecov/codecov-action@v5
         with:
-          file: ./coverage.xml
+          files: ./coverage.xml
           flags: unittests
           name: certmonitor-coverage
+          token: ${{ secrets.CODECOV_TOKEN }}
       
       - name: Build verification (Python 3.11 only)
         if: matrix.python-version == '3.11'
@@ -110,17 +112,17 @@ jobs:
     
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         
       - name: Set up Python 3.11
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.11"
           
       - name: Set up uv
-        uses: astral-sh/setup-uv@v1
+        uses: astral-sh/setup-uv@v8.2.0
         with:
-          version: "0.6.17"
+          enable-cache: true
           
       - name: Install dependencies
         run: uv sync --group dev
@@ -132,7 +134,15 @@ jobs:
         run: |
           uv run pip install mypy types-requests
           uv run mypy certmonitor/ --ignore-missing-imports --show-error-codes
-          
+
+      # FUTURE: consider running astral's `ty` type checker here once it
+      # stabilizes (currently a 0.0.x preview). It is stricter than mypy
+      # (e.g. on the validator override signatures), so it is not wired into
+      # CI yet. Run it locally with `make typecheck-ty` to see its output.
+      # - name: Type checking with ty (advisory, non-blocking)
+      #   continue-on-error: true
+      #   run: uvx ty check certmonitor/
+
       - name: Check code complexity
         run: |
           uv run pip install radon
@@ -168,7 +178,7 @@ jobs:
     
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@master
@@ -214,17 +224,17 @@ jobs:
     
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         
       - name: Set up Python 3.11
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.11"
           
       - name: Set up uv
-        uses: astral-sh/setup-uv@v1
+        uses: astral-sh/setup-uv@v8.2.0
         with:
-          version: "0.6.17"
+          enable-cache: true
           
       - name: Install dependencies
         run: uv sync --group dev
@@ -262,17 +272,17 @@ jobs:
     
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         
       - name: Set up Python 3.11
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.11"
           
       - name: Set up uv
-        uses: astral-sh/setup-uv@v1
+        uses: astral-sh/setup-uv@v8.2.0
         with:
-          version: "0.6.17"
+          enable-cache: true
           
       - name: Install dependencies
         run: uv sync --group docs
@@ -295,15 +305,15 @@ jobs:
       contents: read
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Set up Python 3.11
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.11"
       - name: Set up uv
-        uses: astral-sh/setup-uv@v1
+        uses: astral-sh/setup-uv@v8.2.0
         with:
-          version: "0.6.17"
+          enable-cache: true
       - name: Create venv
         run: |
           uv venv .venv

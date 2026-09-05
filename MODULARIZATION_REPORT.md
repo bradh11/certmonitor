@@ -4,14 +4,14 @@
 
 ### Test Modularization Status
 - **Modular test files:** 8 files
-- **Total test lines:** 2,127 lines
-- **Average file size:** 265 lines
+- **Total test lines:** 2,129 lines
+- **Average file size:** 266 lines
 - **Main test file:** 22 lines
 
 ### Test Coverage
 - **Overall coverage:** 98.7%
 - **Total tests:** 536
-- **Statements covered:** 1,207/1,223
+- **Statements covered:** 1,210/1,226
 - **Files with coverage:** 27
 
 ### Type Hint Coverage
@@ -30,7 +30,7 @@
 - **Python security scanning:** ✅ Enabled
 - **Python security issues found:** 0
 - **Files scanned by bandit:** 27
-- **Lines scanned by bandit:** 3,053
+- **Lines scanned by bandit:** 3,047
 - **Overall security status:** 🔒 Clean
 - **PyO3 version:** 0.29
 
@@ -39,20 +39,20 @@
 - **Unified commands:** 5 (format, lint, test)
 - **Language-specific:** 5 (python-*, rust-*)
 - **Security commands:** 1 (security, audit)
-- **CI-equivalent testing:** ✅ 9-step process
+- **CI-equivalent testing:** ✅ 10-step process
 
 ---
 
 ## 🏗️ Test File Organization
 
 ### Modular Test Files
-- **test_certificate_operations.py**: 507 lines, 26 functions
+- **test_certificate_operations.py**: 510 lines, 26 functions
 - **test_validation.py**: 513 lines, 22 functions
 - **test_public_key_operations.py**: 211 lines, 12 functions
 - **test_initialization.py**: 209 lines, 17 functions
 - **test_raw_data_operations.py**: 70 lines, 4 functions
 - **test_utility_methods.py**: 139 lines, 11 functions
-- **test_connection_management.py**: 315 lines, 20 functions
+- **test_connection_management.py**: 314 lines, 20 functions
 - **test_cipher_operations.py**: 163 lines, 9 functions
 
 ### Main Test File
@@ -64,26 +64,26 @@
 
 ### Files with Type Hints
 - **config.py**: ❌ (14 lines)
-- **core.py**: ✅ (894 lines)
+- **core.py**: ✅ (893 lines)
 - **error_handlers.py**: ✅ (29 lines)
-- **cipher_algorithms.py**: ✅ (108 lines)
-- **protocol_handlers/ssl_handler.py**: ✅ (230 lines)
+- **cipher_algorithms.py**: ✅ (109 lines)
+- **protocol_handlers/ssl_handler.py**: ✅ (229 lines)
 - **protocol_handlers/ssh_handler.py**: ✅ (77 lines)
 - **protocol_handlers/base.py**: ✅ (28 lines)
 - **utils/utils.py**: ❌ (1 lines)
 - **validators/weak_cipher.py**: ✅ (115 lines)
 - **validators/pq_chain.py**: ✅ (199 lines)
-- **validators/sensitive_date.py**: ✅ (220 lines)
+- **validators/sensitive_date.py**: ✅ (215 lines)
 - **validators/subject_alt_names.py**: ✅ (253 lines)
 - **validators/results.py**: ✅ (70 lines)
-- **validators/chain.py**: ✅ (313 lines)
+- **validators/chain.py**: ✅ (312 lines)
 - **validators/expiration.py**: ✅ (102 lines)
 - **validators/pq_key_exchange.py**: ✅ (157 lines)
 - **validators/root_certificate_validator.py**: ✅ (129 lines)
 - **validators/pq_signature.py**: ✅ (186 lines)
 - **validators/tls_version.py**: ✅ (95 lines)
 - **validators/key_info.py**: ✅ (204 lines)
-- **validators/base.py**: ✅ (156 lines)
+- **validators/base.py**: ✅ (157 lines)
 - **validators/hostname.py**: ✅ (156 lines)
 - **validators/_utils.py**: ✅ (23 lines)
 
@@ -115,9 +115,9 @@
 
 
 ### CI-Equivalent Testing
-- **Test workflow steps:** 9/9
+- **Test workflow steps:** 10
 - **CI-equivalent testing:** ✅ Yes
-- **Workflow status:** 🚀 Full 9-step testing process available
+- **Workflow status:** 🚀 Full 10-step testing process available
 
 
 ### Development Commands
@@ -153,7 +153,7 @@ make report
 ### Enhanced Development Commands
 ```bash
 # 🚀 Recommended CI-equivalent workflow
-make test          # Full 9-step test suite (format, lint, typecheck, test, build)
+make test          # Full CI-equivalent test suite (format, lint, typecheck, test, build)
 make check         # Quick quality checks (format + lint)
 make develop       # Install for development
 

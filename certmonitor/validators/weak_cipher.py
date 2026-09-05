@@ -1,6 +1,6 @@
 # validators/weak_cipher.py
 
-from typing import Any, Dict, FrozenSet, List, Optional
+from typing import Any
 
 from .base import BaseCipherValidator
 from .results import ValidationResult
@@ -9,7 +9,7 @@ from .results import ValidationResult
 # configuration. Includes the TLS 1.3 suites (IANA names) and the TLS 1.2
 # ECDHE/DHE AEAD suites (OpenSSL-style names). Override per call with the
 # ``allowed_cipher_suites`` user arg.
-_DEFAULT_ALLOWED_CIPHER_SUITES: FrozenSet[str] = frozenset(
+_DEFAULT_ALLOWED_CIPHER_SUITES: frozenset[str] = frozenset(
     {
         # TLS 1.3 (IANA names, as reported by Python's ssl module).
         "TLS_AES_128_GCM_SHA256",
@@ -33,7 +33,7 @@ _DEFAULT_ALLOWED_CIPHER_SUITES: FrozenSet[str] = frozenset(
 class WeakCipherResult(ValidationResult, total=False):
     """Result shape for :class:`WeakCipherValidator` (envelope + data)."""
 
-    cipher_suite: Optional[str]
+    cipher_suite: str | None
 
 
 class WeakCipherValidator(BaseCipherValidator):
@@ -48,11 +48,11 @@ class WeakCipherValidator(BaseCipherValidator):
 
     def validate(
         self,
-        cipher_info: Dict[str, Any],
+        cipher_info: dict[str, Any],
         host: str,
         port: int,
         *,
-        allowed_cipher_suites: Optional[List[str]] = None,
+        allowed_cipher_suites: list[str] | None = None,
     ) -> WeakCipherResult:
         """
         Validates that the negotiated cipher suite is in the allowed list.
@@ -90,7 +90,7 @@ class WeakCipherValidator(BaseCipherValidator):
                 }
                 ```
         """
-        allowed: FrozenSet[str] = (
+        allowed: frozenset[str] = (
             frozenset(allowed_cipher_suites)
             if allowed_cipher_suites is not None
             else _DEFAULT_ALLOWED_CIPHER_SUITES

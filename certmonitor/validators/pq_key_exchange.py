@@ -1,6 +1,6 @@
 # validators/pq_key_exchange.py
 
-from typing import Any, ClassVar, Dict, Optional, Tuple
+from typing import Any, ClassVar
 
 from .base import BaseCipherValidator
 from .results import ValidationResult
@@ -9,7 +9,7 @@ from .results import ValidationResult
 class PqKeyExchangeResult(ValidationResult, total=False):
     """Result shape for :class:`PqKeyExchangeValidator` (envelope + data)."""
 
-    kem_id: Optional[int]
+    kem_id: int | None
     kem_name: str
     kem_kind: str
     is_pq: bool
@@ -52,12 +52,12 @@ class PqKeyExchangeValidator(BaseCipherValidator):
     """
 
     name: str = "pq_key_exchange"
-    requires: ClassVar[Tuple[str, ...]] = ("cipher_info", "tls_probe")
+    requires: ClassVar[tuple[str, ...]] = ("cipher_info", "tls_probe")
 
     def validate(  # type: ignore[override]  # multi-source: dispatcher injects per `requires`
         self,
-        cipher_info: Dict[str, Any],
-        tls_probe: Dict[str, Any],
+        cipher_info: dict[str, Any],
+        tls_probe: dict[str, Any],
         host: str,
         port: int,
     ) -> PqKeyExchangeResult:

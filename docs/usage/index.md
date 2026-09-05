@@ -7,7 +7,7 @@ CertMonitor was born out of real-world frustration. Outages and security inciden
 So I built CertMonitor to take that pain away. The goals were simple:
 
 - **Zero dependencies.** No third-party Python packages, ever. The advanced public key parsing and elliptic curve support are powered by Rust for speed and safety, but you never install a Python dependency to use them.
-- **Portable and secure.** It works out of the box in any Python 3.8+ environment, with a minimal attack surface.
+- **Portable and secure.** It works out of the box in any Python 3.10+ environment, with a minimal attack surface.
 - **Extensible.** Add your own validators for organization-specific checks, compliance rules, or custom certificate logic.
 - **Fast and reliable.** It's designed for high-throughput, concurrent monitoring across many endpoints.
 

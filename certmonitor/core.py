@@ -7,7 +7,8 @@ import socket
 import ssl
 import tempfile
 import warnings
-from typing import Any, Dict, FrozenSet, List, Mapping, Optional, Union, cast, Tuple
+from typing import Any, cast
+from collections.abc import Mapping
 
 from certmonitor import certinfo, config
 from certmonitor.cipher_algorithms import parse_cipher_suite
@@ -25,7 +26,7 @@ class CertMonitor:
         self,
         host: str,
         port: int = 443,
-        enabled_validators: Optional[List[str]] = None,
+        enabled_validators: list[str] | None = None,
     ):
         """Initialize the CertMonitor with the specified host and port."""
         self.host = host
@@ -34,7 +35,7 @@ class CertMonitor:
         self.der = None
         self.pem = None
         self.cert_info = None
-        self.cert_data: Dict[str, Any] = {}
+        self.cert_data: dict[str, Any] = {}
         self.public_key_der = None
         self.public_key_pem = None
         self.validators = VALIDATORS
@@ -44,8 +45,8 @@ class CertMonitor:
             else config.ENABLED_VALIDATORS
         )
         self.error_handler = ErrorHandler()
-        self.handler: Optional[BaseProtocolHandler] = None
-        self.protocol: Optional[str] = None
+        self.handler: BaseProtocolHandler | None = None
+        self.protocol: str | None = None
         self.connected = False
 
     def __enter__(self) -> "CertMonitor":
@@ -57,7 +58,7 @@ class CertMonitor:
         """Exit the runtime context related to this object."""
         self.close()
 
-    def connect(self) -> Optional[Dict[str, Any]]:
+    def connect(self) -> dict[str, Any] | None:
         """Establishes a connection to the host if not already connected."""
         if self.connected:
             logging.debug("Already connected, skipping connection attempt")
@@ -76,7 +77,7 @@ class CertMonitor:
             self.handler = SSHHandler(self.host, self.port, self.error_handler)
         else:
             return cast(
-                Dict[str, Any],
+                dict[str, Any],
                 self.error_handler.handle_error(
                     "ProtocolError",
                     f"Unsupported protocol: {self.protocol}",
@@ -99,7 +100,7 @@ class CertMonitor:
             self.handler.close()
         self.handler = None
 
-    def detect_protocol(self) -> Union[str, Dict[str, Any]]:
+    def detect_protocol(self) -> str | dict[str, Any]:
         """Detect the protocol used by the host."""
         try:
             with socket.create_connection((self.host, self.port), timeout=10) as sock:
@@ -112,7 +113,7 @@ class CertMonitor:
                         return "ssl"
                     else:
                         return cast(
-                            Dict[str, Any],
+                            dict[str, Any],
                             self.error_handler.handle_error(
                                 "ProtocolDetectionError",
                                 f"Unable to determine protocol. First bytes: {data.hex()}",
@@ -120,20 +121,20 @@ class CertMonitor:
                                 self.port,
                             ),
                         )
-                except socket.error:
+                except OSError:
                     # If no data is received, assume it's SSL
                     return "ssl"
                 finally:
                     sock.setblocking(True)
         except Exception as e:
             return cast(
-                Dict[str, Any],
+                dict[str, Any],
                 self.error_handler.handle_error(
                     "ConnectionError", str(e), self.host, self.port
                 ),
             )
 
-    def _ensure_connection(self) -> Optional[Dict[str, Any]]:
+    def _ensure_connection(self) -> dict[str, Any] | None:
         """Ensures that a valid connection is established."""
         if not self.connected:
             connect_result = self.connect()
@@ -171,7 +172,7 @@ class CertMonitor:
         except ValueError:
             return False
 
-    def _fetch_raw_cert(self) -> Dict[str, Any]:
+    def _fetch_raw_cert(self) -> dict[str, Any]:
         """Fetches the raw certificate from the connected host."""
         connection_result = self._ensure_connection()
         if connection_result is not None:  # Connection failed
@@ -179,7 +180,7 @@ class CertMonitor:
 
         if self.handler is None:
             return cast(
-                Dict[str, Any],
+                dict[str, Any],
                 self.error_handler.handle_error(
                     "ConnectionError",
                     "Handler is not initialized",
@@ -251,7 +252,7 @@ class CertMonitor:
             cert_data.setdefault("chain_analysis", None)
 
         # Leaf-only fallback: when the chain could not be retrieved
-        # (Python 3.8/3.9, or a chain fetch/parse failure) but the leaf
+        # (a chain fetch or parse failure, e.g. an unreachable issuer) but the leaf
         # DER is in hand, analyze just the leaf so leaf-scoped validators
         # (e.g. pq_signature, which needs the leaf's signature algorithm)
         # work on every interpreter instead of inheriting the chain's
@@ -272,7 +273,7 @@ class CertMonitor:
         self.cert_data = cert_data
         return cert_data
 
-    def _fetch_raw_cipher(self) -> Union[Tuple[str, str, int], Dict[str, Any]]:
+    def _fetch_raw_cipher(self) -> tuple[str, str, int] | dict[str, Any]:
         """Fetch the raw cipher information."""
         connection_result = self._ensure_connection()
         if connection_result is not None:  # Connection failed
@@ -280,7 +281,7 @@ class CertMonitor:
 
         if self.protocol != "ssl":
             return cast(
-                Dict[str, Any],
+                dict[str, Any],
                 self.error_handler.handle_error(
                     "ProtocolError",
                     "Cipher information is only available for SSL/TLS connections",
@@ -291,7 +292,7 @@ class CertMonitor:
 
         if self.handler is None:
             return cast(
-                Dict[str, Any],
+                dict[str, Any],
                 self.error_handler.handle_error(
                     "ConnectionError",
                     "Handler is not initialized",
@@ -304,12 +305,12 @@ class CertMonitor:
         if hasattr(self.handler, "fetch_raw_cipher"):
             # We know the handler has fetch_raw_cipher, so we can use Any to bypass type checking
             return cast(
-                Union[Tuple[str, str, int], Dict[str, Any]],
+                tuple[str, str, int] | dict[str, Any],
                 cast(Any, self.handler).fetch_raw_cipher(),
             )
         else:
             return cast(
-                Dict[str, Any],
+                dict[str, Any],
                 self.error_handler.handle_error(
                     "ProtocolError",
                     "fetch_raw_cipher not available for this handler type",
@@ -318,7 +319,7 @@ class CertMonitor:
                 ),
             )
 
-    def _parse_pem_cert(self, pem_cert: str) -> Dict[str, Any]:
+    def _parse_pem_cert(self, pem_cert: str) -> dict[str, Any]:
         """Parse a PEM formatted certificate to extract relevant details."""
         with tempfile.NamedTemporaryFile(delete=False, mode="w") as temp_file:
             temp_file.write(pem_cert)
@@ -337,7 +338,7 @@ class CertMonitor:
             os.remove(temp_file_path)
 
         # Ensure we return a Dict[str, Any]
-        return cast(Dict[str, Any], cert_details)
+        return cast(dict[str, Any], cert_details)
 
     def _to_structured_dict(self, data: Any) -> Any:
         """Convert the certificate data into a structured dictionary format.
@@ -349,8 +350,8 @@ class CertMonitor:
             dict: A dictionary containing the structured certificate data.
         """
 
-        def _handle_duplicate_keys(data: Any) -> Dict[str, Any]:
-            result: Dict[str, Any] = {}
+        def _handle_duplicate_keys(data: Any) -> dict[str, Any]:
+            result: dict[str, Any] = {}
             for item in data:
                 if isinstance(item, tuple) and len(item) == 2:
                     key, value = item
@@ -379,7 +380,7 @@ class CertMonitor:
         else:
             return data
 
-    def get_cert_info(self) -> Dict[str, Any]:
+    def get_cert_info(self) -> dict[str, Any]:
         """Retrieves and structures the certificate details."""
         if not self.cert_info:
             try:
@@ -404,7 +405,7 @@ class CertMonitor:
             except Exception as e:
                 logging.error(f"Error while getting certificate info: {e}")
                 return cast(
-                    Dict[str, Any],
+                    dict[str, Any],
                     self.error_handler.handle_error(
                         "UnknownError", str(e), self.host, self.port
                     ),
@@ -412,11 +413,11 @@ class CertMonitor:
 
         return self.cert_info if self.cert_info is not None else {}
 
-    def get_raw_der(self) -> Union[bytes, Dict[str, Any]]:
+    def get_raw_der(self) -> bytes | dict[str, Any]:
         """Return the raw DER format of the certificate."""
         if self.protocol != "ssl":
             return cast(
-                Dict[str, Any],
+                dict[str, Any],
                 self.error_handler.handle_error(
                     "ProtocolError",
                     "DER format is only available for SSL/TLS connections",
@@ -432,7 +433,7 @@ class CertMonitor:
         if self.der is None:
             if self.handler is None:
                 return cast(
-                    Dict[str, Any],
+                    dict[str, Any],
                     self.error_handler.handle_error(
                         "ConnectionError",
                         "Handler is not initialized",
@@ -449,11 +450,11 @@ class CertMonitor:
         # Return the DER or empty bytes if None
         return self.der if self.der is not None else b""
 
-    def get_raw_pem(self) -> Union[str, Dict[str, Any]]:
+    def get_raw_pem(self) -> str | dict[str, Any]:
         """Return the raw PEM format of the certificate."""
         if self.protocol != "ssl":
             return cast(
-                Dict[str, Any],
+                dict[str, Any],
                 self.error_handler.handle_error(
                     "ProtocolError",
                     "PEM format is only available for SSL/TLS connections",
@@ -469,7 +470,7 @@ class CertMonitor:
         if self.pem is None:
             if self.handler is None:
                 return cast(
-                    Dict[str, Any],
+                    dict[str, Any],
                     self.error_handler.handle_error(
                         "ConnectionError",
                         "Handler is not initialized",
@@ -486,7 +487,7 @@ class CertMonitor:
         # Return the PEM or empty string if None
         return self.pem if self.pem is not None else ""
 
-    def get_public_key_der(self) -> Union[bytes, Dict[str, Any], None]:
+    def get_public_key_der(self) -> bytes | dict[str, Any] | None:
         """Return the public key in DER format."""
         if self.protocol != "ssl":
             return self.error_handler.handle_error(
@@ -508,7 +509,7 @@ class CertMonitor:
 
         return self.public_key_der
 
-    def get_public_key_pem(self) -> Union[str, Dict[str, Any], None]:
+    def get_public_key_pem(self) -> str | dict[str, Any] | None:
         """Return the public key in PEM format."""
         if self.protocol != "ssl":
             return self.error_handler.handle_error(
@@ -530,7 +531,7 @@ class CertMonitor:
 
         return self.public_key_pem
 
-    def get_cipher_info(self) -> Dict[str, Any]:
+    def get_cipher_info(self) -> dict[str, Any]:
         """Retrieve and structure the cipher information of the SSL/TLS connection."""
         raw_cipher = self._fetch_raw_cipher()
 
@@ -545,9 +546,9 @@ class CertMonitor:
             )
 
         cipher_suite, protocol_version, key_bit_length = raw_cipher
-        parsed_cipher: Dict[str, str] = parse_cipher_suite(cipher_suite)
+        parsed_cipher: dict[str, str] = parse_cipher_suite(cipher_suite)
 
-        result: Dict[str, Any] = {
+        result: dict[str, Any] = {
             "cipher_suite": {
                 "name": cipher_suite,
                 "encryption_algorithm": parsed_cipher["encryption"],
@@ -568,9 +569,7 @@ class CertMonitor:
 
         return result
 
-    def validate(
-        self, validator_args: Optional[Dict[str, Any]] = None
-    ) -> Dict[str, Any]:
+    def validate(self, validator_args: dict[str, Any] | None = None) -> dict[str, Any]:
         """
         Validates the target host by running all enabled validators.
 
@@ -596,7 +595,7 @@ class CertMonitor:
             print(results["expiration"])      # Output for expiration validator
             print(results["weak_cipher"])     # Output for weak cipher validator
         """
-        results: Dict[str, Any] = {}
+        results: dict[str, Any] = {}
 
         # Check for unknown validators
         for requested_validator in self.enabled_validators:
@@ -617,7 +616,7 @@ class CertMonitor:
         # Each named data source is fetched at most once per call and
         # shared across every validator that requires it (e.g. cipher_info
         # and a future tls_probe).
-        source_cache: Dict[str, Any] = {}
+        source_cache: dict[str, Any] = {}
 
         def resolve_source(source_name: str) -> Any:
             if source_name not in source_cache:
@@ -633,8 +632,8 @@ class CertMonitor:
                 vtype = getattr(validator, "validator_type", "cert")
                 requires = ("cipher_info",) if vtype == "cipher" else ("cert_data",)
 
-            resolved: List[Any] = []
-            source_error: Optional[Dict[str, Any]] = None
+            resolved: list[Any] = []
+            source_error: dict[str, Any] | None = None
             for source_name in requires:
                 value = resolve_source(source_name)
                 source_error = self._source_error(source_name, value)
@@ -674,7 +673,7 @@ class CertMonitor:
             "message": f"No fetcher registered for data source {source_name!r}.",
         }
 
-    def _fetch_tls_probe(self) -> Dict[str, Any]:
+    def _fetch_tls_probe(self) -> dict[str, Any]:
         """Probe the negotiated TLS 1.3 key-exchange group via the Rust probe.
 
         Skip-for-legacy short-circuit: the *primary* connection has already
@@ -707,7 +706,7 @@ class CertMonitor:
             }
         try:
             return cast(
-                Dict[str, Any],
+                dict[str, Any],
                 certinfo.probe_tls_handshake(self.host, self.port),  # type: ignore[attr-defined]
             )
         except Exception as exc:  # noqa: BLE001 — never let the probe raise into dispatch
@@ -717,7 +716,7 @@ class CertMonitor:
                 "message": f"TLS probe failed: {exc}",
             }
 
-    def _source_error(self, source_name: str, value: Any) -> Optional[Dict[str, Any]]:
+    def _source_error(self, source_name: str, value: Any) -> dict[str, Any] | None:
         """Return a structured error result if ``value`` is unusable.
 
         Returns ``None`` when the source is good. The messages preserve the
@@ -751,9 +750,9 @@ class CertMonitor:
     def _invoke_validator(
         self,
         validator: Any,
-        framework_args: Tuple[Any, ...],
-        validator_args: Optional[Dict[str, Any]],
-    ) -> Dict[str, Any]:
+        framework_args: tuple[Any, ...],
+        validator_args: dict[str, Any] | None,
+    ) -> dict[str, Any]:
         """Resolve user kwargs from ``validator_args`` and call ``validator.validate``.
 
         Looks up the validator's cached ``_user_param_names`` (built at class
@@ -774,7 +773,7 @@ class CertMonitor:
             # a bare list of alternate names. Map a bare list to the validator's
             # single user param if (and only if) it has exactly one. Emit a
             # ``DeprecationWarning`` so callers can migrate to the named form.
-            user_param_names: FrozenSet[str] = getattr(
+            user_param_names: frozenset[str] = getattr(
                 validator, "_user_param_names", frozenset()
             )
             if isinstance(raw, list) and len(user_param_names) == 1:
@@ -810,14 +809,14 @@ class CertMonitor:
             }
 
         try:
-            return cast(Dict[str, Any], validator.validate(*framework_args, **kwargs))
+            return cast(dict[str, Any], validator.validate(*framework_args, **kwargs))
         except TypeError as exc:
             return {
                 "is_valid": False,
                 "reason": f"Validator {validator.name!r} rejected args: {exc}",
             }
 
-    def get_enabled_validators(self) -> List[str]:
+    def get_enabled_validators(self) -> list[str]:
         """
         Get the list of validators enabled for this CertMonitor instance.
 
@@ -828,7 +827,7 @@ class CertMonitor:
             self.enabled_validators.copy()
         )  # Return a copy to prevent external modification
 
-    def list_validators(self) -> List[str]:
+    def list_validators(self) -> list[str]:
         """
         Get a list of all available validators that can be used.
 
@@ -839,7 +838,7 @@ class CertMonitor:
 
         return _list_validators()
 
-    def describe_validators(self) -> Dict[str, Dict[str, Any]]:
+    def describe_validators(self) -> dict[str, dict[str, Any]]:
         """Describe every registered validator and the user args it accepts.
 
         Reads each validator's cached ``_user_params`` (built by
@@ -866,10 +865,10 @@ class CertMonitor:
         """
         import inspect
 
-        described: Dict[str, Dict[str, Any]] = {}
+        described: dict[str, dict[str, Any]] = {}
         for name, validator in self.validators.items():
             user_params = getattr(validator, "_user_params", {}) or {}
-            args_info: Dict[str, Dict[str, Any]] = {}
+            args_info: dict[str, dict[str, Any]] = {}
             for param_name, param in user_params.items():
                 # ``str()`` renders both plain classes and parameterized
                 # generics; only plain classes need the ``<class 'X'>`` wrapper

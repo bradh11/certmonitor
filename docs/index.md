@@ -40,7 +40,7 @@
 - ⚡ **High Performance:** Async- and batch-friendly. Designed for speed and concurrency.
 - 🧩 **Extensible:** Add your own custom validators for organization-specific checks.
 - 🔮 **Post-Quantum Readiness:** Opt-in validators detect post-quantum (hybrid/pure **ML-KEM**) TLS key exchange and post-quantum certificate keys/signatures (**ML-DSA**, **SLH-DSA**, composite), so you can track quantum-safe migration and *harvest-now-decrypt-later* exposure. See [below](#post-quantum-readiness).
-- 🐍 **Native Python First:** Works out-of-the-box in any Python 3.8+ environment.
+- 🐍 **Native Python First:** Works out-of-the-box in any Python 3.10+ environment.
 - 🦀 **Rust-Powered Parsing:** Certificate parsing and public key extraction are handled by a Rust extension for speed, safety, and correctness. <strong>This is required for advanced public key and elliptic curve features, but all orchestration and logic are pure Python stdlib.</strong>
 - 📦 **Portable:** No system dependencies. Drop it into any project or CI pipeline.
 - 📝 **Comprehensive Docs:** Usage guides, API reference, and advanced guides throughout this site.
@@ -250,7 +250,7 @@ CertMonitor's certificate parser handles untrusted bytes from every TLS handshak
 - **Every parser path returns `Result`.** Malformed input produces a structured error, never a crash. No `.unwrap()` on user-input-derived data.
 - **2.8 billion fuzz iterations, zero crashes.** The parser is continuously fuzz-tested with [cargo-fuzz](https://github.com/rust-lang/cargo-fuzz) (libFuzzer) against adversarial byte sequences. A 1-hour soak run explores 310 code-coverage points and 505 libfuzzer features with zero panics. Run it yourself: `make fuzz`.
 - **130-cert real-world corpus on every CI run.** Every commit is tested against captured certificates from 101 production hosts spanning Google Trust Services, DigiCert, Let's Encrypt, Sectigo, Cloudflare, and more, covering both RSA and ECDSA key types.
-- **540+ Python tests at 99% line coverage, plus 99 Rust unit tests.** The full test suite runs across Python 3.8 to 3.13 and Rust stable on macOS, Ubuntu, and Windows.
+- **540+ Python tests at 99% line coverage, plus 99 Rust unit tests.** The full test suite runs across Python 3.10 to 3.15 and Rust stable on macOS, Ubuntu, and Windows.
 - **`cargo audit` on every PR.** CertMonitor declares a single direct Rust dependency, `pyo3` (the Python bridge). The whole compiled tree is 15 crates, all pyo3 and its helpers, with no third-party parsing crates, scanned for known vulnerabilities on every pull request.
 
 ---

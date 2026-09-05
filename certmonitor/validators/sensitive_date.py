@@ -5,7 +5,7 @@ Module for validating SSL certificates against specified sensitive dates.
 """
 
 from datetime import date, datetime
-from typing import Any, Dict, List, NamedTuple, Optional, Tuple, Union
+from typing import Any, NamedTuple
 
 from ._utils import parse_not_after
 from .base import BaseCertValidator
@@ -17,7 +17,7 @@ class SensitiveDateResult(ValidationResult, total=False):
 
     leapday_expiry: bool
     weekend_expiry: bool
-    sensitive_date_matches: List[Dict[str, str]]
+    sensitive_date_matches: list[dict[str, str]]
 
 
 class SensitiveDate(NamedTuple):
@@ -36,12 +36,7 @@ class SensitiveDate(NamedTuple):
 # Any of these forms may appear in the ``dates`` argument of
 # :meth:`SensitiveDateValidator.validate`. They are all normalized internally
 # to a :class:`SensitiveDate`.
-SensitiveDateInput = Union[
-    SensitiveDate,
-    date,
-    str,
-    Tuple[str, date],
-]
+SensitiveDateInput = SensitiveDate | date | str | tuple[str, date]
 
 
 def _normalize(item: Any) -> SensitiveDate:
@@ -97,11 +92,11 @@ class SensitiveDateValidator(BaseCertValidator):
 
     def validate(
         self,
-        cert: Dict[str, Any],
+        cert: dict[str, Any],
         host: str,
         port: int,
         *,
-        dates: Optional[List[SensitiveDateInput]] = None,
+        dates: list[SensitiveDateInput] | None = None,
     ) -> SensitiveDateResult:
         """
         Validates the sensitivity of the expiry date of the provided SSL certificate.
@@ -160,7 +155,7 @@ class SensitiveDateValidator(BaseCertValidator):
                 }
                 ```
         """
-        normalized: List[SensitiveDate] = []
+        normalized: list[SensitiveDate] = []
         if dates:
             for item in dates:
                 try:
@@ -183,7 +178,7 @@ class SensitiveDateValidator(BaseCertValidator):
         leapday_expiry = expiry_date.month == 2 and expiry_date.day == 29
         weekend_expiry = weekday in (5, 6)
 
-        warnings: List[str] = []
+        warnings: list[str] = []
         if leapday_expiry:
             warnings.append(
                 f"Certificate expires on a leap day ({expiry_date.isoformat()})"
@@ -192,7 +187,7 @@ class SensitiveDateValidator(BaseCertValidator):
             day_name = "Saturday" if weekday == 5 else "Sunday"
             warnings.append(f"Certificate expires on a weekend ({day_name})")
 
-        sensitive_date_matches: List[Dict[str, str]] = []
+        sensitive_date_matches: list[dict[str, str]] = []
         for sd in normalized:
             if expiry_date == sd.date:
                 sensitive_date_matches.append(

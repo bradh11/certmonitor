@@ -41,12 +41,12 @@ with its data fields (see ``pq_signature.py`` for an example)::
         my_data_field: str
 
 Note:
-    ``typing.NotRequired`` does not exist on Python 3.8 and the project
-    has a zero-dependency rule (no ``typing_extensions``), hence the
-    two-class required/optional split below.
+    ``typing.NotRequired`` is only available on Python 3.11+, and the
+    project has a zero-dependency rule (no ``typing_extensions``), so on the
+    3.10 floor we use the two-class required/optional split below.
 """
 
-from typing import List, TypedDict
+from typing import TypedDict
 
 
 class _ValidationResultBase(TypedDict):
@@ -64,6 +64,6 @@ class ValidationResult(_ValidationResultBase, total=False):
     """
 
     reason: str
-    warnings: List[str]
+    warnings: list[str]
     error: str
     message: str

@@ -1,4 +1,3 @@
-import socket
 from unittest.mock import MagicMock, patch
 
 from certmonitor.error_handlers import ErrorHandler
@@ -42,7 +41,7 @@ class TestSSHHandler:
         error_handler = ErrorHandler()
         ssh_handler = SSHHandler("test.example.com", 22, error_handler)
 
-        mock_create_connection.side_effect = socket.error("Connection refused")
+        mock_create_connection.side_effect = OSError("Connection refused")
 
         result = ssh_handler.connect()
 
@@ -134,7 +133,7 @@ class TestSSHHandler:
         ssh_handler.socket = mock_socket
 
         # Mock socket exception
-        mock_socket.recv.side_effect = socket.error("Connection reset")
+        mock_socket.recv.side_effect = OSError("Connection reset")
 
         result = ssh_handler.fetch_raw_cert()
 
@@ -210,7 +209,7 @@ class TestSSHHandler:
         ssh_handler.socket = mock_socket
 
         # Mock socket error on getpeername call
-        mock_socket.getpeername.side_effect = socket.error("Connection lost")
+        mock_socket.getpeername.side_effect = OSError("Connection lost")
 
         result = ssh_handler.check_connection()
 

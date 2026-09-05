@@ -102,7 +102,7 @@ class TestDescribeValidators:
         arg = san["args"]["alternate_names"]
         assert arg["default"] is None
         assert arg["required"] is False
-        assert "List" in arg["annotation"] and "str" in arg["annotation"]
+        assert "list[str]" in arg["annotation"] and "None" in arg["annotation"]
 
     def test_describe_validators_validator_with_no_args(self):
         """Validators without user args report an empty args dict."""

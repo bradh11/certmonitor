@@ -4,7 +4,7 @@ applyTo: '**'
 Coding standards, domain knowledge, and preferences that AI should follow.
 
 # Coding Standards
-- Use Python 3.8+.
+- Use Python 3.10+.
 - Use type hints.
 - Use f-strings for string formatting.
 - Use `ruff` for formatting and linting.

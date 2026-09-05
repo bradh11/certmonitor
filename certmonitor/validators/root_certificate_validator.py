@@ -1,6 +1,6 @@
 # validators/root_certificate_validator.py
 
-from typing import Any, Dict, List
+from typing import Any
 
 from .base import BaseCertValidator
 from .results import ValidationResult
@@ -9,7 +9,7 @@ from .results import ValidationResult
 class RootCertificateResult(ValidationResult, total=False):
     """Result shape for :class:`RootCertificateValidator` (envelope + data)."""
 
-    issuer: Dict[str, Any]
+    issuer: dict[str, Any]
 
 
 class RootCertificateValidator(BaseCertValidator):
@@ -23,7 +23,7 @@ class RootCertificateValidator(BaseCertValidator):
     name: str = "root_certificate"
 
     def validate(
-        self, cert: Dict[str, Any], host: str, port: int
+        self, cert: dict[str, Any], host: str, port: int
     ) -> RootCertificateResult:
         """
         Validates if the SSL certificate is issued by a trusted root CA.
@@ -101,7 +101,7 @@ class RootCertificateValidator(BaseCertValidator):
             )
         )
 
-        warnings: List[str] = []
+        warnings: list[str] = []
         if not has_valid_issuer:
             warnings.append("Certificate does not have valid issuer information.")
         if not has_ocsp:

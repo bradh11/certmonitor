@@ -1,6 +1,6 @@
 # validators/pq_chain.py
 
-from typing import Any, ClassVar, Dict, FrozenSet, List, Optional
+from typing import Any, ClassVar
 
 from certmonitor import certinfo
 
@@ -11,11 +11,11 @@ from .results import ValidationResult
 # (rust_certinfo/src/pq_algorithms.rs) so Python never carries its own
 # copy of the table. Keys (SPKI) are matched by name; certificate
 # signature algorithms are matched by dotted OID.
-_PQ_KEY_NAMES: FrozenSet[str] = frozenset(
+_PQ_KEY_NAMES: frozenset[str] = frozenset(
     alg["name"]
     for alg in certinfo.pq_algorithms()  # type: ignore[attr-defined]
 )
-_PQ_SIG_OIDS: FrozenSet[str] = frozenset(
+_PQ_SIG_OIDS: frozenset[str] = frozenset(
     alg["dotted"]
     for alg in certinfo.pq_algorithms()  # type: ignore[attr-defined]
 )
@@ -25,8 +25,8 @@ class PqChainResult(ValidationResult, total=False):
     """Result shape for :class:`PqChainValidator` (envelope + data)."""
 
     chain_length: int
-    certs: List[Dict[str, Any]]
-    summary: Dict[str, Optional[bool]]
+    certs: list[dict[str, Any]]
+    summary: dict[str, bool | None]
 
 
 class PqChainValidator(BaseCertValidator):
@@ -67,7 +67,7 @@ class PqChainValidator(BaseCertValidator):
 
     def validate(
         self,
-        cert: Dict[str, Any],
+        cert: dict[str, Any],
         host: str,
         port: int,
         *,
@@ -123,11 +123,11 @@ class PqChainValidator(BaseCertValidator):
         if isinstance(analysis, dict) and "error" in analysis:
             return self._error_result(analysis["error"])
 
-        raw_certs: List[Dict[str, Any]] = list(analysis.get("certs", []))
+        raw_certs: list[dict[str, Any]] = list(analysis.get("certs", []))
         if not raw_certs:
             return self._error_result("Certificate chain is empty.")
 
-        certs: List[Dict[str, Any]] = []
+        certs: list[dict[str, Any]] = []
         for idx, raw in enumerate(raw_certs):
             key_algorithm = raw.get("public_key_info", {}).get("algorithm", "unknown")
             sig_oid = raw.get("signature_algorithm_oid", "")
@@ -180,7 +180,7 @@ class PqChainValidator(BaseCertValidator):
         return result
 
     @staticmethod
-    def _role_all_pq(certs: List[Dict[str, Any]], role: str) -> Optional[bool]:
+    def _role_all_pq(certs: list[dict[str, Any]], role: str) -> bool | None:
         """True/False when every cert of ``role`` is PQ; None when absent."""
         of_role = [entry for entry in certs if entry["role"] == role]
         if not of_role:

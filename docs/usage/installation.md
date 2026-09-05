@@ -21,7 +21,7 @@ That's it. There are no third-party Python packages to pull in, so the install i
 
 CertMonitor runs on:
 
-- Python 3.8, 3.9, 3.10, 3.11, 3.12, 3.13
+- Python 3.10, 3.11, 3.12, 3.13, 3.14, 3.15
 
 !!! note "Building from source?"
     The note above covers the normal case: installing the published package. A Rust toolchain only comes into play when you're building from source or developing CertMonitor itself (to compile the Rust extension). If that's you, head over to the [Development Guide](../development.md) for the full setup.

@@ -2,36 +2,36 @@
 
 import re
 import socket
-from typing import Any, Dict, Optional, cast
+from typing import Any, cast
 
 from .base import BaseProtocolHandler
 
 
 class SSHHandler(BaseProtocolHandler):
-    def connect(self) -> Optional[Dict[str, Any]]:
+    def connect(self) -> dict[str, Any] | None:
         try:
             self.socket = socket.create_connection((self.host, self.port), timeout=10)
             return None
-        except socket.error as e:
+        except OSError as e:
             return cast(
-                Optional[Dict[str, Any]],
+                dict[str, Any] | None,
                 self.error_handler.handle_error(
                     "SocketError", str(e), self.host, self.port
                 ),
             )
         except Exception as e:
             return cast(
-                Optional[Dict[str, Any]],
+                dict[str, Any] | None,
                 self.error_handler.handle_error(
                     "UnknownError", str(e), self.host, self.port
                 ),
             )
 
-    def fetch_raw_cert(self) -> Dict[str, Any]:
+    def fetch_raw_cert(self) -> dict[str, Any]:
         try:
             if not self.socket:
                 return cast(
-                    Dict[str, Any],
+                    dict[str, Any],
                     self.error_handler.handle_error(
                         "ConnectionError", "Socket not connected", self.host, self.port
                     ),
@@ -48,14 +48,14 @@ class SSHHandler(BaseProtocolHandler):
                 }
             else:
                 return cast(
-                    Dict[str, Any],
+                    dict[str, Any],
                     self.error_handler.handle_error(
                         "SSHError", "Invalid SSH banner", self.host, self.port
                     ),
                 )
         except Exception as e:
             return cast(
-                Dict[str, Any],
+                dict[str, Any],
                 self.error_handler.handle_error(
                     "SSHError", str(e), self.host, self.port
                 ),
@@ -72,5 +72,5 @@ class SSHHandler(BaseProtocolHandler):
         try:
             self.socket.getpeername()
             return True
-        except socket.error:
+        except OSError:
             return False

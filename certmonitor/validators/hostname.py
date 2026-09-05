@@ -1,6 +1,6 @@
 # validators/hostname.py
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from .base import BaseCertValidator
 from .results import ValidationResult
@@ -10,7 +10,7 @@ class HostnameResult(ValidationResult, total=False):
     """Result shape for :class:`HostnameValidator` (envelope + data)."""
 
     matched_name: str
-    alt_names: List[str]
+    alt_names: list[str]
 
 
 class HostnameValidator(BaseCertValidator):
@@ -23,7 +23,7 @@ class HostnameValidator(BaseCertValidator):
 
     name: str = "hostname"
 
-    def validate(self, cert: Dict[str, Any], host: str, port: int) -> HostnameResult:
+    def validate(self, cert: dict[str, Any], host: str, port: int) -> HostnameResult:
         """
         Validates the hostname against the Subject Alternative Names (SANs) and Common Name (CN) in the provided SSL certificate.
 
@@ -103,7 +103,7 @@ class HostnameValidator(BaseCertValidator):
             "alt_names": dns_names,
         }
 
-    def _get_common_name(self, cert: dict) -> Optional[str]:
+    def _get_common_name(self, cert: dict) -> str | None:
         """
         Retrieves the Common Name (CN) from the certificate.
 

@@ -38,7 +38,6 @@ for name, r in results.items():
 Common surprises:
 
 - **`hostname` fails on an IP address.** Most certs don't list IPs as SANs. See [Using IP Addresses](ip.md).
-- **`chain` / `pq_chain` returns an error on Python 3.8/3.9.** Chain retrieval needs Python 3.10+.
 - **`pq_signature` / `pq_chain` is `false` for a normal site.** This is expected: the cert is classical (EC/RSA), not post-quantum. See [Post-Quantum Cryptography](../concepts/post-quantum.md).
 
 ## Inspecting output
