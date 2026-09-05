@@ -13,6 +13,7 @@ rename the headers to emoji form when cutting a release.
 ## [Unreleased]
 
 ### Added
+- Release CI builds Linux x64/ARM64 (glibc 2.28+), macOS Intel/ARM64, and Windows x64 wheels plus a source distribution, and publishes to PyPI only after every distribution has been built.
 - Python 3.14 support, now part of the CI test matrix.
 - Python 3.15 pre-release support: CI exercises 3.15 betas via `allow-prereleases` so the package is ready ahead of the final release.
 
