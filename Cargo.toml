@@ -2,6 +2,7 @@
 name = "certinfo"
 version = "0.4.0"
 edition = "2021"
+rust-version = "1.88"  # as_chunks and is_multiple_of
 build = "build.rs"
 
 [lib]

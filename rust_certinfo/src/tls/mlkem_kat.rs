@@ -38,7 +38,7 @@ mod mlkem_kat_tests {
     /// (FIPS 203 ByteDecode_12).
     fn decode12(block: &[u8]) -> Vec<u16> {
         let mut out = Vec::with_capacity(256);
-        for c in block.chunks_exact(3) {
+        for c in block.as_chunks::<3>().0 {
             let x = u32::from(c[0]) | u32::from(c[1]) << 8 | u32::from(c[2]) << 16;
             out.push((x & 0xFFF) as u16);
             out.push(((x >> 12) & 0xFFF) as u16);
@@ -51,7 +51,12 @@ mod mlkem_kat_tests {
         // ML-KEM-768 ek = 3 packed polynomials (3 * 384 = 1152 bytes) + 32-byte rho.
         assert_eq!(MLKEM768_KAT_EK.len(), 1184);
         let body = &MLKEM768_KAT_EK[..1152];
-        let coeffs: Vec<u16> = body.chunks_exact(384).flat_map(decode12).collect();
+        let coeffs: Vec<u16> = body
+            .as_chunks::<384>()
+            .0
+            .iter()
+            .flat_map(|block| decode12(block))
+            .collect();
         assert_eq!(coeffs.len(), 768);
         // The modulus check a server applies before replying: every
         // coefficient must be reduced mod q = 3329.

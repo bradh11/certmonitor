@@ -61,6 +61,7 @@ dev = [
     "maturin>=1.8.4",
     "mypy>=1.0.0",
     "bandit>=1.7.10",
+    "radon>=6.0,<7",
 ]
 
 docs = [
