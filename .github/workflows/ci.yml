@@ -4,8 +4,7 @@ name: CI/CD
 on:
   push:
     branches: [main, develop]  # Only comprehensive tests on main branches
-  pull_request:
-    branches: [main, develop]  # Comprehensive tests on PRs to main branches
+  pull_request:  # Every PR, including stacked PRs whose base is another feature branch
   release:
     types: [published]
   schedule:
