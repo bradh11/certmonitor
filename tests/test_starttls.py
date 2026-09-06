@@ -223,6 +223,21 @@ def test_unknown_protocol_is_rejected():
         CertMonitor("host.test", starttls="gopher")
 
 
+class ResetSocket:
+    """A socket whose peer reset the connection before answering."""
+
+    def sendall(self, data):
+        return None
+
+    def recv(self, size):
+        raise ConnectionResetError(104, "Connection reset by peer")
+
+
+def test_reset_during_preamble_is_a_closed_connection():
+    with pytest.raises(StartTLSError, match="connection closed"):
+        negotiate(ResetSocket(), "smtp")
+
+
 def test_closed_connection_during_preamble():
     def hang_up(conn):
         conn.sendall(b"220 fake\r\n")

@@ -44,7 +44,14 @@ def negotiate(
         raise ValueError(
             f"unsupported STARTTLS protocol {protocol!r}; choose one of {', '.join(PROTOCOLS)}"
         )
-    handler(sock, client_name)
+    try:
+        handler(sock, client_name)
+    except ConnectionError as exc:
+        # A reset or broken pipe mid-preamble means the server hung up on us,
+        # which callers should see the same way as an orderly close.
+        raise StartTLSError(
+            f"connection closed during STARTTLS negotiation: {exc}"
+        ) from exc
 
 
 # --- discovery ----------------------------------------------------------------
