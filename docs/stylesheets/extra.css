@@ -81,3 +81,16 @@
   color: var(--md-primary-bg-color);
   font-weight: 600;
 }
+
+/* Give tutorials room to breathe while retaining CertMonitor's blue identity. */
+.md-typeset { line-height: 1.7; }
+.md-typeset h1 { color: var(--md-default-fg-color); font-weight: 700; }
+.md-typeset h2 { font-weight: 600; margin-top: 1.7em; }
+.md-typeset pre > code { border-radius: .35rem; }
+.md-typeset .admonition, .md-typeset details { border-radius: .35rem; }
+.md-typeset table:not([class]) { font-size: .75rem; }
+.md-typeset a:focus-visible { outline: 2px solid var(--md-accent-fg-color); outline-offset: 3px; }
+@media (max-width: 44.984375em) {
+  .validator-map { padding: .8rem; }
+  .validator-chip { white-space: normal; overflow-wrap: anywhere; }
+}

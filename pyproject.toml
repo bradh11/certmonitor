@@ -1,7 +1,7 @@
 [project]
 name = "certmonitor"
 version = "0.4.0"
-description = "Zero-dependency TLS/SSL certificate monitoring and validation, including post-quantum (ML-KEM / ML-DSA) readiness checks."
+description = "Zero-dependency Python SSL/TLS certificate monitoring and validation: expiration checks, hostname/SAN matching, X.509 chain analysis, and post-quantum readiness."
 authors = [
     { name = "Brad Haas", email = "bradh11@gmail.com" }
 ]
@@ -14,6 +14,11 @@ keywords = [
     "certificate",
     "x509",
     "certificate-monitoring",
+    "ssl-certificate",
+    "certificate-expiration",
+    "certificate-expiry",
+    "ssl-checker",
+    "pki",
     "certificate-validation",
     "security",
     "cryptography",
@@ -50,7 +55,14 @@ classifiers = [
 ]
 
 dependencies = []
-# No runtime dependencies; standard library only
+# Zero runtime dependencies; the Rust extension is compiled into the wheel
+
+[project.urls]
+Homepage = "https://github.com/bradh11/certmonitor"
+Documentation = "https://certmonitor.readthedocs.io/en/latest/"
+Repository = "https://github.com/bradh11/certmonitor"
+Issues = "https://github.com/bradh11/certmonitor/issues"
+Changelog = "https://github.com/bradh11/certmonitor/blob/main/CHANGELOG.md"
 
 [dependency-groups]
 dev = [
