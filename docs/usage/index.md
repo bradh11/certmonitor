@@ -85,4 +85,4 @@ Every result has `is_valid`, and when a check fails it also gets a `reason` you 
 
 Start with [Installation](installation.md), then [Basic Usage](basic.md). Once you can read a result, [Certificate Validators](validators.md) shows how to choose your checks and [Passing Arguments](validator_args.md) shows how to tune them.
 
-Have the certificate as a file? See [Certificates from Files](files.md). Already monitoring a fleet? Jump to [Performance Tips](performance.md). Upgrading an existing integration? Read the [release notes](https://github.com/bradh11/certmonitor/releases) before changing versions.
+Prefer the shell? See the [Command Line](cli.md). Have the certificate as a file? See [Certificates from Files](files.md). Already monitoring a fleet? Jump to [Performance Tips](performance.md). Upgrading an existing integration? Read the [release notes](https://github.com/bradh11/certmonitor/releases) before changing versions.

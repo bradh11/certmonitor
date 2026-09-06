@@ -15,6 +15,7 @@ nav:
       - Overview: usage/index.md
       - Installation: usage/installation.md
       - First Steps: usage/basic.md
+      - Command Line: usage/cli.md
       - Using IP Addresses: usage/ip.md
       - Certificates from Files: usage/files.md
       - Context Manager vs Manual Close: usage/context_manager.md

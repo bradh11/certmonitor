@@ -275,3 +275,44 @@ class TestIdentityEdgeCases:
         assert result["is_valid"] is False
         assert "Subject Alternative Name extension" in result["reason"]
         assert result["common_name_matches"] is True
+
+
+class TestRawGettersConnectLazily:
+    def _fresh(self, monkeypatch):
+        monitor = CertMonitor("example.com")
+
+        def connect():
+            monitor.protocol = "ssl"
+            monitor.connected = True
+            monitor.handler = MagicMock()
+            monitor.handler.fetch_raw_cert.return_value = {
+                "cert_info": {"subject": ((("commonName", "example.com"),),)},
+                "der": b"leaf",
+                "pem": "-----BEGIN CERTIFICATE-----\nleaf\n-----END CERTIFICATE-----\n",
+            }
+
+        monkeypatch.setattr(monitor, "connect", connect)
+        return monitor
+
+    def test_get_raw_der_before_any_connection(self, monkeypatch):
+        assert self._fresh(monkeypatch).get_raw_der() == b"leaf"
+
+    def test_get_raw_pem_before_any_connection(self, monkeypatch):
+        assert self._fresh(monkeypatch).get_raw_pem().startswith("-----BEGIN")
+
+    def test_ssh_target_still_reports_protocol_error(self):
+        monitor = CertMonitor("host.test", 22)
+        monitor.protocol, monitor.connected, monitor.handler = "ssh", True, MagicMock()
+        assert monitor.get_raw_der()["error"] == "ProtocolError"
+
+    def test_connection_failure_is_returned_by_both_getters(self, monkeypatch):
+        monitor = CertMonitor("example.com")
+        failure = {"error": "ConnectionError", "message": "refused"}
+        monkeypatch.setattr(monitor, "connect", lambda: failure)
+        assert monitor.get_raw_der() == failure
+        assert monitor.get_raw_pem() == failure
+
+    def test_ssh_target_pem_reports_protocol_error(self):
+        monitor = CertMonitor("host.test", 22)
+        monitor.protocol, monitor.connected, monitor.handler = "ssh", True, MagicMock()
+        assert monitor.get_raw_pem()["error"] == "ProtocolError"
