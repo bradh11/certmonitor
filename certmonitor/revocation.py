@@ -173,8 +173,10 @@ def build_ocsp_request(
     inputs = certinfo.ocsp_cert_id_inputs(leaf_der, issuer_der)  # type: ignore[attr-defined]
     if inputs is None:
         raise ValueError("the issuer certificate does not match the leaf's issuer")
-    name_hash = hashlib.sha1(inputs["issuer_name"]).digest()  # noqa: S324
-    key_hash = hashlib.sha1(inputs["issuer_key"]).digest()  # noqa: S324
+    # SHA-1 is the CertID hash RFC 6960 responders expect; it only names the
+    # issuer, so it carries no security weight here.
+    name_hash = hashlib.sha1(inputs["issuer_name"], usedforsecurity=False).digest()
+    key_hash = hashlib.sha1(inputs["issuer_key"], usedforsecurity=False).digest()
     serial = inputs["serial_number"]
     cert_id = _der(
         0x30,
