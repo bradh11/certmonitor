@@ -13,30 +13,26 @@ rename the headers to emoji form when cutting a release.
 ## [Unreleased]
 
 ### Added
-- STARTTLS support for SMTP, IMAP, POP3, FTP, PostgreSQL, and LDAP. When a port does not answer a TLS handshake, CertMonitor discovers the service from its greeting or from the PostgreSQL and LDAP StartTLS requests, without looking at the port number, and runs the right preamble before the TLS handshake for collection, the verified trust handshake, and the native post-quantum probe. `starttls="smtp"` (and the other names) on `CertMonitor`, `scan_hosts()` endpoints, and `certmonitor check --starttls` is the override that skips discovery (#88).
-- `compare_snapshots()` and `certmonitor diff` explain what changed between two observations (replacement, validity, SANs, issuer, subject, key, validator status) with a severity that separates routine renewals from changes that need attention. `scan_hosts()` results and `check --json` now carry the parsed `certificate` and `public_key_info` so runs can be compared (#89).
-- Proxy support: `proxy="http://[user:pass@]host:port"` (HTTP CONNECT with basic authentication) or `"socks5://[user:pass@]host:port"` (SOCKS5 with username/password) on `CertMonitor`, `scan_hosts()`, and `certmonitor check --proxy` routes protocol detection, collection, the verified trust handshake, and STARTTLS preambles through the tunnel. Results record the route with the password removed. The native post-quantum probe tunnels through the proxy as well (#88, closes #95).
-
-- Opt-in `revocation` validator: checks the certificate's OCSP responder and CRL distribution points. CRL answers are verified by OpenSSL through one extra handshake with the CRL loaded. OCSP responses are parsed and their signatures verified in-house (RSA PKCS#1 v1.5 and ECDSA over P-256 and P-384, in the Rust extension with no crates), accepting the issuing CA or a delegated responder certificate it issued for OCSP signing; an answer that cannot be verified is a warning with the reason unless `accept_unverified=True`. Fetches go through the monitor's timeout and proxy and are cached until `nextUpdate` (#90, #102).
+- TBD
 
 ### Changed
-- `certmonitor validators` separates each validator with a blank line.
+- TBD
 
 ### Fixed
 - TBD
 
-## [0.5.0] - 2026-09-05
+## [0.5.0] - 2026-09-06
 
-# 📦 CertMonitor v0.5.0 – Verified Trust, a CLI, and Offline Checks
+# 📦 CertMonitor v0.5.0 – Verified Trust, Revocation, STARTTLS, and a CLI
 
-**Release Date:** September 5, 2026
+**Release Date:** September 6, 2026
 **Repository:** [bradh11/certmonitor](https://github.com/bradh11/certmonitor)
 
 ---
 
 ## 🚀 Overview
 
-CertMonitor v0.5.0 makes every verdict earn its name. Trust is established by a real verified TLS handshake instead of issuer-name heuristics, hostname identity follows the Subject Alternative Names the way browsers do, the chain validator fails on structural problems by default, and every result carries a stable `status` and `code`. The release also adds a standard-library `certmonitor` command, offline validation of PEM and DER files, a bounded fleet scanner with full endpoint configuration, SHA-256 fingerprints, and a lifetime policy that tracks the CA/Browser Forum schedule automatically. Python 3.8 and 3.9 are dropped; 3.10 through 3.15 are supported, and wheels now ship for Linux x64/ARM64, macOS Intel/ARM64, and Windows x64. Read the Upgrading section before adopting.
+CertMonitor v0.5.0 makes every verdict earn its name. Trust is established by a real verified TLS handshake instead of issuer-name heuristics, hostname identity follows the Subject Alternative Names the way browsers do, the chain validator fails on structural problems by default, and every result carries a stable `status` and `code`. The release also adds a standard-library `certmonitor` command, offline validation of PEM and DER files, a bounded fleet scanner with full endpoint configuration, SHA-256 fingerprints, and a lifetime policy that tracks the CA/Browser Forum schedule automatically. Mail, directory, and database ports are discovered and checked through their STARTTLS preambles without naming the protocol, HTTP CONNECT and SOCKS5 proxies carry every connection, `compare_snapshots()` and `certmonitor diff` explain what changed between two observations, and the opt-in `revocation` validator asks OCSP responders and CRLs with both answers verified, OCSP by in-house RSA and ECDSA checks in the Rust extension and CRLs through OpenSSL. Python 3.8 and 3.9 are dropped; 3.10 through 3.15 are supported, and wheels now ship for Linux x64/ARM64, macOS Intel/ARM64, and Windows x64. Still zero runtime dependencies. Read the Upgrading section before adopting.
 
 ---
 
@@ -77,8 +73,8 @@ Intentional changes:
 | Result metadata | `status`, `code`, and observation fields are added. Argument mistakes in `validator_args` report `status: error` with `InvalidValidatorArgs` or `UnknownValidatorArgs`. | Permit additive keys in result schemas. Use status/error fields rather than parsing human-readable messages. |
 | Timeouts | `timeout` bounds each network operation, including each connection attempt during collection (at most two). | Budget up to twice `timeout` for hosts that silently drop handshakes. |
 
-Collection remains permissive. Revocation checking is not implemented; successful
-trust verification reports `revocation_status: not_checked`.
+Collection remains permissive. Revocation checking is opt-in through the `revocation`
+validator; `root_certificate` itself still reports `revocation_status: not_checked`.
 
 ---
 
@@ -96,6 +92,10 @@ trust verification reports `revocation_status: not_checked`.
 - `scan_hosts()` scans many hosts with a bounded worker pool and yields one result per host, including hosts whose scan raised. Entries may be `(host, port)` pairs or dicts carrying per-endpoint connection settings (`connection_host`, `server_hostname`, `timeout`, CA store, client certificate); `validator_args`, `cafile`, `capath`, `client_cert`, and `client_key` apply to every host.
 - Python 3.14 support, now part of the CI test matrix.
 - Python 3.15 pre-release support: CI exercises 3.15 betas via `allow-prereleases` so the package is ready ahead of the final release.
+- STARTTLS support for SMTP, IMAP, POP3, FTP, PostgreSQL, and LDAP. When a port does not answer a TLS handshake, CertMonitor discovers the service from its greeting or from the PostgreSQL and LDAP StartTLS requests, without looking at the port number, and runs the right preamble before the TLS handshake for collection, the verified trust handshake, and the native post-quantum probe. `starttls="smtp"` (and the other names) on `CertMonitor`, `scan_hosts()` endpoints, and `certmonitor check --starttls` is the override that skips discovery (#88).
+- `compare_snapshots()` and `certmonitor diff` explain what changed between two observations (replacement, validity, SANs, issuer, subject, key, validator status) with a severity that separates routine renewals from changes that need attention. `scan_hosts()` results and `check --json` now carry the parsed `certificate` and `public_key_info` so runs can be compared (#89).
+- Proxy support: `proxy="http://[user:pass@]host:port"` (HTTP CONNECT with basic authentication) or `"socks5://[user:pass@]host:port"` (SOCKS5 with username/password) on `CertMonitor`, `scan_hosts()`, and `certmonitor check --proxy` routes protocol detection, collection, the verified trust handshake, and STARTTLS preambles through the tunnel. Results record the route with the password removed. The native post-quantum probe tunnels through the proxy as well (#88, closes #95).
+- Opt-in `revocation` validator: checks the certificate's OCSP responder and CRL distribution points. CRL answers are verified by OpenSSL through one extra handshake with the CRL loaded. OCSP responses are parsed and their signatures verified in-house (RSA PKCS#1 v1.5 and ECDSA over P-256 and P-384, in the Rust extension with no crates), accepting the issuing CA or a delegated responder certificate it issued for OCSP signing; an answer that cannot be verified is a warning with the reason unless `accept_unverified=True`. Fetches go through the monitor's timeout and proxy and are cached until `nextUpdate` (#90, #102).
 
 ---
 
@@ -116,6 +116,7 @@ trust verification reports `revocation_status: not_checked`.
 - CI: the test matrix is now Python 3.10 through 3.15, and the GitHub Actions were refreshed (checkout v6, setup-python v6, setup-uv v8.2.0, codecov v5 with token upload, action-gh-release v2).
 - `make test` now runs the Rust unit tests (`cargo test`) as part of the local CI-equivalent suite; previously they ran only in CI.
 - Added a `make typecheck-ty` command to run astral's `ty` type checker on demand (a 0.0.x preview, advisory only). mypy remains the enforced gate; ty is kept out of `make test` and is commented out in CI with a note to revisit once it stabilizes.
+- `certmonitor validators` separates each validator with a blank line.
 
 ---
 
@@ -133,7 +134,7 @@ Comprehensive documentation is available at [certmonitor.readthedocs.io](https:/
 
 ## 🐍 Python Compatibility
 
-Tested with Python 3.10 through 3.15 with 99% code coverage across all supported versions.
+Tested with Python 3.10 through 3.15 with 99% code coverage across all supported versions. Wire-level code has libFuzzer targets, and the signature verifier is checked against 2,320 Wycheproof vectors and an OpenSSL differential test on every run.
 
 ---
 
