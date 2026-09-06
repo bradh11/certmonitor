@@ -49,7 +49,7 @@ certmonitor check --file /etc/ssl/certs/service.pem --host service.example.com
 
 ## Connection options
 
-The constructor's connection options are available as flags: `--connection-host` and `--server-hostname` to split the address from the SNI name, `--cafile` or `--capath` for a private CA, and `--client-cert` with `--client-key` for mutual TLS. See [Using IP Addresses](ip.md) and [RootCertificate](../validators/root_certificate.md) for what they mean.
+`--starttls smtp|imap|pop3|ftp|postgres|ldap` runs the service's STARTTLS preamble before the handshake; see [STARTTLS Services](starttls.md). The constructor's other connection options are available as flags: `--connection-host` and `--server-hostname` to split the address from the SNI name, `--cafile` or `--capath` for a private CA, and `--client-cert` with `--client-key` for mutual TLS. See [Using IP Addresses](ip.md) and [RootCertificate](../validators/root_certificate.md) for what they mean.
 
 ## Machine-readable output
 

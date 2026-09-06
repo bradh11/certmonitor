@@ -1,5 +1,7 @@
 # testsconftest.py
 
+import shutil
+import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -426,3 +428,73 @@ def block_external_dns(monkeypatch):
     monkeypatch.setattr(socket, "getaddrinfo", guarded)
     yield
     assert not external, f"Tests must mock external DNS lookups: {external}"
+
+
+@pytest.fixture(scope="session")
+def local_pki(tmp_path_factory):
+    openssl = shutil.which("openssl")
+    if openssl is None:
+        pytest.skip("OpenSSL CLI required to generate local TLS fixtures")
+    directory = tmp_path_factory.mktemp("pki")
+
+    def run(*args):
+        subprocess.run([openssl, *args], cwd=directory, check=True, capture_output=True)
+
+    run(
+        "req",
+        "-x509",
+        "-newkey",
+        "rsa:2048",
+        "-nodes",
+        "-keyout",
+        "ca.key",
+        "-out",
+        "ca.pem",
+        "-days",
+        "2",
+        "-subj",
+        "/CN=CertMonitor Test CA",
+        "-addext",
+        "basicConstraints=critical,CA:TRUE",
+        "-addext",
+        "keyUsage=critical,keyCertSign,cRLSign",
+    )
+    for name in ("one", "two"):
+        run(
+            "req",
+            "-new",
+            "-newkey",
+            "rsa:2048",
+            "-nodes",
+            "-keyout",
+            f"{name}.key",
+            "-out",
+            f"{name}.csr",
+            "-subj",
+            "/CN=wrong.test",
+        )
+        (directory / "extensions").write_text(
+            "subjectAltName=DNS:localhost,IP:127.0.0.1\n"
+            "basicConstraints=critical,CA:FALSE\n"
+            "keyUsage=critical,digitalSignature,keyEncipherment\n"
+            "extendedKeyUsage=serverAuth,clientAuth\n"
+            "authorityKeyIdentifier=keyid,issuer\nsubjectKeyIdentifier=hash\n"
+        )
+        run(
+            "x509",
+            "-req",
+            "-in",
+            f"{name}.csr",
+            "-CA",
+            "ca.pem",
+            "-CAkey",
+            "ca.key",
+            "-CAcreateserial",
+            "-out",
+            f"{name}.pem",
+            "-days",
+            "1",
+            "-extfile",
+            "extensions",
+        )
+    return directory

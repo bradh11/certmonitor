@@ -15,6 +15,7 @@ from collections.abc import Callable, Mapping
 from pathlib import Path
 
 from certmonitor import certinfo, config
+from certmonitor import starttls as starttls_negotiation
 from certmonitor.cipher_algorithms import parse_cipher_suite
 from certmonitor.error_handlers import ErrorHandler
 from certmonitor.protocol_handlers.base import BaseProtocolHandler
@@ -39,6 +40,7 @@ class CertMonitor:
         capath: str | None = None,
         client_cert: str | None = None,
         client_key: str | None = None,
+        starttls: str | None = None,
     ):
         """Initialize a monitor for a host without opening a connection.
 
@@ -63,9 +65,14 @@ class CertMonitor:
             capath: OpenSSL-compatible CA directory for the verified trust handshake.
             client_cert: Client certificate chain file for mutual TLS.
             client_key: Separate client private-key file, if needed.
+            starttls: Application protocol whose STARTTLS preamble runs before the
+                TLS handshake: `"smtp"`, `"imap"`, `"pop3"`, `"ftp"`, `"postgres"`,
+                or `"ldap"`. Protocol detection is skipped, and the post-quantum probe
+                reports `unsupported` for such endpoints.
 
         Raises:
-            ValueError: If `timeout` is not positive.
+            ValueError: If `timeout` is not positive or `starttls` is not a
+                supported protocol name.
 
         Example:
             ```python
@@ -75,6 +82,11 @@ class CertMonitor:
         """
         if timeout <= 0:
             raise ValueError("timeout must be positive")
+        if starttls is not None and starttls not in starttls_negotiation.PROTOCOLS:
+            raise ValueError(
+                f"starttls must be one of {', '.join(starttls_negotiation.PROTOCOLS)}, not {starttls!r}"
+            )
+        self.starttls = starttls
         self.connection_host = connection_host or host
         self.server_hostname = server_hostname or host
         self.timeout = timeout
@@ -247,7 +259,8 @@ class CertMonitor:
             self.connected = True
             return None
 
-        protocol_result = self.detect_protocol()
+        # A STARTTLS service greets in plaintext, so detection would misread it.
+        protocol_result = "ssl" if self.starttls else self.detect_protocol()
         if isinstance(protocol_result, dict) and "error" in protocol_result:
             return protocol_result
 
@@ -262,6 +275,7 @@ class CertMonitor:
             self.handler.timeout = self.timeout
             self.handler.client_cert = self.client_cert
             self.handler.client_key = self.client_key
+            self.handler.starttls = self.starttls
         elif self.protocol == "ssh":
             self.handler = SSHHandler(
                 self.connection_host, self.port, self.error_handler
@@ -974,6 +988,8 @@ class CertMonitor:
         with socket.create_connection(
             (self.connection_host, self.port), timeout=self.timeout
         ) as sock:
+            if self.starttls:
+                starttls_negotiation.negotiate(sock, self.starttls)
             with context.wrap_socket(
                 sock, server_hostname=self.server_hostname
             ) as secure:
@@ -1080,6 +1096,12 @@ class CertMonitor:
                 "result": "n/a",
                 "protocol": "offline",
                 "reason": self._OFFLINE_REASON.format(what="The post-quantum probe"),
+            }
+        if self.starttls:
+            return {
+                "result": "n/a",
+                "protocol": f"starttls:{self.starttls}",
+                "reason": "The post-quantum probe does not run STARTTLS preambles yet.",
             }
         # The probe speaks TLS; never run it against non-SSL protocols
         # (e.g. SSH hosts), regardless of validator configuration.

@@ -13,10 +13,10 @@ rename the headers to emoji form when cutting a release.
 ## [Unreleased]
 
 ### Added
-- TBD
+- STARTTLS support: `starttls="smtp"`, `"imap"`, `"pop3"`, `"ftp"`, `"postgres"`, or `"ldap"` on `CertMonitor`, `scan_hosts()` endpoints, and `certmonitor check --starttls` runs the service's preamble before the TLS handshake, for both collection and the verified trust handshake. The post-quantum probe reports `unsupported` for STARTTLS endpoints (#88).
 
 ### Changed
-- TBD
+- `certmonitor validators` separates each validator with a blank line.
 
 ### Fixed
 - TBD

@@ -19,6 +19,7 @@ ENDPOINT_OPTIONS = frozenset(
         "capath",
         "client_cert",
         "client_key",
+        "starttls",
     }
 )
 
@@ -35,6 +36,7 @@ def scan_hosts(
     capath: str | None = None,
     client_cert: str | None = None,
     client_key: str | None = None,
+    starttls: str | None = None,
 ) -> Iterator[dict[str, Any]]:
     """Yield completed scans with at most `max_workers` endpoints in flight.
 
@@ -53,7 +55,7 @@ def scan_hosts(
         hosts: Endpoints to scan, consumed lazily. Each entry is a host name or
             IP address, a `(host, port)` pair, or a dict with `host` plus any of
             `port`, `connection_host`, `server_hostname`, `timeout`, `cafile`,
-            `capath`, `client_cert`, and `client_key` for endpoints that need
+            `capath`, `client_cert`, `client_key`, and `starttls` for endpoints that need
             their own connection settings.
         port: TCP port for entries that do not carry one. Defaults to 443.
         max_workers: Maximum number of concurrent scans. Defaults to 8.
@@ -66,6 +68,9 @@ def scan_hosts(
         capath: CA directory for trust verification on every endpoint.
         client_cert: Client certificate for mutual TLS on every endpoint.
         client_key: Client private key, if separate from `client_cert`.
+        starttls: STARTTLS protocol name applied to every endpoint (`"smtp"`,
+            `"imap"`, `"pop3"`, `"ftp"`, `"postgres"`, `"ldap"`); endpoint
+            dicts may set their own.
 
     Raises:
         ValueError: If `max_workers` or `timeout` is not positive.
@@ -93,6 +98,7 @@ def scan_hosts(
         "capath": capath,
         "client_cert": client_cert,
         "client_key": client_key,
+        "starttls": starttls,
     }
 
     def describe(entry: Endpoint) -> tuple[str, int, dict[str, Any]]:

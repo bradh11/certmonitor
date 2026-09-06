@@ -16,6 +16,7 @@ from importlib.metadata import PackageNotFoundError, version
 from typing import Any
 
 from .core import CertMonitor
+from .starttls import PROTOCOLS as STARTTLS_PROTOCOLS
 
 STATUS_LABELS = {
     "pass": "PASS",
@@ -115,6 +116,7 @@ def _monitor_options(args: argparse.Namespace) -> dict[str, Any]:
         "client_key": args.client_key,
         "connection_host": args.connection_host,
         "server_hostname": args.server_hostname,
+        "starttls": args.starttls,
     }
 
 
@@ -235,7 +237,9 @@ def cmd_validators(args: argparse.Namespace, out: Any) -> int:
         json.dump(described, out, indent=2, default=str)
         print(file=out)
         return 0
-    for name, info in described.items():
+    for index, (name, info) in enumerate(described.items()):
+        if index:
+            print(file=out)
         print(f"{name}: {info.get('doc') or ''}".rstrip(": "), file=out)
         for arg, spec in info.get("args", {}).items():
             print(
@@ -259,6 +263,11 @@ def _add_connection_options(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument(
         "--server-hostname", help="SNI name to send instead of the target host"
+    )
+    parser.add_argument(
+        "--starttls",
+        choices=STARTTLS_PROTOCOLS,
+        help="run this protocol's STARTTLS preamble before the TLS handshake",
     )
     parser.add_argument("--host", help="identity to check for --file targets")
 

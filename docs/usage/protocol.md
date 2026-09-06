@@ -1,5 +1,8 @@
 # Protocol Detection
 
+!!! note "STARTTLS ports are not detected"
+    A service that greets in plaintext and upgrades with STARTTLS looks like neither TLS nor SSH on its first bytes. Pass `starttls="smtp"` (or another supported protocol) and detection is skipped; see [STARTTLS Services](starttls.md).
+
 You don't have to tell CertMonitor what kind of endpoint you're connecting to. It figures that out for you by detecting the protocol used by the target host and port. Most of the API is built for SSL/TLS. SSH support is currently limited to reading a version banner; it does not validate SSH host keys.
 
 ## How Protocol Detection Works

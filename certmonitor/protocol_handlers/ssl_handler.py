@@ -5,6 +5,7 @@ import socket
 import ssl
 from typing import Any, cast
 
+from .. import starttls as starttls_negotiation
 from .base import BaseProtocolHandler
 
 
@@ -17,6 +18,7 @@ class SSLHandler(BaseProtocolHandler):
         self.timeout = 10.0
         self.client_cert: str | None = None
         self.client_key: str | None = None
+        self.starttls: str | None = None
         self.tls_version: str | None = None
 
     def _build_context(
@@ -58,6 +60,8 @@ class SSLHandler(BaseProtocolHandler):
             self.socket = socket.create_connection(
                 (self.host, self.port), timeout=self.timeout
             )
+            if self.starttls:
+                starttls_negotiation.negotiate(self.socket, self.starttls)
             self.secure_socket = context.wrap_socket(
                 self.socket, server_hostname=self.server_hostname
             )
