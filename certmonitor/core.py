@@ -79,6 +79,7 @@ class CertMonitor:
         self.client_cert, self.client_key = client_cert, client_key
         self.snapshot_at: str | None = None
         self._verify_contexts: dict[bool, ssl.SSLContext] = {}
+        self._trust_verdict: tuple[bytes, dict[str, Any]] | None = None
         self.host = host
         self.port = port
         self.is_ip = self._is_ip_address(host)
@@ -170,6 +171,7 @@ class CertMonitor:
         self.public_key_der = self.public_key_pem = None
         self.public_key_info = None
         self.snapshot_at = None
+        self._trust_verdict = None
 
     def refresh(self) -> dict[str, Any]:
         """Close the old connection and collect a new timestamped snapshot."""
@@ -844,6 +846,10 @@ class CertMonitor:
         observes a different leaf than the collector, the handshake is retried
         with the collector's legacy protocol and cipher settings so the
         verdict describes the same certificate that was collected.
+
+        The verdict is bound to the collected leaf and reused for later
+        `validate()` calls on the same snapshot; `refresh()` collects a new
+        leaf and verifies it again.
         """
         if self.protocol != "ssl" or not self.der:
             return {
@@ -852,6 +858,17 @@ class CertMonitor:
                 "error": "MissingCertificate",
                 "reason": "A collected TLS certificate is required for trust verification.",
             }
+        if self._trust_verdict is not None and self._trust_verdict[0] == self.der:
+            cached = self._trust_verdict[1]
+            return {**cached, "warnings": list(cached.get("warnings", []))}
+        verdict = self._verify_trust_now()
+        if verdict.get("status") != "error":
+            self._trust_verdict = (self.der, verdict)
+        return {**verdict, "warnings": list(verdict.get("warnings", []))}
+
+    def _verify_trust_now(self) -> dict[str, Any]:
+        """Run the verified handshake(s) and return an uncached verdict."""
+        assert self.der is not None
         mismatch = False
         last_error: Exception | None = None
         for legacy in (False, True):
