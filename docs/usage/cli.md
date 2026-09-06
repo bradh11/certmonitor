@@ -76,4 +76,4 @@ certmonitor info TARGET | --file PATH [--pem] [connection options]
 certmonitor validators [--json]
 ```
 
-Run `certmonitor check --help` for the full flag list.
+Run `certmonitor check --help` for the full flag list. For Prometheus, GitHub Actions, and cron recipes built on the command, see [Monitoring Integrations](integrations.md).

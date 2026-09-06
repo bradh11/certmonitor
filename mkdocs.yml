@@ -30,6 +30,7 @@ nav:
       - Protocol Detection: usage/protocol.md
       - Troubleshooting: usage/troubleshooting.md
       - Performance Tips: usage/performance.md
+      - Monitoring Integrations: usage/integrations.md
       - FAQ: usage/faq.md
   - Validators:
       - Overview: validators/index.md
