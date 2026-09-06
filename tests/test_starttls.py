@@ -160,7 +160,13 @@ class FakeServer:
             conn.settimeout(3)
             self.preamble(conn)
             if self.tls_context is not None:
-                secure = self.tls_context.wrap_socket(conn, server_side=True)
+                try:
+                    secure = self.tls_context.wrap_socket(conn, server_side=True)
+                except ssl.SSLEOFError:
+                    # The post-quantum probe hangs up after ServerHello, which
+                    # is a normal end of conversation and not a preamble failure.
+                    conn.close()
+                    return
                 self.stop.wait(3)
                 secure.close()
             else:
@@ -296,8 +302,10 @@ def test_monitor_collects_and_verifies_over_starttls(
             "root_certificate"
         ]
         assert results["tls_version"]["status"] == "pass"
-        assert results["pq_key_exchange"]["status"] == "unsupported"
-        assert "STARTTLS" in results["pq_key_exchange"]["reason"]
+        # The native probe ran the same preamble and negotiated a real group.
+        assert results["pq_key_exchange"]["status"] in ("pass", "fail")
+        assert results["pq_key_exchange"]["kem_name"]
+        assert results["pq_key_exchange"]["endpoint"] == f"127.0.0.1:{server.port}"
         assert monitor.fingerprint_sha256
     assert server.failures == []
 
@@ -663,3 +671,49 @@ def test_discovery_goes_through_the_proxy(local_pki, server_tls):
     # Detection, discovery, collection, and the verified handshake all tunnelled.
     assert len(proxy.requests) >= 4
     assert proxy.failures == []
+
+
+# --- the native probe runs the preambles too -----------------------------------------
+
+
+def test_native_probe_negotiates_over_starttls(server_tls):
+    from certmonitor import certinfo
+
+    with FakeServer(smtp_ok, server_tls) as server:
+        result = certinfo.probe_tls_handshake(
+            "127.0.0.1", server.port, 3000, starttls="smtp"
+        )
+    assert result["result"] == "group", result
+    assert result["name"]
+    assert server.failures == []
+
+
+@pytest.mark.parametrize(
+    "protocol,preamble,fragment",
+    [
+        ("smtp", smtp_refuses, "expected 220"),
+        ("postgres", postgres_declines, "declined SSL"),
+        ("ldap", ldap_refuses, "TLS not supported"),
+    ],
+)
+def test_native_probe_reports_refusals(protocol, preamble, fragment):
+    from certmonitor import certinfo
+
+    with FakeServer(preamble) as server:
+        result = certinfo.probe_tls_handshake(
+            "127.0.0.1", server.port, 3000, starttls=protocol
+        )
+    assert result["result"] == "error"
+    assert result["error"] == "StartTLSError"
+    assert fragment in result["message"]
+
+
+def test_native_probe_rejects_unknown_protocol():
+    from certmonitor import certinfo
+
+    with FakeServer(smtp_ok) as server:
+        result = certinfo.probe_tls_handshake(
+            "127.0.0.1", server.port, 3000, starttls="gopher"
+        )
+    assert result["error"] == "StartTLSError"
+    assert "unsupported STARTTLS protocol" in result["message"]

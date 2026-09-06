@@ -78,12 +78,13 @@ class CertMonitor:
                 the PostgreSQL and LDAP StartTLS requests in turn. Discovery runs
                 only when the port turns out not to speak TLS directly, and is
                 bounded by `timeout`. Passing a protocol skips detection and
-                discovery entirely. The post-quantum probe reports `unsupported`
-                for STARTTLS endpoints.
+                discovery entirely. Collection, trust verification, and the
+                post-quantum probe all run the preamble.
             proxy: Route every connection through `http://[user:pass@]host:port`
                 (HTTP CONNECT) or `socks5://[user:pass@]host:port`. The proxy resolves
                 the target name. Results record the route with the password removed.
-                The post-quantum probe reports `unsupported` through a proxy.
+                Collection, trust verification, and the post-quantum probe all
+                go through the tunnel.
 
         Raises:
             ValueError: If `timeout` is not positive or `starttls` is not a
@@ -1153,18 +1154,6 @@ class CertMonitor:
                 "protocol": "offline",
                 "reason": self._OFFLINE_REASON.format(what="The post-quantum probe"),
             }
-        if self.starttls:
-            return {
-                "result": "n/a",
-                "protocol": f"starttls:{self.starttls}",
-                "reason": "The post-quantum probe does not run STARTTLS preambles yet.",
-            }
-        if self.proxy is not None:
-            return {
-                "result": "n/a",
-                "protocol": "proxy",
-                "reason": "The post-quantum probe does not connect through proxies yet.",
-            }
         # The probe speaks TLS; never run it against non-SSL protocols
         # (e.g. SSH hosts), regardless of validator configuration.
         if self.protocol is not None and self.protocol != "ssl":
@@ -1193,6 +1182,8 @@ class CertMonitor:
                     self.port,
                     int(self.timeout * 1000),
                     server_name=self.server_hostname,
+                    starttls=self.starttls,
+                    proxy=tuple(self.proxy) if self.proxy is not None else None,
                 ),
             )
             observation.update(

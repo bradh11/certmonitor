@@ -95,6 +95,8 @@ mod py {
 
     /// Probe a TLS 1.3 server for its key-exchange group. Opens a TCP
     /// connection to `host` (offering `server_name`, or `host`, as SNI),
+    /// runs the optional `starttls` preamble (smtp, imap, pop3, ftp,
+    /// postgres, ldap),
     /// sends one ClientHello offering X25519MLKEM768, reads
     /// the ServerHello, extracts the negotiated (or HRR-requested)
     /// group, and closes, no crypto, no certificate validation.
@@ -103,19 +105,35 @@ mod py {
     /// or protocol conditions); see `pyobj::probe_result_dict` for the
     /// shape. The socket work runs with the GIL released.
     #[pyfunction]
-    #[pyo3(signature = (host, port=443, timeout_ms=10000, server_name=None))]
+    #[pyo3(signature = (host, port=443, timeout_ms=10000, server_name=None, starttls=None, proxy=None))]
+    #[allow(clippy::too_many_arguments, clippy::type_complexity)]
     pub(super) fn probe_tls_handshake(
         py: Python<'_>,
         host: &str,
         port: u16,
         timeout_ms: u64,
         server_name: Option<&str>,
+        starttls: Option<&str>,
+        proxy: Option<(String, String, u16, Option<String>, Option<String>)>,
     ) -> PyResult<Py<PyAny>> {
         let timeout = std::time::Duration::from_millis(timeout_ms);
+        // `proxy` is a ProxyConfig tuple: (scheme, host, port, username, password).
+        let proxy =
+            proxy.map(
+                |(scheme, host, port, username, password)| crate::tls::proxy::Proxy {
+                    scheme,
+                    host,
+                    port,
+                    username,
+                    password,
+                },
+            );
         // Release the GIL for the blocking socket work so concurrent
         // scans don't serialize on the probe. (`detach` is pyo3 0.29's
         // rename of the former `allow_threads`.)
-        let result = py.detach(|| crate::tls::probe::probe(host, port, server_name, timeout));
+        let result = py.detach(|| {
+            crate::tls::probe::probe(host, port, server_name, starttls, proxy.as_ref(), timeout)
+        });
         Ok(pyobj::probe_result_dict(py, &result)?.into())
     }
 
