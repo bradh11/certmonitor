@@ -16,7 +16,7 @@ Pick a base class based on what your check looks at:
 - **`BaseCertValidator`** if you inspect the certificate. Your `validate` receives the parsed cert data.
 - **`BaseCipherValidator`** if you inspect the negotiated connection (TLS version, cipher suite). Your `validate` receives the cipher info.
 
-Here's a complete cert validator. Let's say we want to flag certificates whose Common Name is missing:
+Here's a complete cert validator. Let's say an internal inventory policy wants to flag a missing Common Name. This is a custom metadata policy; modern TLS identity uses SANs and does not require a CN:
 
 ```python
 # certmonitor/validators/common_name_present.py
@@ -81,7 +81,7 @@ VALIDATORS = {
 ```
 
 !!! warning "Default or opt-in?"
-    New validators should be **opt-in** by default. The default set (`expiration`, `hostname`, `root_certificate`, defined as `DEFAULT_VALIDATORS` in `certmonitor/config.py`) is deliberately small so that `CertMonitor("host")` stays fast and quiet. Only propose adding to the defaults if the check is universally useful and cheap, and call it out explicitly in your PR so it can be discussed.
+    New validators should be **opt-in** by default. The default set (`expiration`, `hostname`, `root_certificate`, defined as `DEFAULT_VALIDATORS` in `certmonitor/config.py`) is deliberately small to give a focused baseline for validity, identity, and trust. The trust check uses a separate handshake. Only propose adding to the defaults if the check is universally useful and cheap, and call it out explicitly in your PR so it can be discussed.
 
 ## 3. Test it
 
@@ -135,7 +135,7 @@ Before opening your PR, run what CI runs:
 make test
 ```
 
-This formats, lints, type-checks, tests with coverage, and audits, for both Python and Rust. If it's green locally, it'll be green in CI.
+This checks formatting, lints, type-checks, tests with coverage, audits, and builds. Run `make format` separately to apply formatting. A local pass is useful evidence; the platform CI matrix must pass too.
 
 ## Checklist
 

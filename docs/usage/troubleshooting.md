@@ -11,6 +11,8 @@ Common issues and how to resolve them. If your problem isn't here, the [FAQ](faq
 - For non-standard ports, pass them explicitly: `CertMonitor("host", 8443)`.
 
 ```python
+from certmonitor import CertMonitor
+
 with CertMonitor("example.com") as monitor:
     cert = monitor.get_cert_info()
     if isinstance(cert, dict) and "error" in cert:
@@ -37,12 +39,16 @@ for name, r in results.items():
 
 Common surprises:
 
+- **`subject_alt_names` reports unsupported.** Enable it with a non-empty `alternate_names` list; it checks extra names only. Use `hostname` for the primary identity.
+- **A validator key is missing.** Confirm it is enabled. `validator_args` configures a validator but does not enable it.
+- **`root_certificate` reports `SnapshotMismatch`.** The verified connection returned a different leaf. Refresh and retry; for a rotating backend pool, target a single backend with `connection_host`.
+- **A private CA is untrusted.** Configure `cafile` or `capath` for the trust check. Issuer names alone cannot establish trust.
 - **`hostname` fails on an IP address.** Most certs don't list IPs as SANs. See [Using IP Addresses](ip.md).
 - **`pq_signature` / `pq_chain` is `false` for a normal site.** This is expected: the cert is classical (EC/RSA), not post-quantum. See [Post-Quantum Cryptography](../concepts/post-quantum.md).
 
 ## Inspecting output
 
-Validator and certificate output is plain JSON-serializable dicts. Pretty-print to explore:
+Validator results and `get_cert_info()` output are JSON-serializable dictionaries. Raw DER and the internal `cert_data` snapshot can contain bytes, so do not serialize those directly. Pretty-print to explore:
 
 ```python
 import json

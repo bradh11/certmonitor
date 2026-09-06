@@ -31,7 +31,11 @@ DER is a binary format. It's what you reach for when a low-level API or cryptogr
 ```python
 with CertMonitor("example.com") as monitor:
     der = monitor.get_raw_der()
-    print(der)  # This will print bytes; you may want to base64-encode for display
+    if isinstance(der, bytes):
+        import base64
+        print(base64.b64encode(der).decode("ascii"))
+    else:
+        print(der["error"], der["message"])
 ```
 
 ### Example output (base64-encoded for readability)
@@ -41,7 +45,7 @@ MIIDdzCCAl+gAwIBAgIEAgAAuQ...(truncated for brevity)...IDAQAB
 ```
 
 !!! note "DER is bytes, not text"
-    `get_raw_der()` returns raw bytes. Printing them directly is noisy, so base64-encode the value first when you need something readable.
+    On success, `get_raw_der()` returns raw bytes; on failure, it returns an error dictionary. Check the type before encoding or saving it. Printing them directly is noisy, so base64-encode the value first when you need something readable.
 
 ## How retrieval fits together
 
@@ -68,4 +72,4 @@ So which one do you want? It comes down to what's on the receiving end:
 - **DER**: Use it for binary APIs, cryptographic libraries, or anywhere a raw byte array is required.
 
 !!! tip "You can always convert"
-    If you have one format and need the other, OpenSSL or Python's cryptography library will convert between PEM and DER for you.
+    If you have one format and need the other, Python's standard-library `ssl.PEM_cert_to_DER_cert()` and `ssl.DER_cert_to_PEM_cert()` convert between PEM and DER without an extra package.

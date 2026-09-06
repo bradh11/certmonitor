@@ -8,6 +8,17 @@ The `key_info` validator judges the strength of the certificate's public key, pe
 
 Per the result envelope, `is_valid` is always a strict `bool`. When strength **cannot be determined** (an unrecognized algorithm, or a missing size/curve) the key **fails closed**: `is_valid: false` with a `reason` that distinguishes "cannot determine" from "recognized but weak".
 
+## Try it
+
+```python
+from certmonitor import CertMonitor
+
+with CertMonitor("example.com", enabled_validators=["key_info"]) as monitor:
+    print(monitor.validate()["key_info"])
+```
+
+Look at `key_type` first, then `key_size` and `curve`. A 256-bit EC key and a 256-bit RSA modulus do not mean the same thing; this validator applies a separate rule to each family. PQ recognition is an algorithm classification, not a cryptographic proof of key or signature correctness.
+
 ## How it decides
 
 ```mermaid
@@ -25,6 +36,6 @@ flowchart TD
     C -- "Other / unknown" --> K["is_valid: false<br/>cannot determine, fails closed"]
 ```
 
-## API
+## Reference
 
 ::: certmonitor.validators.key_info.KeyInfoValidator

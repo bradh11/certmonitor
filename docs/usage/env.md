@@ -1,13 +1,13 @@
 # Environment Variable Configuration
 
-CertMonitor reads one environment variable, `ENABLED_VALIDATORS`, to set which validators run when you don't pass `enabled_validators` explicitly. Handy for configuring CI jobs, containers, or cron monitors without changing code.
+CertMonitor reads one environment variable, `ENABLED_VALIDATORS`, at import time to set which validators run when you don't pass `enabled_validators` explicitly. Handy for configuring CI jobs, containers, or cron monitors without changing code.
 
 ## ENABLED_VALIDATORS
 
 A comma-separated list of validator names:
 
 ```sh
-export ENABLED_VALIDATORS="expiration,hostname,subject_alt_names,tls_version,weak_cipher"
+export ENABLED_VALIDATORS="expiration,hostname,tls_version,weak_cipher"
 ```
 
 ```python
@@ -24,7 +24,7 @@ with CertMonitor("example.com") as monitor:
 The enabled set is resolved in this order:
 
 1. The `enabled_validators=[...]` argument to `CertMonitor(...)`, if given.
-2. Otherwise the `ENABLED_VALIDATORS` environment variable, if set.
+2. Otherwise the non-empty `ENABLED_VALIDATORS` environment variable captured when the configuration module was imported.
 3. Otherwise the built-in defaults: `expiration`, `hostname`, `root_certificate`.
 
 !!! tip "Turning on post-quantum checks fleet-wide"

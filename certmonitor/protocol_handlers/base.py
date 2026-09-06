@@ -13,6 +13,7 @@ class BaseProtocolHandler(ABC):
         self.socket: socket.socket | None = None
         self.secure_socket: ssl.SSLSocket | None = None
         self.error_handler = error_handler
+        self.timeout: float = 10.0
 
     @abstractmethod
     def connect(self) -> dict[str, Any] | None:

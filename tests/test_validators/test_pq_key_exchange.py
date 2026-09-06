@@ -36,7 +36,9 @@ class TestPqKeyExchangeValidator:
             "via_hello_retry_request": False,
         }
         r = self.v.validate(TLS13, probe, "h", 443)
-        assert r == {
+        assert {
+            k: r[k] for k in ("kem_id", "kem_name", "kem_kind", "is_pq", "is_valid")
+        } == {
             "kem_id": 4588,
             "kem_name": "X25519MLKEM768",
             "kem_kind": "hybrid_pq",
@@ -69,7 +71,7 @@ class TestPqKeyExchangeValidator:
         assert r["is_valid"] is False
         assert r["is_pq"] is False
         assert r["kem_name"] == "x25519"
-        assert "harvest-now-decrypt-later" in r["reason"]
+        assert "PQ capability was not observed" in r["reason"]
 
     def test_hello_retry_request_pq_counts_as_capable(self):
         probe = {

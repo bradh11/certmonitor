@@ -1,6 +1,6 @@
 # Error Handling
 
-CertMonitor never raises for the ordinary failures of talking to remote hosts (unreachable servers, protocol mismatches, missing data). Instead it **returns structured error dicts**, so a monitoring loop can keep going and log what happened rather than crashing.
+Unreachable servers, protocol mismatches, and missing data are ordinary parts of monitoring. CertMonitor returns **structured error dictionaries** for these failures, so your loop can log what happened and move on to the next host.
 
 ## Errors from `CertMonitor` methods
 
@@ -23,11 +23,12 @@ Common error classes: `ConnectionError`, `ProtocolDetectionError`, `ProtocolErro
 Validators follow the same philosophy through the [result envelope](../validators/index.md#the-result-contract): an operational failure is still a **result**, never a missing key. If a validator's data source can't be fetched, it appears in `validate()` output with `is_valid: false` and a `reason` (plus `error`/`message` where a machine-readable class helps):
 
 ```python
-results = monitor.validate()
+with CertMonitor("badhost.invalid") as monitor:
+    results = monitor.validate()
 # Safe to index every enabled validator; none are silently dropped:
 expiry = results["expiration"]
 if not expiry["is_valid"]:
-    alert(expiry["reason"])
+    print(expiry["reason"])
 ```
 
 This means a pipeline can rely on `results["<name>"]` existing for every enabled validator and never special-case a `KeyError`.
@@ -47,3 +48,19 @@ flowchart TD
 
 !!! tip "Detecting an error dict"
     A successful certificate/cipher call returns its normal structure; a failure returns a dict containing `"error"`. The reliable check is `isinstance(result, dict) and "error" in result`. For validators, just check `result["is_valid"]` and read `result["reason"]`.
+
+## Separate a failed check from a failed scan
+
+`is_valid` is false in both cases, but `status` tells you what happened:
+
+| Status | What to do with it |
+|---|---|
+| `pass` | The configured check passed. |
+| `warn` | The check passed and reported warnings; review them for renewal or policy planning. |
+| `fail` | The available evidence failed the check. Read `reason`. |
+| `error` | An operational or invocation failure prevented the check. Log `error` and `message` when present. |
+| `unsupported` | The check could not apply to the supplied data or request. |
+
+These fields are added by `CertMonitor.validate()`. Direct calls to a validator can return its underlying fields without dispatcher metadata.
+
+Configuration and programming mistakes can still raise exceptions. For example, a nonpositive constructor `timeout` raises `ValueError`, and a malformed custom validator signature raises `TypeError` when the class is defined. Structured network errors do not replace normal Python exception handling for your own code.

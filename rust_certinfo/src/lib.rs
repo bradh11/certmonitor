@@ -94,7 +94,8 @@ mod py {
     }
 
     /// Probe a TLS 1.3 server for its key-exchange group. Opens a TCP
-    /// connection, sends one ClientHello offering X25519MLKEM768, reads
+    /// connection to `host` (offering `server_name`, or `host`, as SNI),
+    /// sends one ClientHello offering X25519MLKEM768, reads
     /// the ServerHello, extracts the negotiated (or HRR-requested)
     /// group, and closes — no crypto, no certificate validation.
     ///
@@ -102,18 +103,19 @@ mod py {
     /// or protocol conditions); see `pyobj::probe_result_dict` for the
     /// shape. The socket work runs with the GIL released.
     #[pyfunction]
-    #[pyo3(signature = (host, port=443, timeout_ms=10000))]
+    #[pyo3(signature = (host, port=443, timeout_ms=10000, server_name=None))]
     pub(super) fn probe_tls_handshake(
         py: Python<'_>,
         host: &str,
         port: u16,
         timeout_ms: u64,
+        server_name: Option<&str>,
     ) -> PyResult<Py<PyAny>> {
         let timeout = std::time::Duration::from_millis(timeout_ms);
         // Release the GIL for the blocking socket work so concurrent
         // scans don't serialize on the probe. (`detach` is pyo3 0.29's
         // rename of the former `allow_threads`.)
-        let result = py.detach(|| crate::tls::probe::probe(host, port, timeout));
+        let result = py.detach(|| crate::tls::probe::probe(host, port, server_name, timeout));
         Ok(pyobj::probe_result_dict(py, &result)?.into())
     }
 

@@ -40,7 +40,8 @@ class WeakCipherValidator(BaseCipherValidator):
     """
     Validates that the negotiated cipher suite is in the allowed list.
 
-    The default allowed set follows Mozilla's "Intermediate" configuration.
+    The built-in allowed set contains modern AEAD suites. It is a library
+    policy, not a live feed of external recommendations.
     Override it per call with the ``allowed_cipher_suites`` argument.
     """
 
@@ -63,7 +64,7 @@ class WeakCipherValidator(BaseCipherValidator):
             port (int): The port number.
             allowed_cipher_suites (list, optional): Override the default
                 allowed cipher suites. When ``None`` (the default), the
-                Mozilla "Intermediate" set is used.
+                built-in allow-list is used.
 
         Returns:
             dict: A dictionary containing the validation results, including whether the cipher suite is allowed.

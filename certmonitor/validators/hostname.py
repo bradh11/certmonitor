@@ -1,16 +1,18 @@
-# validators/hostname.py
-
 from typing import Any
 
+from ..utils.identity import dns_match, match_identity, normalize_sans
 from .base import BaseCertValidator
 from .results import ValidationResult
 
 
 class HostnameResult(ValidationResult, total=False):
-    """Result shape for :class:`HostnameValidator` (envelope + data)."""
+    """Result shape for `HostnameValidator` (envelope + data)."""
 
     matched_name: str
     alt_names: list[str]
+    common_name: str | None
+    common_name_matches: bool
+    identity_source: str
 
 
 class HostnameValidator(BaseCertValidator):
@@ -23,14 +25,30 @@ class HostnameValidator(BaseCertValidator):
 
     name: str = "hostname"
 
-    def validate(self, cert: dict[str, Any], host: str, port: int) -> HostnameResult:
+    def validate(
+        self,
+        cert: dict[str, Any],
+        host: str,
+        port: int,
+        *,
+        expected_identity: str | None = None,
+    ) -> HostnameResult:
         """
-        Validates the hostname against the Subject Alternative Names (SANs) and Common Name (CN) in the provided SSL certificate.
+        Validates the hostname against the Subject Alternative Names (SANs) in the provided SSL certificate.
+
+        Common Name is also reported in `common_name` and `common_name_matches`
+        for inspection. It never overrides the SAN-based `is_valid` result.
+        DNS matching is case-insensitive, and IP identities match IP Address SANs.
+        `matched_name` is the SAN entry that matched: the exact name, the
+        wildcard pattern, or the IP address.
 
         Args:
             cert (dict): The SSL certificate.
             host (str): The hostname to validate.
             port (int): The port number.
+            expected_identity (str, optional): A DNS name or IP address to check instead
+                of `host`. Use it when the monitor connects by one name or address but
+                the certificate must be valid for another. Defaults to `None`.
 
         Returns:
             dict: A dictionary containing the validation results, including whether the hostname is valid,
@@ -50,106 +68,48 @@ class HostnameValidator(BaseCertValidator):
                 }
 
             Example output (failure):
-                This example shows a certificate where the hostname does not match any DNS SAN or common name, so validation fails and a reason is provided.
+                This example shows a certificate where the hostname does not match any DNS SAN, so validation fails and a reason is provided.
 
                 {
                     "is_valid": false,
-                    "reason": "Hostname test.example.com doesn't match any of the certificate's subject alternative names or common name",
+                    "reason": "Hostname test.example.com doesn't match any of the certificate's subject alternative names",
                     "alt_names": [
                         "example.com",
                         "www.example.com"
                     ]
                 }
         """
-        common_name = self._get_common_name(cert["cert_info"])
-        if common_name and self._matches_hostname(host, [common_name]):
-            return {"is_valid": True, "matched_name": common_name, "alt_names": []}
-
-        if "subjectAltName" not in cert["cert_info"]:
-            return {
-                "is_valid": False,
-                "reason": "Certificate does not contain a Subject Alternative Name extension",
-            }
-
-        sans = cert["cert_info"]["subjectAltName"]
-
-        # Ensure sans is a list of DNS names
-        if isinstance(sans, dict):
-            dns_names = sans.get("DNS", [])
-            if isinstance(dns_names, str):
-                dns_names = [dns_names]
-        else:
-            dns_names = [item[1] for item in sans if item[0] == "DNS"]
-
-        if not dns_names:
-            return {
-                "is_valid": False,
-                "reason": "Certificate does not contain any DNS SANs",
-                "alt_names": [],
-            }
-
-        # Check if the hostname matches any of the DNS names
-        if self._matches_hostname(host, dns_names):
-            return {"is_valid": True, "matched_name": host, "alt_names": dns_names}
-
-        # If no match found, check for wildcard certificates
-        for name in dns_names:
-            if self._matches_wildcard(host, name):
-                return {"is_valid": True, "matched_name": name, "alt_names": dns_names}
-
-        return {
-            "is_valid": False,
-            "reason": f"Hostname {host} doesn't match any of the certificate's subject alternative names or common name",
-            "alt_names": dns_names,
-        }
-
-    def _get_common_name(self, cert: dict) -> str | None:
-        """
-        Retrieves the Common Name (CN) from the certificate.
-
-        Args:
-            cert (dict): The SSL certificate.
-
-        Returns:
-            str: The Common Name (CN) if present, None otherwise.
-        """
-        subject = cert.get("subject", {})
+        host = expected_identity or host
+        info = cert.get("cert_info", {})
+        sans = normalize_sans(info.get("subjectAltName"))
+        match = match_identity(host, sans)
+        subject = info.get("subject", {})
+        if not isinstance(subject, dict):
+            subject = dict(pair for rdn in subject for pair in rdn)
         common_name = subject.get("commonName")
-        if isinstance(common_name, str):
-            return common_name
-        return None
+        if not isinstance(common_name, str):
+            common_name = None
+        result: HostnameResult = {
+            "is_valid": match.is_valid,
+            "alt_names": sans["DNS"] + sans["IP Address"],
+            "identity_source": "subjectAltName",
+            "common_name": common_name,
+            "common_name_matches": common_name is not None
+            and dns_match(host, common_name),
+        }
+        if match.is_valid:
+            result["matched_name"] = match.matched_name or host
+            return result
 
-    def _matches_hostname(self, hostname: str, cert_names: list) -> bool:
-        """
-        Checks if the hostname matches any of the provided certificate names.
-
-        Args:
-            hostname (str): The hostname to check.
-            cert_names (list): The list of certificate names.
-
-        Returns:
-            bool: True if the hostname matches any of the certificate names, False otherwise.
-        """
-        return hostname.lower() in (name.lower() for name in cert_names)
-
-    def _matches_wildcard(self, hostname: str, pattern: str) -> bool:
-        """
-        Checks if the hostname matches a wildcard pattern.
-
-        Args:
-            hostname (str): The hostname to check.
-            pattern (str): The wildcard pattern to match against.
-
-        Returns:
-            bool: True if the hostname matches the wildcard pattern, False otherwise.
-        """
-        if not pattern.startswith("*."):
-            return False
-
-        host_parts = hostname.split(".")
-        pattern_parts = pattern[2:].split(".")  # Remove '*.' and split
-
-        if len(host_parts) != len(pattern_parts) + 1:
-            return False
-
-        return host_parts[1:] == pattern_parts
+        if "subjectAltName" not in info:
+            reason = "Certificate does not contain a Subject Alternative Name extension"
+        elif match.kind == "dns":
+            reason = (
+                f"Hostname {host} doesn't match any of the certificate's subject alternative names"
+                if sans["DNS"]
+                else "Certificate does not contain any DNS SANs"
+            )
+        else:
+            reason = match.reason
+        result["reason"] = reason
+        return result

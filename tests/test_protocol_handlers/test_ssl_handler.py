@@ -545,9 +545,11 @@ class TestSSLHandler:
         handler = SSLHandler("example.com", 443, mock_error_handler)
 
         # Mock socket and SSL context to simulate unsafe legacy renegotiation
-        with patch("socket.socket") as mock_socket_class:
+        with patch(
+            "socket.create_connection",
+            side_effect=ssl.SSLError("UNSAFE_LEGACY_RENEGOTIATION_DISABLED"),
+        ):
             mock_socket = MagicMock()
-            mock_socket_class.return_value = mock_socket
 
             # Create an SSL error that contains the unsafe legacy renegotiation message
             ssl_error = ssl.SSLError("unsafe legacy renegotiation disabled")
@@ -629,7 +631,7 @@ class TestSSLHandler:
                 raise ssl.SSLError("Some other SSL error during retry")
 
         with (
-            patch("socket.socket", return_value=mock_socket),
+            patch("socket.create_connection", return_value=mock_socket),
             patch("ssl.SSLContext") as mock_context_class,
             patch.object(handler, "get_supported_protocols", return_value=["TLSv1_2"]),
         ):

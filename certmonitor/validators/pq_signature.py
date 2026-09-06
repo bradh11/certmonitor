@@ -56,12 +56,13 @@ class PqSignatureValidator(BaseCertValidator):
     By default ``is_valid`` is ``True`` when the **leaf key is
     post-quantum** — the part the operator controls — matching the
     ``pq_chain`` default so a PQ-keyed, classically-signed certificate
-    (the realistic migration shape) gets one consistent verdict. Pass
+    (one possible migration shape) gets one consistent verdict. Pass
     ``require_pq_signature=True`` to additionally demand a post-quantum
     signature from the CA.
 
-    Works on every supported interpreter: the leaf data comes from the
-    chain analysis when available, with a leaf-only fallback otherwise.
+    The leaf data comes from chain analysis when available, with a leaf-only
+    fallback otherwise. Collection or parsing failures produce a failed result.
+    Algorithm recognition does not verify cryptographic signatures.
 
     Opt-in: registered in ``VALIDATORS`` but not in
     ``DEFAULT_VALIDATORS``.

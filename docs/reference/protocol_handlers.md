@@ -18,6 +18,6 @@ Handles SSL/TLS endpoints: the handshake, certificate retrieval, and cipher info
 
 ## SSH handler
 
-Handles SSH endpoints.
+Reads SSH version banners. It does not retrieve or validate SSH host keys or SSH certificates.
 
 ::: certmonitor.protocol_handlers.ssh_handler

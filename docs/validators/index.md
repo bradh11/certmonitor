@@ -46,13 +46,13 @@ The default three run out of the box. The opt-in validators are registered and r
 
 **Opt-in** (enable via `enabled_validators=[...]` or `ENABLED_VALIDATORS`):
 
-- [SubjectAltNames](subject_alt_names.md): Checks the Subject Alternative Names (SANs) extension.
+- [SubjectAltNames](subject_alt_names.md): Checks that every requested alternate hostname/IP is covered by the SANs, or the primary host when none are requested.
 - [KeyInfo](key_info.md): Validates the public key type and strength (RSA / EC / post-quantum).
 - [TLSVersion](tls_version.md): Validates the negotiated TLS version.
 - [WeakCipher](weak_cipher.md): Validates that the negotiated cipher suite is in the allowed list.
 - [SensitiveDate](sensitive_date.md): Validates that the certificate doesn't expire on built-in or user specified sensitive dates.
 - [Chain](chain.md): Inspects the full TLS certificate chain for structural problems (missing intermediates, out-of-order, expired members).
-- [PqKeyExchange](pq_key_exchange.md): Judges whether the negotiated TLS key exchange is post-quantum (hybrid or pure ML-KEM).
+- [PqKeyExchange](pq_key_exchange.md): Reports PQ capability observed under a separate, unauthenticated TLS probe offer.
 - [PqChain](pq_chain.md): Reports the post-quantum posture of every certificate in the presented chain.
 - [PqSignature](pq_signature.md): Judges the leaf certificate's post-quantum posture (key and signature algorithm).
 
@@ -71,13 +71,16 @@ with CertMonitor(
     results = monitor.validate()
 ```
 
+These examples show selected fields from illustrative scans. `validate()` also adds `status` and `code`, described in the [result contract](index.md#the-result-contract).
+
 ```json
 {
   "expiration": {
     "is_valid": true,
     "days_to_expiry": 56,
     "expires_on": "2026-08-08T22:14:02+00:00",
-    "warnings": []
+    "warnings": [],
+    "lifetime_days": 90
   },
   "key_info": {
     "key_type": "ecPublicKey",
@@ -105,7 +108,8 @@ When a check fails, the same envelope carries a human-readable `reason` you can 
     "days_to_expiry": -4080,
     "expires_on": "2015-04-12T23:59:59+00:00",
     "warnings": ["Certificate is expired and has been expired for (-4080 days)"],
-    "reason": "Certificate expired 4080 days ago (expired on 2015-04-12)."
+    "reason": "Certificate expired 4080 days ago (expired on 2015-04-12).",
+    "lifetime_days": 3
   }
 }
 ```
@@ -114,7 +118,7 @@ Because every validator's result is a plain dict keyed by validator name, a moni
 
 ## Post-Quantum Readiness
 
-The `pq_*` validators answer the questions classical TLS tooling can't. `pq_key_exchange` reads the negotiated TLS 1.3 group directly off the wire (the Python `ssl` module doesn't expose it) and tells you whether the session is protected against *harvest-now-decrypt-later*:
+The `pq_*` validators answer the questions classical TLS tooling can't. `pq_key_exchange` reads the negotiated TLS 1.3 group directly off the wire (the Python `ssl` module doesn't expose it) and reports server PQ capability under an unauthenticated probe offer, without establishing protection of the primary session:
 
 ```python
 with CertMonitor("cloudflare.com", enabled_validators=["pq_key_exchange"]) as monitor:
@@ -124,6 +128,16 @@ with CertMonitor("cloudflare.com", enabled_validators=["pq_key_exchange"]) as mo
 
 ```json
 {
+  "observation_scope": "server_capability_probe",
+  "handshake_completed": false,
+  "authenticated": false,
+  "endpoint": "cloudflare.com:443",
+  "observed_at": "2026-09-06T00:26:21.588128+00:00",
+  "offered_groups": [
+    4588,
+    29,
+    23
+  ],
   "kem_id": 4588,
   "kem_name": "X25519MLKEM768",
   "kem_kind": "hybrid_pq",
@@ -145,15 +159,17 @@ without changing the runtime type:
 |---|---|---|
 | `is_valid` | `bool` | Always present, strict bool, never `None`. |
 | `reason` | `str` | Present **iff** `is_valid` is `False`. One human-readable sentence stating the primary cause. |
+| `status` | `str` | Dispatcher state: pass, warn, fail, error, or unsupported. |
+| `code` | `str` | Stable `<validator>.<status>` code added by the dispatcher. |
 | `warnings` | `List[str]` | Optional. Non-fatal findings. |
 | `error` | `str` | Optional. Machine-readable error class on operational failures. |
 | `message` | `str` | Optional. Human-readable detail accompanying `error`. |
 
 All other keys are validator-specific **data** fields: snake_case, documented
-on the validator's page, and stable across releases. The five reserved keys
+on the validator's page, with behavior changes called out in the migration guide. The reserved keys
 above are never reused for data.
 
-Two corollaries:
+Three consequences:
 
 1. **Operational failures are still results.** A validator whose data source
    cannot be fetched (connection error, probe failure, chain missing) still

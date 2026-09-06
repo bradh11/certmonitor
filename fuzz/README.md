@@ -1,7 +1,8 @@
 # certinfo fuzzing
 
-`cargo fuzz` target for the in-tree X.509 parser. Validates that
-`Certificate::from_der` never panics on arbitrary input. This is a
+`cargo fuzz` target for the in-tree X.509 parser. Looks for inputs that
+cause `Certificate::from_der` to panic. A clean run is evidence, not a proof
+that every possible input is safe. This is a
 **manual pre-release gate**, not a CI check — `cargo fuzz` requires the
 nightly Rust toolchain and runs for arbitrary durations.
 
@@ -24,14 +25,14 @@ The new in-tree DER parser takes untrusted bytes from the network on
 every TLS handshake. The risk classes fuzzing defends against:
 
 1. **Panic on malformed input.** `#![forbid(unsafe_code)]` at the
-   certinfo crate root prevents memory-safety bugs, but Rust panics
-   still abort the process. Every bounds-check in the parser is a
+   certinfo crate root prevents memory-safety bugs, but it does not prevent Rust panics
+   (which unwind or abort depending on the build). Every bounds-check in the parser is a
    potential panic if I got the math wrong. Fuzzing tries millions of
    adversarial byte sequences and reports any that crash.
 2. **Pathological CPU on malformed input** (denial of service). A
-   length-parsing bug that loops on a particular byte sequence is the
-   kind of thing only a coverage-guided fuzzer reliably finds.
-3. **Bounds bugs in length fields.** Historically the #1 source of CVEs
+   length-parsing bug that loops on a particular byte sequence is a
+   useful target for coverage-guided fuzzing and explicit resource-limit tests.
+3. **Bounds bugs in length fields.** A recurring source of bugs
    in DER/ASN.1 parsers. Hand-written tests cover the cases I thought
    of; libfuzzer covers the cases I didn't.
 

@@ -1,121 +1,99 @@
-# tests/test_validators/test_expiration.py
-
-from datetime import datetime, timedelta
-
+from datetime import datetime, timedelta, timezone
+import pytest
 from certmonitor.validators.expiration import ExpirationValidator
 
 
-def test_expiration_validator(sample_cert):
-    validator = ExpirationValidator()
-    result = validator.validate({"cert_info": sample_cert}, "www.example.com", 443)
-    assert result["is_valid"]
-    assert "days_to_expiry" in result
-
-
-def test_expired_cert(sample_cert):
-    sample_cert["notAfter"] = (datetime.now() - timedelta(days=1)).strftime(
-        "%b %d %H:%M:%S %Y GMT"
-    )
-    validator = ExpirationValidator()
-    result = validator.validate({"cert_info": sample_cert}, "www.example.com", 443)
-    assert not result["is_valid"]
-
-
-def test_expiration_validator_certificate_too_long():
-    """Test expiration validator warns when certificate validity period exceeds industry standards."""
-    from datetime import datetime, timedelta
-
-    from certmonitor.validators.expiration import ExpirationValidator
-
-    validator = ExpirationValidator()
-
-    # Create mock certificate data with expiry more than 398 days in future
-    future_date = datetime.now() + timedelta(days=500)  # 500 days in future
-
-    mock_cert_data = {
-        "cert_info": {"notAfter": future_date.strftime("%b %d %H:%M:%S %Y GMT")}
-    }
-
-    result = validator.validate(mock_cert_data, "example.com", 443)
-
-    # Should have a warning about certificate being valid for too long
-    assert isinstance(result, dict)
-    assert "warnings" in result
-    warnings = result["warnings"]
-    assert any(
-        "valid for more than industry standard" in warning for warning in warnings
-    )
-
-
-def test_expiration_long_validity_certificate():
-    """Test certificate with extended validity period produces appropriate warnings."""
-    from datetime import timezone
-
-    validator = ExpirationValidator()
-
-    # Create a certificate with exactly 400 days validity to ensure we hit the > 398 condition
+def certificate(start=-1, end=30):
     now = datetime.now(timezone.utc)
-    not_before = now - timedelta(days=1)
-    not_after = now + timedelta(days=400)  # Exactly 400 days from now
-
-    cert_data = {
+    return {
         "cert_info": {
-            "notBefore": not_before.strftime("%b %d %H:%M:%S %Y GMT"),
-            "notAfter": not_after.strftime("%b %d %H:%M:%S %Y GMT"),
+            "notBefore": (now + timedelta(days=start)).strftime(
+                "%b %d %H:%M:%S %Y GMT"
+            ),
+            "notAfter": (now + timedelta(days=end)).strftime("%b %d %H:%M:%S %Y GMT"),
         }
     }
 
-    result = validator.validate(cert_data, "example.com", 443)
 
-    # Verify we get the warning about industry standard
+@pytest.mark.parametrize(
+    "start,end,valid", [(-1, 30, True), (-2, -1, False), (1, 30, False)]
+)
+def test_validity_boundaries(start, end, valid):
+    result = ExpirationValidator().validate(certificate(start, end), "example.com", 443)
+    assert result["is_valid"] is valid
+    if not valid:
+        assert result["reason"]
+
+
+def test_twelve_hours_triggers_critical_warning():
+    result = ExpirationValidator().validate(certificate(end=0.5), "example.com", 443)
     assert result["is_valid"] is True
-    assert "warnings" in result
+    assert result["days_to_expiry"] == 0
+    assert "critical" in result["warnings"][0]
 
-    # Check that we have a warning about industry standard
-    industry_warning_found = any(
-        "more than industry standard" in warning for warning in result["warnings"]
+
+def test_warning_threshold_is_configurable():
+    result = ExpirationValidator().validate(
+        certificate(end=20), "example.com", 443, warning_days=30
     )
-    assert industry_warning_found
+    assert "warning threshold" in result["warnings"][0]
 
 
-def test_expiration_validator_expiring_soon():
-    """Test expiration validator with certificate expiring in less than 1 week."""
-    from datetime import timezone
-
-    validator = ExpirationValidator()
-
-    # Create a certificate expiring in exactly 3 days from now
-    now = datetime.now(timezone.utc)
-    # Add a small buffer to ensure we get exactly 3 days
-    not_after = now.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(
-        days=4
-    )  # 4 days from start of today
-
-    cert_data = {
-        "cert_info": {
-            "notAfter": not_after.strftime("%b %d %H:%M:%S %Y GMT"),
-        }
-    }
-
-    result = validator.validate(cert_data, "example.com", 443)
-
-    # Verify we get the warning about expiring soon
-    assert result["is_valid"] is True  # Still valid but with warning
-    assert "warnings" in result
-    # Accept either 3 or 4 days since calculation depends on exact timing
-    assert result["days_to_expiry"] in [3, 4]
-
-    # Check that we have a warning about expiring soon
-    warning_found = any(
-        "expiring in less than 1 week" in warning for warning in result["warnings"]
+def test_lifetime_policy_uses_total_not_remaining():
+    result = ExpirationValidator().validate(
+        certificate(start=-190, end=20), "example.com", 443, max_lifetime_days=200
     )
-    assert warning_found, (
-        f"Expected warning about expiring soon, got: {result['warnings']}"
+    assert result["is_valid"] is True
+    assert result["lifetime_days"] == 210
+    assert "total lifetime" in result["warnings"][0]
+
+
+def test_default_lifetime_policy_is_the_public_pki_limit():
+    long_lived = ExpirationValidator().validate(
+        certificate(start=-1, end=500), "example.com", 443
     )
-    assert warning_found
+    assert long_lived["is_valid"] is True
+    assert "exceeds the 398-day limit" in long_lived["warnings"][0]
+    within = ExpirationValidator().validate(
+        certificate(start=-1, end=390), "example.com", 443
+    )
+    assert within["warnings"] == []
 
 
-if __name__ == "__main__":
-    import pytest
+def test_lifetime_policy_can_be_relaxed_or_disabled():
+    cert = certificate(start=-1, end=500)
+    relaxed = ExpirationValidator().validate(
+        cert, "example.com", 443, max_lifetime_days=1000
+    )
+    assert relaxed["warnings"] == []
+    disabled = ExpirationValidator().validate(
+        cert, "example.com", 443, max_lifetime_days=None
+    )
+    assert disabled["warnings"] == []
 
-    pytest.main()
+
+def test_expired_reason_survives_lifetime_policy():
+    result = ExpirationValidator().validate(
+        certificate(start=-500, end=-3), "example.com", 443
+    )
+    assert result["is_valid"] is False
+    assert result["reason"].startswith("Certificate expired")
+    assert "days ago" in result["reason"]
+    assert any("total lifetime" in warning for warning in result["warnings"])
+
+
+def test_missing_not_before_skips_start_and_lifetime_checks():
+    cert = certificate(end=90)
+    del cert["cert_info"]["notBefore"]
+    result = ExpirationValidator().validate(cert, "example.com", 443)
+    assert result["is_valid"] is True
+    assert result["warnings"] == []
+    assert "lifetime_days" not in result
+
+
+@pytest.mark.parametrize(
+    "kwargs", [{"warning_days": -1}, {"critical_days": 10}, {"max_lifetime_days": 0}]
+)
+def test_invalid_policy(kwargs):
+    with pytest.raises(ValueError):
+        ExpirationValidator().validate(certificate(), "example.com", 443, **kwargs)

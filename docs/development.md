@@ -14,26 +14,28 @@ make help
 
 1. **Clone the repository:**
     ```sh
-    git clone <repo-url>
+    git clone https://github.com/bradh11/certmonitor.git
     cd certmonitor
     ```
-2. **Install dev dependencies (includes maturin):**
-
-    === "uv"
-        ```sh
-        uv sync --group dev
-        ```
-
-    === "pip"
-        ```sh
-        pip install -e .[dev]
-        ```
-
-3. **Install Rust toolchain:**
+2. **Install Rust toolchain:**
     ```sh
     curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
     # Or see https://www.rust-lang.org/tools/install
     ```
+3. **Install dev dependencies (includes maturin):**
+
+    === "uv"
+        ```sh
+        uv sync --group dev --group docs
+        ```
+
+    === "pip"
+        ```sh
+        python -m venv .venv
+        source .venv/bin/activate
+        python -m pip install -e . --group dev --group docs
+        ```
+
 4. **Build and install the Rust bindings:**
     ```sh
     make develop
@@ -41,7 +43,7 @@ make help
 
 ## Makefile Commands Reference
 
-CertMonitor provides a comprehensive Makefile with unified commands for both Python and Rust development. All commands are designed to work seamlessly together.
+CertMonitor provides a comprehensive Makefile with unified commands for both Python and Rust development. Most commands use `uv`; install it before following the Makefile workflow. The pip tab uses `--group`, which requires pip 25.1 or newer.
 
 ### 📦 Development Commands
 
@@ -56,7 +58,7 @@ CertMonitor provides a comprehensive Makefile with unified commands for both Pyt
 #### Comprehensive Testing
 | Command | Description |
 |---------|-------------|
-| `make test` | **Run full CI-equivalent test suite** (9 comprehensive checks) |
+| `make test` | **Run full CI-equivalent test suite** (Python/Rust checks and build verification) |
 | `make test-quick` | Run tests only (fast, no quality checks) |
 | `make ci` | Alias for `make test` |
 
@@ -95,7 +97,7 @@ CertMonitor provides a comprehensive Makefile with unified commands for both Pyt
 
 | Command | Description |
 |---------|-------------|
-| `make clean` | Remove all build artifacts and cache |
+| `make clean` | Remove build artifacts, caches, and the local `.venv` |
 | `make verify-wheel` | Verify contents of built wheel |
 
 ## Development Workflows
@@ -126,16 +128,17 @@ Before committing or creating a PR, run the full test suite:
 make test
 ```
 
-This runs 9 comprehensive checks:
+This runs the following checks:
 1. Python code formatting check
 2. Python linting check  
 3. Rust code formatting check
 4. Rust linting check
-5. Pytest with coverage (95%+ required)
-6. Python type checking (mypy)
-7. Security vulnerability check (cargo audit)
-8. Build verification
-9. Modularization report generation
+5. Rust unit tests (`cargo test`)
+6. Pytest with coverage (95%+ required)
+7. Python type checking (mypy)
+8. Rust dependency audit (`cargo audit`)
+9. Python security scan (Bandit)
+10. Wheel build verification, followed by the modularization report
 
 ### Working with Rust Code
 
@@ -167,7 +170,7 @@ The unified `format` and `lint` commands provide several advantages:
 
 - **Single Interface**: Run `make format` to format all code regardless of language
 - **Consistent Experience**: Same commands work for Python and Rust
-- **CI Alignment**: Local `make test` matches exactly what CI runs
+- **CI Alignment**: Local checks cover the main quality gates; CI also exercises its configured platform and Python matrix
 - **Time Saving**: No need to remember separate commands for each language
 
 ## Running Tests
@@ -182,7 +185,7 @@ make test-quick
 make test
 ```
 
-The full test suite provides detailed progress reporting and matches exactly what runs in CI.
+The full local suite provides detailed progress reporting. Check the CI matrix before release too: a local run covers your environment, not every supported platform.
 
 ## Running the Docs
 
@@ -206,7 +209,7 @@ Both paths share the same building blocks (subclass a base validator, follow the
 Parsing X.509 certificates and extracting cryptographic key information is performance-critical and security-sensitive. Python's standard library does not provide low-level, robust, or fast parsing for all certificate fields, especially for public key extraction and ASN.1 parsing. Rust, with its strong safety guarantees and excellent cryptography ecosystem, is ideal for this task.
 
 - **Performance:** Rust code is compiled and runs much faster than pure Python for binary parsing.
-- **Safety:** Rust's memory safety model helps prevent many classes of bugs and vulnerabilities. The in-tree parser is annotated `#![forbid(unsafe_code)]` and returns a `Result` on every path, so malformed input never panics.
+- **Safety:** Rust's memory safety model helps prevent many classes of bugs and vulnerabilities. The in-tree parser is annotated `#![forbid(unsafe_code)]` and parser entry points return `Result` for malformed input. Unit tests, corpus comparisons, and fuzzing exercise the error paths; memory safety does not prove parsing correctness.
 - **Zero dependencies:** As of v0.3.0 the entire X.509 / DER parser is written in-house against the Rust standard library, with no third-party parsing crates in the runtime tree.
 
 The Rust extension is built as a Python module using [PyO3](https://pyo3.rs/) and [maturin](https://github.com/PyO3/maturin), and is automatically installed as part of the development workflow.
@@ -217,7 +220,7 @@ The Rust extension is built as a Python module using [PyO3](https://pyo3.rs/) an
 
 1. **Rust compilation errors**: Ensure you have the latest Rust toolchain installed
 2. **Import errors**: Run `make develop` to rebuild the Rust extension
-3. **Test failures**: Run `make format lint` to fix code quality issues
+3. **Test failures**: Read the failing assertion, reproduce it, and check for regressions; formatting alone does not fix behavioral failures
 4. **Type errors**: Run `make typecheck` to see mypy errors
 
 ### Getting Help
@@ -229,3 +232,19 @@ The Rust extension is built as a Python module using [PyO3](https://pyo3.rs/) an
 ---
 
 For more details, see the Makefile commands above and `pyproject.toml` for up-to-date dependencies.
+
+## Writing documentation
+
+Start with the reader's task, show a small working example, then explain the result. Keep the conversational voice: say what the check does, why someone would use it, and what they should try next. Use tips for useful shortcuts and warnings for an actual behavior a reader could miss.
+
+Preserve the full API docstrings. The reference pages render their descriptions, arguments, returns, and examples with mkdocstrings, so shortening a docstring also removes documentation from the site. Update factual details in place when behavior changes.
+
+Enable every opt-in validator used in an example, pass its required policy arguments, and handle error dictionaries before treating a result as bytes or text. Mark sample output as illustrative or abbreviated, and keep `json` fences valid JSON.
+
+Before finishing a docs change, build with warnings treated as errors:
+
+```sh
+uv run mkdocs build --strict
+```
+
+Preview both light and dark mode, check narrow-screen navigation, and follow the tutorial's internal links. A clean build catches reference problems; it doesn't establish that an example's behavior is correct.

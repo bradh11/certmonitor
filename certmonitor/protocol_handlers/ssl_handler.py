@@ -14,6 +14,10 @@ class SSLHandler(BaseProtocolHandler):
         super().__init__(host, port, error_handler)
         self.socket: socket.socket | None = None
         self.secure_socket: ssl.SSLSocket | None = None
+        self.server_hostname = host
+        self.timeout = 10.0
+        self.client_cert: str | None = None
+        self.client_key: str | None = None
         self.tls_version: str | None = None
 
     def get_supported_protocols(self) -> list[int]:
@@ -37,6 +41,13 @@ class SSLHandler(BaseProtocolHandler):
         return supported_protocols
 
     def connect(self) -> dict[str, Any] | None:
+        """Negotiate a permissive TLS session, trying each protocol in turn.
+
+        Every protocol attempt gets its own `timeout`, so a server that
+        silently drops a modern ClientHello still leaves time for the legacy
+        fallbacks this handler exists to exercise. The worst case is therefore
+        `timeout` multiplied by the number of supported protocols.
+        """
         protocols = self.get_supported_protocols()
         for protocol in protocols:
             try:
@@ -44,15 +55,17 @@ class SSLHandler(BaseProtocolHandler):
                     warnings.simplefilter("ignore", category=DeprecationWarning)
                     context = ssl.SSLContext(protocol)
                     context.set_ciphers("ALL:@SECLEVEL=0")
+                    if self.client_cert:
+                        context.load_cert_chain(self.client_cert, self.client_key)
                     context.check_hostname = False
                     context.verify_mode = ssl.CERT_NONE
                     context.options &= ~ssl.OP_NO_RENEGOTIATION
 
                 self.socket = socket.create_connection(
-                    (self.host, self.port), timeout=10
+                    (self.host, self.port), timeout=self.timeout
                 )
                 self.secure_socket = context.wrap_socket(
-                    self.socket, server_hostname=self.host
+                    self.socket, server_hostname=self.server_hostname
                 )
                 self.tls_version = self.secure_socket.version()
                 return None  # Explicitly return None on success
@@ -62,10 +75,10 @@ class SSLHandler(BaseProtocolHandler):
                     try:
                         context.options &= ~ssl.OP_NO_RENEGOTIATION
                         self.socket = socket.create_connection(
-                            (self.host, self.port), timeout=10
+                            (self.host, self.port), timeout=self.timeout
                         )
                         self.secure_socket = context.wrap_socket(
-                            self.socket, server_hostname=self.host
+                            self.socket, server_hostname=self.server_hostname
                         )
                         self.tls_version = self.secure_socket.version()
                         return None
@@ -143,7 +156,7 @@ class SSLHandler(BaseProtocolHandler):
         """Retrieve the peer certificate chain as a list of DER byte strings.
 
         Python 3.13 exposes ``SSLSocket.get_verified_chain()``, which returns
-        DER bytes directly. Python 3.10–3.12 only exposes the chain through
+        DER bytes directly. Python 3.10 to 3.12 only exposes the chain through
         the private ``_sslobj`` attribute as ``_ssl.Certificate`` instances,
         so we pull those, ask each for its PEM, and convert back to DER using
         the public ``ssl.PEM_cert_to_DER_cert`` helper. If neither API is
