@@ -2,6 +2,7 @@
 
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from unittest.mock import MagicMock
 
 import certmonitor.scanning as scanning
@@ -44,17 +45,19 @@ def test_bounds_input_consumption(monkeypatch):
 
 
 def test_one_failing_host_does_not_abort_the_scan(monkeypatch):
-    mock = _fake_monitor(monkeypatch, passing_hostname)
-
-    def enter(*args, **kwargs):
+    def construct(host, port, *args, **kwargs):
+        # Workers construct monitors concurrently, so decide per host here
+        # rather than from whichever call happened to be recorded last.
         monitor = MagicMock()
-        if mock.call_args_list[-1].args[0] == "bad.test":
-            monitor.validate.side_effect = RuntimeError("validator exploded")
+        inner = monitor.__enter__.return_value
+        if host == "bad.test":
+            inner.validate.side_effect = RuntimeError("validator exploded")
         else:
-            monitor.validate.return_value = {"hostname": {"is_valid": True}}
+            inner.validate.return_value = {"hostname": {"is_valid": True}}
+        inner.snapshot_at = "2026-09-05T00:00:00+00:00"
         return monitor
 
-    mock.return_value.__enter__.side_effect = enter
+    monkeypatch.setattr(scanning, "CertMonitor", MagicMock(side_effect=construct))
     results = {r["host"]: r for r in scan_hosts(["ok.test", "bad.test", "also.test"])}
     assert set(results) == {"ok.test", "bad.test", "also.test"}
     assert results["bad.test"]["error"] == "RuntimeError"
@@ -64,12 +67,19 @@ def test_one_failing_host_does_not_abort_the_scan(monkeypatch):
 
 def test_breaking_early_returns_promptly(monkeypatch):
     release = threading.Event()
+    executors = []
 
     def slow_validate():
         release.wait(5)
         return {}
 
+    def recording_executor(*args, **kwargs):
+        executor = ThreadPoolExecutor(*args, **kwargs)
+        executors.append(executor)
+        return executor
+
     _fake_monitor(monkeypatch, slow_validate)
+    monkeypatch.setattr(scanning, "ThreadPoolExecutor", recording_executor)
     scans = scan_hosts([f"host{i}" for i in range(10)], max_workers=4)
     started = time.monotonic()
     release.set()
@@ -79,6 +89,10 @@ def test_breaking_early_returns_promptly(monkeypatch):
     elapsed = time.monotonic() - started
     release.set()
     assert elapsed < 2
+    # Closing the generator abandons in-flight workers; join them here so none
+    # outlives the fake monitor and reaches the real CertMonitor after teardown.
+    for executor in executors:
+        executor.shutdown(wait=True)
 
 
 def test_rejects_non_positive_limits():

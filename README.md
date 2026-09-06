@@ -158,6 +158,7 @@ Each validator reports its own `is_valid` flag plus the details behind its decis
 
 - 🔒 **Zero Dependencies:** no third-party Python runtime dependencies, ever. The required native extension is distributed in platform wheels.
 - 📄 **Files too:** `CertMonitor.from_file()` runs the certificate checks on a PEM or DER file with no connection at all. See [Certificates from Files](https://certmonitor.readthedocs.io/en/latest/usage/files/).
+- 📮 **STARTTLS too:** mail, directory, and database ports (SMTP, IMAP, POP3, FTP, PostgreSQL, LDAP) are discovered on any port and get the right preamble before the handshake, so their certificates get the same checks; `starttls="smtp"` pins it when you already know. See [STARTTLS Services](https://certmonitor.readthedocs.io/en/latest/usage/starttls/).
 - ⌨️ **Command line:** `certmonitor check example.com` runs the same validators from the shell, with `--json` output and exit codes for cron and CI. See [Command Line](https://certmonitor.readthedocs.io/en/latest/usage/cli/).
 - 🛡️ **Certificate Validators:** Modular checks for expiration, hostname, SANs, key strength, protocol, ciphers, and more.
 - ⚡ **Batch Monitoring:** overlap network waits with independent monitors and bounded workers.
@@ -255,7 +256,7 @@ export ENABLED_VALIDATORS="expiration,hostname,root_certificate,key_info,tls_ver
 ---
 
 ## 🔎 Protocol Detection
-CertMonitor automatically detects the protocol (SSL/TLS or SSH) for the target host. Most features are focused on SSL/TLS. SSH support is limited.
+CertMonitor automatically detects the protocol (SSL/TLS or SSH) for the target host. Services that greet in plaintext and upgrade with STARTTLS (SMTP, IMAP, POP3, FTP, PostgreSQL, LDAP) are discovered on any port and get the right preamble; pass `starttls=` to pin one. See [STARTTLS Services](https://certmonitor.readthedocs.io/en/latest/usage/starttls/). Most features are focused on SSL/TLS. SSH support is limited.
 
 ---
 

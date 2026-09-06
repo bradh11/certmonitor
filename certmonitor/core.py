@@ -6,7 +6,6 @@ import ipaddress
 import re
 import logging
 import os
-import socket
 import ssl
 import tempfile
 import warnings
@@ -17,7 +16,10 @@ from pathlib import Path
 from certmonitor import certinfo, config
 from certmonitor.cipher_algorithms import parse_cipher_suite
 from certmonitor.error_handlers import ErrorHandler
+from certmonitor.protocol_handlers import detection
+from certmonitor.protocol_handlers import starttls as starttls_negotiation
 from certmonitor.protocol_handlers.base import BaseProtocolHandler
+from certmonitor.protocol_handlers.connection import open_tls_stream
 from certmonitor.protocol_handlers.ssh_handler import SSHHandler
 from certmonitor.protocol_handlers.ssl_handler import SSLHandler
 from certmonitor.validators import VALIDATORS
@@ -39,6 +41,7 @@ class CertMonitor:
         capath: str | None = None,
         client_cert: str | None = None,
         client_key: str | None = None,
+        starttls: str | None = None,
     ):
         """Initialize a monitor for a host without opening a connection.
 
@@ -63,9 +66,20 @@ class CertMonitor:
             capath: OpenSSL-compatible CA directory for the verified trust handshake.
             client_cert: Client certificate chain file for mutual TLS.
             client_key: Separate client private-key file, if needed.
+            starttls: Application protocol whose STARTTLS preamble runs before the
+                TLS handshake: `"smtp"`, `"imap"`, `"pop3"`, `"ftp"`, `"postgres"`,
+                or `"ldap"`. Leave it unset and CertMonitor discovers the service
+                itself, without looking at the port number: a plaintext greeting
+                names SMTP, FTP, IMAP, POP3, or SSH, and a silent service is asked
+                the PostgreSQL and LDAP StartTLS requests in turn. Discovery runs
+                only when the port turns out not to speak TLS directly, and is
+                bounded by `timeout`. Passing a protocol skips detection and
+                discovery entirely. The post-quantum probe reports `unsupported`
+                for STARTTLS endpoints.
 
         Raises:
-            ValueError: If `timeout` is not positive.
+            ValueError: If `timeout` is not positive or `starttls` is not a
+                supported protocol name.
 
         Example:
             ```python
@@ -75,6 +89,11 @@ class CertMonitor:
         """
         if timeout <= 0:
             raise ValueError("timeout must be positive")
+        if starttls is not None and starttls not in starttls_negotiation.PROTOCOLS:
+            raise ValueError(
+                f"starttls must be one of {', '.join(starttls_negotiation.PROTOCOLS)}, not {starttls!r}"
+            )
+        self.starttls = starttls
         self.connection_host = connection_host or host
         self.server_hostname = server_hostname or host
         self.timeout = timeout
@@ -247,38 +266,39 @@ class CertMonitor:
             self.connected = True
             return None
 
-        protocol_result = self.detect_protocol()
+        # An explicit STARTTLS protocol is the user's override: no detection,
+        # no discovery. Otherwise detection may already name a STARTTLS service
+        # from the greeting it peeked at.
+        protocol_result = "ssl" if self.starttls else self.detect_protocol()
         if isinstance(protocol_result, dict) and "error" in protocol_result:
             return protocol_result
+        protocol = cast(str, protocol_result)
+        if protocol.startswith("starttls:"):
+            self.starttls = protocol.partition(":")[2]
+            protocol = "ssl"
+        self.protocol = protocol
 
-        # If we get here, protocol_result is a string
-        self.protocol = cast(str, protocol_result)
+        unsupported = self._build_handler()
+        if unsupported is not None:
+            return unsupported
 
-        if self.protocol == "ssl":
-            self.handler = SSLHandler(
-                self.connection_host, self.port, self.error_handler
-            )
-            self.handler.server_hostname = self.server_hostname
-            self.handler.timeout = self.timeout
-            self.handler.client_cert = self.client_cert
-            self.handler.client_key = self.client_key
-        elif self.protocol == "ssh":
-            self.handler = SSHHandler(
-                self.connection_host, self.port, self.error_handler
-            )
-            self.handler.timeout = self.timeout
-        else:
-            return cast(
-                dict[str, Any],
-                self.error_handler.handle_error(
-                    "ProtocolError",
-                    f"Unsupported protocol: {self.protocol}",
-                    self.host,
-                    self.port,
-                ),
-            )
-
-        connection_result = self.handler.connect()
+        connection_result: dict[str, Any] | None = cast(Any, self.handler).connect()
+        if (
+            connection_result is not None
+            and self.protocol == "ssl"
+            and self.starttls is None
+        ):
+            # The port did not speak TLS directly. It may be a STARTTLS service
+            # (or SSH) that detection could not see because it had not greeted
+            # yet; ask it, then retry once with what discovery found.
+            discovered = self._discover_service()
+            if discovered is not None:
+                if discovered == "ssh":
+                    self.protocol = "ssh"
+                else:
+                    self.starttls = discovered
+                self._build_handler()
+                connection_result = cast(Any, self.handler).connect()
         if connection_result is not None:  # This means there was an error
             return connection_result
 
@@ -311,38 +331,62 @@ class CertMonitor:
         self._clear_snapshot()
         return self.get_cert_info()
 
-    def detect_protocol(self) -> str | dict[str, Any]:
-        """Detect the protocol used by the host."""
+    def _build_handler(self) -> dict[str, Any] | None:
+        """Create the handler for `self.protocol`; return an error dict if unsupported."""
+        if self.protocol == "ssl":
+            handler = SSLHandler(self.connection_host, self.port, self.error_handler)
+            handler.server_hostname = self.server_hostname
+            handler.timeout = self.timeout
+            handler.client_cert = self.client_cert
+            handler.client_key = self.client_key
+            handler.starttls = self.starttls
+            self.handler = handler
+            return None
+        if self.protocol == "ssh":
+            ssh_handler = SSHHandler(
+                self.connection_host, self.port, self.error_handler
+            )
+            ssh_handler.timeout = self.timeout
+            self.handler = ssh_handler
+            return None
+        return cast(
+            dict[str, Any],
+            self.error_handler.handle_error(
+                "ProtocolError",
+                f"Unsupported protocol: {self.protocol}",
+                self.host,
+                self.port,
+            ),
+        )
+
+    def _discover_service(self) -> str | None:
+        """Name the plaintext service on the port, or `None` if it cannot be named."""
         try:
-            with socket.create_connection(
-                (self.connection_host, self.port), timeout=self.timeout
-            ) as sock:
-                sock.setblocking(False)
-                try:
-                    data = sock.recv(4, socket.MSG_PEEK)
-                    if data.startswith(b"SSH-"):
-                        return "ssh"
-                    elif data and data[0] in [
-                        22,
-                        128,
-                        160,
-                    ]:  # Common first bytes for SSL/TLS
-                        return "ssl"
-                    else:
-                        return cast(
-                            dict[str, Any],
-                            self.error_handler.handle_error(
-                                "ProtocolDetectionError",
-                                f"Unable to determine protocol. First bytes: {data.hex()}",
-                                self.host,
-                                self.port,
-                            ),
-                        )
-                except OSError:
-                    # If no data is received, assume it's SSL
-                    return "ssl"
-                finally:
-                    sock.setblocking(True)
+            found = starttls_negotiation.discover(
+                self.connection_host, self.port, self.timeout
+            )
+        except OSError as exc:
+            logging.debug("Service discovery failed for %s: %s", self.host, exc)
+            return None
+        if found is not None:
+            logging.debug("Discovered %s on %s:%s", found, self.host, self.port)
+        return found
+
+    def detect_protocol(self) -> str | dict[str, Any]:
+        """Detect the protocol used by the host.
+
+        Returns `"ssh"`, `"ssl"`, or `"starttls:<protocol>"` when the peeked
+        greeting belongs to a STARTTLS service, or an error dict.
+        """
+        try:
+            found = detection.detect(self.connection_host, self.port, self.timeout)
+        except detection.ProtocolDetectionError as exc:
+            return cast(
+                dict[str, Any],
+                self.error_handler.handle_error(
+                    "ProtocolDetectionError", str(exc), self.host, self.port
+                ),
+            )
         except Exception as e:
             return cast(
                 dict[str, Any],
@@ -350,6 +394,9 @@ class CertMonitor:
                     "ConnectionError", str(e), self.host, self.port
                 ),
             )
+        if found.starttls:
+            return f"starttls:{found.starttls}"
+        return found.protocol
 
     def _ensure_connection(self) -> dict[str, Any] | None:
         """Ensures that a valid connection is established."""
@@ -970,14 +1017,15 @@ class CertMonitor:
 
     def _verified_peer(self, legacy: bool) -> bytes:
         """Complete a verified handshake and return the DER leaf it observed."""
-        context = self._verify_context(legacy)
-        with socket.create_connection(
-            (self.connection_host, self.port), timeout=self.timeout
-        ) as sock:
-            with context.wrap_socket(
-                sock, server_hostname=self.server_hostname
-            ) as secure:
-                return secure.getpeercert(binary_form=True) or b""
+        with open_tls_stream(
+            self.connection_host,
+            self.port,
+            self.timeout,
+            self._verify_context(legacy),
+            server_hostname=self.server_hostname,
+            starttls=self.starttls,
+        ) as secure:
+            return secure.getpeercert(binary_form=True) or b""
 
     def _verify_trust(self) -> dict[str, Any]:
         """Verify a separate handshake, requiring the collected leaf to match.
@@ -1080,6 +1128,12 @@ class CertMonitor:
                 "result": "n/a",
                 "protocol": "offline",
                 "reason": self._OFFLINE_REASON.format(what="The post-quantum probe"),
+            }
+        if self.starttls:
+            return {
+                "result": "n/a",
+                "protocol": f"starttls:{self.starttls}",
+                "reason": "The post-quantum probe does not run STARTTLS preambles yet.",
             }
         # The probe speaks TLS; never run it against non-SSL protocols
         # (e.g. SSH hosts), regardless of validator configuration.

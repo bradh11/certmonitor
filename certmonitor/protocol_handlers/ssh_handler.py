@@ -1,18 +1,16 @@
 # protocol_handlers/ssh_handler.py
 
 import re
-import socket
 from typing import Any, cast
 
 from .base import BaseProtocolHandler
+from .connection import open_stream
 
 
 class SSHHandler(BaseProtocolHandler):
     def connect(self) -> dict[str, Any] | None:
         try:
-            self.socket = socket.create_connection(
-                (self.host, self.port), timeout=self.timeout
-            )
+            self.socket = open_stream(self.host, self.port, self.timeout)
             return None
         except OSError as e:
             return cast(

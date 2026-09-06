@@ -68,7 +68,7 @@ class TestSSLHandler:
         mock_secure_socket.version.return_value = "TLSv1.3"
 
         assert ssl_handler.connect() is None
-        assert ssl_handler.socket == mock_socket
+        assert ssl_handler.socket is None  # the TLS socket owns the connection
         assert ssl_handler.secure_socket == mock_secure_socket
         assert ssl_handler.tls_version == "TLSv1.3"
         mock_create_connection.assert_called_once_with(

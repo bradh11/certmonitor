@@ -193,11 +193,12 @@ def test_check_live_targets_use_host_port_and_options(monkeypatch):
 
 
 def test_check_one_raising_target_does_not_stop_the_run(monkeypatch):
-    fake = MagicMock()
-
-    def enter(*args, **kwargs):
-        monitor = MagicMock()
-        if fake.call_args_list[-1].args[0] == "bad.test":
+    def construct(host, port, *args, **kwargs):
+        # Targets run in worker threads, so decide per host here rather than
+        # from whichever call happened to be recorded last.
+        fake = MagicMock()
+        monitor = fake.__enter__.return_value
+        if host == "bad.test":
             monitor.validate.side_effect = RuntimeError("boom")
         else:
             monitor.validate.return_value = {
@@ -209,10 +210,9 @@ def test_check_one_raising_target_does_not_stop_the_run(monkeypatch):
             }
         monitor.snapshot_at = "now"
         monitor.fingerprint_sha256 = None
-        return monitor
+        return fake
 
-    fake.return_value.__enter__.side_effect = enter
-    monkeypatch.setattr(cli, "CertMonitor", fake)
+    monkeypatch.setattr(cli, "CertMonitor", MagicMock(side_effect=construct))
     code, out = run(["check", "ok.test", "bad.test", "--json"])
     assert code == 1
     report = {r["target"]: r for r in json.loads(out)}
