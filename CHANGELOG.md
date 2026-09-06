@@ -12,7 +12,32 @@ rename the headers to emoji form when cutting a release.
 
 ## [Unreleased]
 
-### Upgrading from 0.4.0
+### Added
+- TBD
+
+### Changed
+- TBD
+
+### Fixed
+- TBD
+
+## [0.5.0] - 2026-09-05
+
+# 📦 CertMonitor v0.5.0 – Verified Trust, a CLI, and Offline Checks
+
+**Release Date:** September 5, 2026
+**Repository:** [bradh11/certmonitor](https://github.com/bradh11/certmonitor)
+
+---
+
+## 🚀 Overview
+
+CertMonitor v0.5.0 makes every verdict earn its name. Trust is established by a real verified TLS handshake instead of issuer-name heuristics, hostname identity follows the Subject Alternative Names the way browsers do, the chain validator fails on structural problems by default, and every result carries a stable `status` and `code`. The release also adds a standard-library `certmonitor` command, offline validation of PEM and DER files, a bounded fleet scanner with full endpoint configuration, SHA-256 fingerprints, and a lifetime policy that tracks the CA/Browser Forum schedule automatically. Python 3.8 and 3.9 are dropped; 3.10 through 3.15 are supported, and wheels now ship for Linux x64/ARM64, macOS Intel/ARM64, and Windows x64. Read the Upgrading section before adopting.
+
+---
+
+## ⬆️ Upgrading from 0.4.0
+
 This release corrects cases where validation could report a misleading pass, and it changes the SAN validator to check only requested alternate names. It is not a behavior-identical replacement for 0.4.0; review these differences before upgrading.
 
 What stays compatible:
@@ -51,7 +76,9 @@ Intentional changes:
 Collection remains permissive. Revocation checking is not implemented; successful
 trust verification reports `revocation_status: not_checked`.
 
-### Added
+---
+
+## ✨ Added
 - Release CI builds Linux x64/ARM64 (glibc 2.28+), macOS Intel/ARM64, and Windows x64 wheels plus a source distribution, and publishes to PyPI only after every distribution has been built.
 - Project URLs and additional keywords in the package metadata. The documentation site gains a Read the Docs canonical URL, a light/dark toggle, and copy buttons on code blocks.
 - Keyword-only `CertMonitor` options: `connection_host` and `server_hostname` to connect to one address or SNI name while `host` stays the identity being checked; `timeout`; `cafile` and `capath` for a private CA; and `client_cert` / `client_key` for mutual TLS.
@@ -66,7 +93,9 @@ trust verification reports `revocation_status: not_checked`.
 - Python 3.14 support, now part of the CI test matrix.
 - Python 3.15 pre-release support: CI exercises 3.15 betas via `allow-prereleases` so the package is ready ahead of the final release.
 
-### Changed
+---
+
+## 🔄 Changed
 - The `root_certificate` verdict is bound to the collected leaf and reused by later `validate()` calls on the same snapshot; `refresh()` collects and verifies again. Verifying contexts are built once per monitor (#69).
 - Reviewed the tutorials and reference documentation for current behavior, preserved API docstrings, and improved navigation, code examples, and light/dark reading styles.
 - **Breaking:** `root_certificate` establishes trust with a separate verified TLS handshake against the system or configured CA store instead of issuer metadata heuristics. The verified leaf must match the collected snapshot (`SnapshotMismatch` otherwise). Hosts that only negotiate with legacy protocol or cipher settings are verified with matching settings and carry a warning. Revocation is reported as `not_checked`.
@@ -84,9 +113,31 @@ trust verification reports `revocation_status: not_checked`.
 - `make test` now runs the Rust unit tests (`cargo test`) as part of the local CI-equivalent suite; previously they ran only in CI.
 - Added a `make typecheck-ty` command to run astral's `ty` type checker on demand (a 0.0.x preview, advisory only). mypy remains the enforced gate; ty is kept out of `make test` and is commented out in CI with a note to revisit once it stabilizes.
 
-### Fixed
+---
+
+## 🛠️ Fixed
 - The TLS collector negotiates with a single version-ranged context instead of retrying deprecated per-protocol constants under `warnings.catch_warnings()`, which is not thread-safe under concurrent scans. Legacy TLS 1.0 and 1.1 servers remain reachable where the local build allows them, and collecting a certificate now costs one connection instead of up to five (#67).
 - The README logo now uses an absolute CDN URL so it renders on the PyPI project page (relative paths only resolve on GitHub).
+
+---
+
+## 📚 Documentation
+
+Comprehensive documentation is available at [certmonitor.readthedocs.io](https://certmonitor.readthedocs.io/).
+
+---
+
+## 🐍 Python Compatibility
+
+Tested with Python 3.10 through 3.15 with 99% code coverage across all supported versions.
+
+---
+
+## 📝 License
+
+This project is licensed under the MIT License. See the [LICENSE](https://github.com/bradh11/certmonitor/blob/main/LICENSE) file for details.
+
+**Full Changelog**: https://github.com/bradh11/certmonitor/compare/v0.4.0...v0.5.0
 
 ## [0.4.0] - 2026-06-14
 
