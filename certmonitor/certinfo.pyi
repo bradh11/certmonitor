@@ -45,3 +45,38 @@ def probe_tls_handshake(
       - {"result": "error", "error", "message"}
     """
     ...
+
+def parse_ocsp_response(der_data: bytes) -> dict[str, Any]:
+    """Parse a DER OCSP response (RFC 6960).
+
+    Returns `response_status`, `responder_name` or `responder_key_hash`,
+    `produced_at` (unix seconds), `signature_algorithm`, `signature`,
+    `tbs_response_data` (the signed bytes), `certs` (attached responder
+    certificates as DER), and `responses`: one dict per certificate with
+    `cert_id`, `status` (good, revoked, unknown), `this_update`,
+    `next_update`, `revocation_time`, and `revocation_reason`.
+    Raises `ValueError` on malformed input.
+    """
+    ...
+
+def ocsp_cert_id_inputs(leaf_der: bytes, issuer_der: bytes) -> dict[str, bytes] | None:
+    """The inputs an OCSP CertID is built from: `serial_number` (raw INTEGER
+    bytes), `issuer_name` (DER of the leaf's issuer name), and `issuer_key`
+    (the issuer's public key bits). `None` when `issuer_der` did not issue
+    `leaf_der`.
+    """
+    ...
+
+def crl_info(der_data: bytes) -> dict[str, Any]:
+    """A DER CRL's `issuer`, `this_update`, `next_update` (unix seconds or
+    None), `signature_algorithm`, `revoked_count`, and the signed bytes
+    (`tbs_cert_list`) with their `signature`.
+    """
+    ...
+
+def crl_lookup(der_data: bytes, serial_number: bytes) -> dict[str, Any] | None:
+    """The CRL entry for `serial_number` (raw INTEGER bytes, leading zeros
+    ignored): `revocation_time` and `revocation_reason`, or `None` when the
+    serial is not listed.
+    """
+    ...

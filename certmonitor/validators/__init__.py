@@ -10,6 +10,7 @@ from .key_info import KeyInfoValidator
 from .pq_chain import PqChainValidator
 from .pq_key_exchange import PqKeyExchangeValidator
 from .pq_signature import PqSignatureValidator
+from .revocation import RevocationValidator
 from .root_certificate_validator import RootCertificateValidator
 from .sensitive_date import SensitiveDateValidator
 from .subject_alt_names import SubjectAltNamesValidator
@@ -36,6 +37,8 @@ VALIDATORS = {
     "pq_key_exchange": PqKeyExchangeValidator(),
     "pq_chain": PqChainValidator(),
     "pq_signature": PqSignatureValidator(),
+    # Opt-in: OCSP and CRL revocation checking.
+    "revocation": RevocationValidator(),
     # ... add any other default validators here
 }
 

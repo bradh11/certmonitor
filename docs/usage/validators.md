@@ -70,7 +70,7 @@ from certmonitor.validators import list_validators
 print(list_validators())
 # Output: ['expiration', 'hostname', 'key_info', 'subject_alt_names', 'root_certificate',
 #          'sensitive_date', 'tls_version', 'weak_cipher', 'chain',
-#          'pq_key_exchange', 'pq_chain', 'pq_signature']
+#          'pq_key_exchange', 'pq_chain', 'pq_signature', 'revocation']
 ```
 
 ### From a CertMonitor Instance
@@ -82,7 +82,7 @@ monitor = CertMonitor("example.com")
 print(monitor.list_validators())
 # Output: ['expiration', 'hostname', 'key_info', 'subject_alt_names', 'root_certificate',
 #          'sensitive_date', 'tls_version', 'weak_cipher', 'chain',
-#          'pq_key_exchange', 'pq_chain', 'pq_signature']
+#          'pq_key_exchange', 'pq_chain', 'pq_signature', 'revocation']
 ```
 
 Both methods return the same list of all available validators, regardless of which ones are enabled for a specific instance.

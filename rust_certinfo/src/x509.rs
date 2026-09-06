@@ -6,8 +6,10 @@
 
 pub mod algorithm;
 pub mod certificate;
+pub mod crl;
 pub mod extensions;
 pub mod name;
+pub mod ocsp;
 pub mod spki;
 
 // `Certificate` is always public, it's the entry point both the PyO3
