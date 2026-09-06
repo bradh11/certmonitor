@@ -57,7 +57,7 @@ The constructor's connection options are available as flags: `--connection-host`
 certmonitor check example.com expired.badssl.com --json > report.json
 ```
 
-`--json` emits a list with one entry per target: `target`, `results` (the same dict `validate()` returns, including `status` and `code`), and `snapshot_at`. A target that could not be scanned at all carries `error` and `message` instead of failing the run.
+`--json` emits a list with one entry per target: `target`, `results` (the same dict `validate()` returns, including `status` and `code`), `snapshot_at`, and `fingerprint_sha256` of the leaf certificate. The human-readable report prints the fingerprint on the target line. A target that could not be scanned at all carries `error` and `message` instead of failing the run.
 
 ## Print the certificate
 

@@ -91,7 +91,7 @@ def test_check_file_reports_each_validator(bundle):
         ]
     )
     assert code == 0
-    assert out.splitlines()[0] == bundle
+    assert out.splitlines()[0].startswith(bundle + "  sha256:")
     assert "PASS   hostname" in out and f"matched {LEAF_HOST}" in out
     assert "PASS   key_info" in out
     assert "N/A    tls_version" in out and "live connection" in out
@@ -145,6 +145,7 @@ def test_check_json_output(bundle):
     assert report[0]["target"] == bundle
     assert report[0]["results"]["key_info"]["status"] == "pass"
     assert report[0]["snapshot_at"]
+    assert len(report[0]["fingerprint_sha256"]) == 64
 
 
 def test_check_missing_file_is_an_error_line(tmp_path):
@@ -207,6 +208,7 @@ def test_check_one_raising_target_does_not_stop_the_run(monkeypatch):
                 }
             }
         monitor.snapshot_at = "now"
+        monitor.fingerprint_sha256 = None
         return monitor
 
     fake.return_value.__enter__.side_effect = enter

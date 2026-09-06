@@ -169,3 +169,15 @@ def test_raw_accessors_work_before_get_cert_info(bundle):
         assert monitor.get_raw_pem().startswith("-----BEGIN CERTIFICATE-----")
     with CertMonitor.from_file(bundle, host=LEAF_HOST) as monitor:
         assert monitor.get_raw_der() == CHAIN_DER[0]
+
+
+def test_fingerprint_is_the_sha256_of_the_leaf(bundle):
+    import hashlib
+
+    expected = hashlib.sha256(CHAIN_DER[0]).hexdigest()
+    monitor = CertMonitor.from_file(bundle, host=LEAF_HOST)
+    assert monitor.fingerprint_sha256 is None
+    info = monitor.get_cert_info()
+    assert monitor.fingerprint_sha256 == expected
+    assert info["fingerprint_sha256"] == expected
+    assert monitor.cert_data["fingerprint_sha256"] == expected

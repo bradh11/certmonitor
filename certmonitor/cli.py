@@ -149,6 +149,7 @@ def _run_check_job(job: dict[str, Any], args: argparse.Namespace) -> dict[str, A
                 "target": job["label"],
                 "results": results,
                 "snapshot_at": active.snapshot_at,
+                "fingerprint_sha256": active.fingerprint_sha256,
             }
     except Exception as exc:  # noqa: BLE001  (one bad target must not stop the run)
         return {
@@ -173,7 +174,9 @@ def _check_jobs(args: argparse.Namespace) -> list[dict[str, Any]]:
 
 def _print_report(reports: list[dict[str, Any]], out: Any) -> None:
     for report in reports:
-        print(report["target"], file=out)
+        fingerprint = report.get("fingerprint_sha256")
+        suffix = f"  sha256:{fingerprint}" if fingerprint else ""
+        print(f"{report['target']}{suffix}", file=out)
         if "error" in report:
             print(f"  ERROR  {report['error']}: {report['message']}", file=out)
             continue
