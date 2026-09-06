@@ -33,7 +33,12 @@ mod x509;
 // the `#[pyfunction]` entry points further down, but the in-repo fuzz
 // crate at `fuzz/` does, and any future in-tree Rust consumer (e.g. a
 // CLI) can use the same surface.
+pub use crate::crypto::bigint::BigUint;
+pub use crate::crypto::VerifyError;
 pub use crate::error::ParseError;
+pub use crate::x509::crl::Crl;
+pub use crate::x509::ocsp::OcspResponse;
+pub use crate::x509::verify::verify_signature;
 pub use crate::x509::Certificate;
 
 // Everything below is the PyO3 / Python wheel surface. None of it is
