@@ -28,6 +28,12 @@ Every socket CertMonitor opens comes from here: a plaintext stream with any STAR
 
 ::: certmonitor.protocol_handlers.connection
 
+## Proxies
+
+HTTP CONNECT and SOCKS5 tunnels, with authentication, that `open_stream` routes through when a monitor has a `proxy`. See [Proxies](../usage/proxy.md) for usage.
+
+::: certmonitor.protocol_handlers.proxy
+
 ## Detection
 
 Decides which handler a port needs from its first bytes, handing plaintext greetings to STARTTLS discovery.

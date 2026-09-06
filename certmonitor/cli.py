@@ -118,6 +118,7 @@ def _monitor_options(args: argparse.Namespace) -> dict[str, Any]:
         "connection_host": args.connection_host,
         "server_hostname": args.server_hostname,
         "starttls": args.starttls,
+        "proxy": args.proxy,
     }
 
 
@@ -323,6 +324,11 @@ def _add_connection_options(parser: argparse.ArgumentParser) -> None:
             "run this protocol's STARTTLS preamble before the TLS handshake "
             "(discovered automatically when omitted)"
         ),
+    )
+    parser.add_argument(
+        "--proxy",
+        metavar="URL",
+        help="route connections through http://[user:pass@]host:port or socks5://[user:pass@]host:port",
     )
     parser.add_argument("--host", help="identity to check for --file targets")
 

@@ -5,6 +5,8 @@ import ssl
 from abc import ABC, abstractmethod
 from typing import Any
 
+from .proxy import ProxyConfig
+
 
 class BaseProtocolHandler(ABC):
     def __init__(self, host: str, port: int, error_handler: Any) -> None:
@@ -14,6 +16,7 @@ class BaseProtocolHandler(ABC):
         self.secure_socket: ssl.SSLSocket | None = None
         self.error_handler = error_handler
         self.timeout: float = 10.0
+        self.proxy: ProxyConfig | None = None
 
     @abstractmethod
     def connect(self) -> dict[str, Any] | None:

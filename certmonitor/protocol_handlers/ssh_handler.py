@@ -10,7 +10,9 @@ from .connection import open_stream
 class SSHHandler(BaseProtocolHandler):
     def connect(self) -> dict[str, Any] | None:
         try:
-            self.socket = open_stream(self.host, self.port, self.timeout)
+            self.socket = open_stream(
+                self.host, self.port, self.timeout, proxy=self.proxy
+            )
             return None
         except OSError as e:
             return cast(

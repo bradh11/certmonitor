@@ -5,7 +5,9 @@ import hashlib
 import ipaddress
 import re
 import logging
+from functools import partial
 import os
+import socket
 import ssl
 import tempfile
 import warnings
@@ -19,7 +21,8 @@ from certmonitor.error_handlers import ErrorHandler
 from certmonitor.protocol_handlers import detection
 from certmonitor.protocol_handlers import starttls as starttls_negotiation
 from certmonitor.protocol_handlers.base import BaseProtocolHandler
-from certmonitor.protocol_handlers.connection import open_tls_stream
+from certmonitor.protocol_handlers.connection import open_stream, open_tls_stream
+from certmonitor.protocol_handlers.proxy import ProxyConfig, parse_proxy
 from certmonitor.protocol_handlers.ssh_handler import SSHHandler
 from certmonitor.protocol_handlers.ssl_handler import SSLHandler
 from certmonitor.validators import VALIDATORS
@@ -42,6 +45,7 @@ class CertMonitor:
         client_cert: str | None = None,
         client_key: str | None = None,
         starttls: str | None = None,
+        proxy: str | None = None,
     ):
         """Initialize a monitor for a host without opening a connection.
 
@@ -76,6 +80,10 @@ class CertMonitor:
                 bounded by `timeout`. Passing a protocol skips detection and
                 discovery entirely. The post-quantum probe reports `unsupported`
                 for STARTTLS endpoints.
+            proxy: Route every connection through `http://[user:pass@]host:port`
+                (HTTP CONNECT) or `socks5://[user:pass@]host:port`. The proxy resolves
+                the target name. Results record the route with the password removed.
+                The post-quantum probe reports `unsupported` through a proxy.
 
         Raises:
             ValueError: If `timeout` is not positive or `starttls` is not a
@@ -94,6 +102,7 @@ class CertMonitor:
                 f"starttls must be one of {', '.join(starttls_negotiation.PROTOCOLS)}, not {starttls!r}"
             )
         self.starttls = starttls
+        self.proxy: ProxyConfig | None = parse_proxy(proxy) if proxy else None
         self.connection_host = connection_host or host
         self.server_hostname = server_hostname or host
         self.timeout = timeout
@@ -331,6 +340,11 @@ class CertMonitor:
         self._clear_snapshot()
         return self.get_cert_info()
 
+    @property
+    def _connect(self) -> Callable[[str, int, float], socket.socket]:
+        """Opens plaintext streams the way this monitor reaches hosts (proxy included)."""
+        return partial(open_stream, proxy=self.proxy)
+
     def _build_handler(self) -> dict[str, Any] | None:
         """Create the handler for `self.protocol`; return an error dict if unsupported."""
         if self.protocol == "ssl":
@@ -340,6 +354,7 @@ class CertMonitor:
             handler.client_cert = self.client_cert
             handler.client_key = self.client_key
             handler.starttls = self.starttls
+            handler.proxy = self.proxy
             self.handler = handler
             return None
         if self.protocol == "ssh":
@@ -347,6 +362,7 @@ class CertMonitor:
                 self.connection_host, self.port, self.error_handler
             )
             ssh_handler.timeout = self.timeout
+            ssh_handler.proxy = self.proxy
             self.handler = ssh_handler
             return None
         return cast(
@@ -363,7 +379,10 @@ class CertMonitor:
         """Name the plaintext service on the port, or `None` if it cannot be named."""
         try:
             found = starttls_negotiation.discover(
-                self.connection_host, self.port, self.timeout
+                self.connection_host,
+                self.port,
+                self.timeout,
+                connect=self._connect,
             )
         except OSError as exc:
             logging.debug("Service discovery failed for %s: %s", self.host, exc)
@@ -379,7 +398,9 @@ class CertMonitor:
         greeting belongs to a STARTTLS service, or an error dict.
         """
         try:
-            found = detection.detect(self.connection_host, self.port, self.timeout)
+            found = detection.detect(
+                self.connection_host, self.port, self.timeout, connect=self._connect
+            )
         except detection.ProtocolDetectionError as exc:
             return cast(
                 dict[str, Any],
@@ -565,6 +586,8 @@ class CertMonitor:
             if source is not None
             else {"type": "connection", "host": self.connection_host, "port": self.port}
         )
+        if self.proxy is not None:
+            cert_data["source"]["proxy"] = self.proxy.redacted
         self.cert_data = cert_data
         return cert_data
 
@@ -1024,6 +1047,7 @@ class CertMonitor:
             self._verify_context(legacy),
             server_hostname=self.server_hostname,
             starttls=self.starttls,
+            proxy=self.proxy,
         ) as secure:
             return secure.getpeercert(binary_form=True) or b""
 
@@ -1134,6 +1158,12 @@ class CertMonitor:
                 "result": "n/a",
                 "protocol": f"starttls:{self.starttls}",
                 "reason": "The post-quantum probe does not run STARTTLS preambles yet.",
+            }
+        if self.proxy is not None:
+            return {
+                "result": "n/a",
+                "protocol": "proxy",
+                "reason": "The post-quantum probe does not connect through proxies yet.",
             }
         # The probe speaks TLS; never run it against non-SSL protocols
         # (e.g. SSH hosts), regardless of validator configuration.
