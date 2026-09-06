@@ -45,3 +45,31 @@ path = "fuzz_targets/parse_server_hello.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "parse_ocsp_response"
+path = "fuzz_targets/parse_ocsp_response.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "parse_crl"
+path = "fuzz_targets/parse_crl.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "verify_signature"
+path = "fuzz_targets/verify_signature.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "bigint_divrem"
+path = "fuzz_targets/bigint_divrem.rs"
+test = false
+doc = false
+bench = false

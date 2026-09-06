@@ -6,9 +6,11 @@
 // tested) entirely in Rust, without GIL acquisition.
 
 use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyList};
+use pyo3::types::{PyBytes, PyDict, PyList};
 
 use crate::error::ParseError;
+use crate::x509::crl::Crl;
+use crate::x509::ocsp::{self, CertIdInputs, OcspResponse, ResponderId};
 use crate::x509::{Certificate, Name, PublicKeyAlgorithm, SubjectPublicKeyInfo};
 
 /// Map a `ParseError` to a `PyValueError`. Single seam for error
@@ -303,4 +305,149 @@ pub fn analyze_chain_dict<'py>(
     top.set_item("ordered", ordered)?;
     top.set_item("terminates_in_self_signed", terminates_in_self_signed)?;
     Ok(top)
+}
+
+/// Translate a parsed OCSP response into the dict the revocation layer
+/// consumes. Times are unix seconds; the Python side renders them.
+pub fn ocsp_response_dict<'py>(
+    py: Python<'py>,
+    response: &OcspResponse<'_>,
+) -> PyResult<Bound<'py, PyDict>> {
+    let d = PyDict::new(py);
+    d.set_item("response_status", response.status.as_str())?;
+    match response.responder_id {
+        Some(ResponderId::ByName(name)) => {
+            d.set_item("responder_name", name_dict(py, &name)?)?;
+            d.set_item("responder_name_der", PyBytes::new(py, name.raw))?;
+            d.set_item("responder_key_hash", py.None())?;
+        }
+        Some(ResponderId::ByKey(hash)) => {
+            d.set_item("responder_name", py.None())?;
+            d.set_item("responder_name_der", py.None())?;
+            d.set_item("responder_key_hash", hex_string(hash))?;
+        }
+        None => {
+            d.set_item("responder_name", py.None())?;
+            d.set_item("responder_name_der", py.None())?;
+            d.set_item("responder_key_hash", py.None())?;
+        }
+    }
+    d.set_item("produced_at", response.produced_at_unix)?;
+    d.set_item(
+        "signature_algorithm",
+        response
+            .signature_algorithm
+            .map(|a| a.algorithm.to_id_string()),
+    )?;
+    d.set_item("signature", response.signature.map(|s| PyBytes::new(py, s)))?;
+    d.set_item(
+        "tbs_response_data",
+        response.tbs_response_data.map(|t| PyBytes::new(py, t)),
+    )?;
+    let certs = PyList::empty(py);
+    for cert in &response.certs {
+        certs.append(PyBytes::new(py, cert))?;
+    }
+    d.set_item("certs", certs)?;
+    let responses = PyList::empty(py);
+    for single in &response.responses {
+        let one = PyDict::new(py);
+        let cert_id = PyDict::new(py);
+        cert_id.set_item(
+            "hash_algorithm",
+            single.cert_id.hash_algorithm.to_id_string(),
+        )?;
+        cert_id.set_item(
+            "issuer_name_hash",
+            hex_string(single.cert_id.issuer_name_hash),
+        )?;
+        cert_id.set_item(
+            "issuer_key_hash",
+            hex_string(single.cert_id.issuer_key_hash),
+        )?;
+        cert_id.set_item("serial_number", hex_string(single.cert_id.serial_raw))?;
+        one.set_item("cert_id", cert_id)?;
+        one.set_item("status", single.status.as_str())?;
+        one.set_item("this_update", single.this_update_unix)?;
+        one.set_item("next_update", single.next_update_unix)?;
+        one.set_item("revocation_time", single.revocation_time_unix)?;
+        one.set_item(
+            "revocation_reason",
+            single.revocation_reason.map(ocsp::crl_reason_name),
+        )?;
+        responses.append(one)?;
+    }
+    d.set_item("responses", responses)?;
+    Ok(d)
+}
+
+/// The CRL's validity window and size, for caching and reporting.
+pub fn crl_info_dict<'py>(py: Python<'py>, crl: &Crl<'_>) -> PyResult<Bound<'py, PyDict>> {
+    let d = PyDict::new(py);
+    d.set_item("issuer", name_dict(py, &crl.issuer)?)?;
+    d.set_item("this_update", crl.this_update_unix)?;
+    d.set_item("next_update", crl.next_update_unix)?;
+    d.set_item(
+        "signature_algorithm",
+        crl.signature_algorithm.algorithm.to_id_string(),
+    )?;
+    d.set_item("revoked_count", crl.revoked_count().map_err(to_py_err)?)?;
+    d.set_item("tbs_cert_list", PyBytes::new(py, crl.tbs_cert_list))?;
+    d.set_item("signature", PyBytes::new(py, crl.signature))?;
+    Ok(d)
+}
+
+/// One CRL entry, or `None` when the serial is not listed.
+pub fn crl_lookup_dict<'py>(
+    py: Python<'py>,
+    crl: &Crl<'_>,
+    serial_raw: &[u8],
+) -> PyResult<Option<Bound<'py, PyDict>>> {
+    let Some(entry) = crl.lookup(serial_raw).map_err(to_py_err)? else {
+        return Ok(None);
+    };
+    let d = PyDict::new(py);
+    d.set_item("revocation_time", entry.revocation_time_unix)?;
+    d.set_item("revocation_reason", entry.reason.map(ocsp::crl_reason_name))?;
+    Ok(Some(d))
+}
+
+pub fn cert_id_inputs_dict<'py>(
+    py: Python<'py>,
+    inputs: &CertIdInputs<'_>,
+) -> PyResult<Bound<'py, PyDict>> {
+    let d = PyDict::new(py);
+    d.set_item("serial_number", PyBytes::new(py, inputs.serial_raw))?;
+    d.set_item("issuer_name", PyBytes::new(py, inputs.issuer_name_der))?;
+    d.set_item("issuer_key", PyBytes::new(py, inputs.issuer_key_bits))?;
+    Ok(d)
+}
+
+/// The pieces needed to verify a certificate's own signature and to use it
+/// as a signer: signed bytes, signature, algorithm, key, names, validity,
+/// and extended key usage.
+pub fn certificate_signature_parts_dict<'py>(
+    py: Python<'py>,
+    cert: &Certificate<'_>,
+) -> PyResult<Bound<'py, PyDict>> {
+    let d = PyDict::new(py);
+    d.set_item("tbs", PyBytes::new(py, cert.tbs_raw))?;
+    d.set_item("signature", PyBytes::new(py, cert.signature_value))?;
+    d.set_item(
+        "signature_algorithm",
+        cert.signature_algorithm.algorithm.to_id_string(),
+    )?;
+    d.set_item("spki", PyBytes::new(py, cert.spki.raw))?;
+    d.set_item("key_bits", PyBytes::new(py, cert.spki.subject_public_key))?;
+    d.set_item("subject", name_dict(py, &cert.subject)?)?;
+    d.set_item("subject_der", PyBytes::new(py, cert.subject.raw))?;
+    d.set_item("issuer_der", PyBytes::new(py, cert.issuer.raw))?;
+    d.set_item("not_before", cert.validity.not_before_unix)?;
+    d.set_item("not_after", cert.validity.not_after_unix)?;
+    let purposes = PyList::empty(py);
+    for purpose in cert.extensions.extended_key_usage().map_err(to_py_err)? {
+        purposes.append(purpose.to_id_string())?;
+    }
+    d.set_item("extended_key_usage", purposes)?;
+    Ok(d)
 }

@@ -19,6 +19,8 @@ ENDPOINT_OPTIONS = frozenset(
         "capath",
         "client_cert",
         "client_key",
+        "starttls",
+        "proxy",
     }
 )
 
@@ -35,11 +37,14 @@ def scan_hosts(
     capath: str | None = None,
     client_cert: str | None = None,
     client_key: str | None = None,
+    starttls: str | None = None,
+    proxy: str | None = None,
 ) -> Iterator[dict[str, Any]]:
     """Yield completed scans with at most `max_workers` endpoints in flight.
 
     Each result is a dict with `host`, `port`, `results` (the `validate()`
-    output), `snapshot_at`, and `fingerprint_sha256` of the collected leaf. If a scan raises, the dict carries an
+    output), `snapshot_at`, `fingerprint_sha256`, the parsed `certificate`, and
+    `public_key_info`, so two runs can be handed to `compare_snapshots()`. If a scan raises, the dict carries an
     `error` (exception class name) and `message` instead of aborting the
     whole scan, so one bad host never hides the rest. Results arrive in
     completion order. Stopping iteration early returns promptly; scans that
@@ -53,7 +58,7 @@ def scan_hosts(
         hosts: Endpoints to scan, consumed lazily. Each entry is a host name or
             IP address, a `(host, port)` pair, or a dict with `host` plus any of
             `port`, `connection_host`, `server_hostname`, `timeout`, `cafile`,
-            `capath`, `client_cert`, and `client_key` for endpoints that need
+            `capath`, `client_cert`, `client_key`, `starttls`, and `proxy` for endpoints that need
             their own connection settings.
         port: TCP port for entries that do not carry one. Defaults to 443.
         max_workers: Maximum number of concurrent scans. Defaults to 8.
@@ -66,6 +71,12 @@ def scan_hosts(
         capath: CA directory for trust verification on every endpoint.
         client_cert: Client certificate for mutual TLS on every endpoint.
         client_key: Client private key, if separate from `client_cert`.
+        starttls: STARTTLS protocol name applied to every endpoint (`"smtp"`,
+            `"imap"`, `"pop3"`, `"ftp"`, `"postgres"`, `"ldap"`); endpoint
+            dicts may set their own. Unset, each monitor discovers the service
+            itself when the port does not speak TLS directly.
+        proxy: `http://` or `socks5://` proxy URL applied to every endpoint;
+            endpoint dicts may set their own.
 
     Raises:
         ValueError: If `max_workers` or `timeout` is not positive.
@@ -93,6 +104,8 @@ def scan_hosts(
         "capath": capath,
         "client_cert": client_cert,
         "client_key": client_key,
+        "starttls": starttls,
+        "proxy": proxy,
     }
 
     def describe(entry: Endpoint) -> tuple[str, int, dict[str, Any]]:
@@ -122,6 +135,8 @@ def scan_hosts(
                     "results": monitor.validate(validator_args),
                     "snapshot_at": monitor.snapshot_at,
                     "fingerprint_sha256": monitor.fingerprint_sha256,
+                    "certificate": monitor.cert_info,
+                    "public_key_info": monitor.public_key_info,
                 }
                 if monitor.connection_host != host:
                     report["connection_host"] = monitor.connection_host

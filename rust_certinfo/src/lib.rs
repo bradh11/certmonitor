@@ -19,6 +19,7 @@
 
 #![forbid(unsafe_code)]
 
+mod crypto;
 mod der;
 mod error;
 mod pq_algorithms;
@@ -32,7 +33,12 @@ mod x509;
 // the `#[pyfunction]` entry points further down, but the in-repo fuzz
 // crate at `fuzz/` does, and any future in-tree Rust consumer (e.g. a
 // CLI) can use the same surface.
+pub use crate::crypto::bigint::BigUint;
+pub use crate::crypto::VerifyError;
 pub use crate::error::ParseError;
+pub use crate::x509::crl::Crl;
+pub use crate::x509::ocsp::OcspResponse;
+pub use crate::x509::verify::verify_signature;
 pub use crate::x509::Certificate;
 
 // Everything below is the PyO3 / Python wheel surface. None of it is
@@ -95,6 +101,8 @@ mod py {
 
     /// Probe a TLS 1.3 server for its key-exchange group. Opens a TCP
     /// connection to `host` (offering `server_name`, or `host`, as SNI),
+    /// runs the optional `starttls` preamble (smtp, imap, pop3, ftp,
+    /// postgres, ldap),
     /// sends one ClientHello offering X25519MLKEM768, reads
     /// the ServerHello, extracts the negotiated (or HRR-requested)
     /// group, and closes, no crypto, no certificate validation.
@@ -103,20 +111,118 @@ mod py {
     /// or protocol conditions); see `pyobj::probe_result_dict` for the
     /// shape. The socket work runs with the GIL released.
     #[pyfunction]
-    #[pyo3(signature = (host, port=443, timeout_ms=10000, server_name=None))]
+    #[pyo3(signature = (host, port=443, timeout_ms=10000, server_name=None, starttls=None, proxy=None))]
+    #[allow(clippy::too_many_arguments, clippy::type_complexity)]
     pub(super) fn probe_tls_handshake(
         py: Python<'_>,
         host: &str,
         port: u16,
         timeout_ms: u64,
         server_name: Option<&str>,
+        starttls: Option<&str>,
+        proxy: Option<(String, String, u16, Option<String>, Option<String>)>,
     ) -> PyResult<Py<PyAny>> {
         let timeout = std::time::Duration::from_millis(timeout_ms);
+        // `proxy` is a ProxyConfig tuple: (scheme, host, port, username, password).
+        let proxy =
+            proxy.map(
+                |(scheme, host, port, username, password)| crate::tls::proxy::Proxy {
+                    scheme,
+                    host,
+                    port,
+                    username,
+                    password,
+                },
+            );
         // Release the GIL for the blocking socket work so concurrent
         // scans don't serialize on the probe. (`detach` is pyo3 0.29's
         // rename of the former `allow_threads`.)
-        let result = py.detach(|| crate::tls::probe::probe(host, port, server_name, timeout));
+        let result = py.detach(|| {
+            crate::tls::probe::probe(host, port, server_name, starttls, proxy.as_ref(), timeout)
+        });
         Ok(pyobj::probe_result_dict(py, &result)?.into())
+    }
+
+    /// Parse a DER OCSP response (RFC 6960) into a dict: `response_status`,
+    /// the responder id, `produced_at`, per-certificate `responses`, and
+    /// the signed bytes and signature for verification. Never panics.
+    #[pyfunction]
+    pub(super) fn parse_ocsp_response(py: Python<'_>, der_data: Vec<u8>) -> PyResult<Py<PyAny>> {
+        let response = crate::x509::ocsp::OcspResponse::from_der(&der_data).map_err(to_py_err)?;
+        Ok(pyobj::ocsp_response_dict(py, &response)?.into())
+    }
+
+    /// The inputs an OCSP CertID is built from, or `None` when `issuer_der`
+    /// did not issue `leaf_der`.
+    #[pyfunction]
+    pub(super) fn ocsp_cert_id_inputs(
+        py: Python<'_>,
+        leaf_der: Vec<u8>,
+        issuer_der: Vec<u8>,
+    ) -> PyResult<Py<PyAny>> {
+        match crate::x509::ocsp::cert_id_inputs(&leaf_der, &issuer_der).map_err(to_py_err)? {
+            Some(inputs) => Ok(pyobj::cert_id_inputs_dict(py, &inputs)?.into()),
+            None => Ok(py.None()),
+        }
+    }
+
+    /// A DER CRL's issuer, validity window, and size.
+    #[pyfunction]
+    pub(super) fn crl_info(py: Python<'_>, der_data: Vec<u8>) -> PyResult<Py<PyAny>> {
+        let crl = crate::x509::crl::Crl::from_der(&der_data).map_err(to_py_err)?;
+        Ok(pyobj::crl_info_dict(py, &crl)?.into())
+    }
+
+    /// The CRL entry for a serial number (raw INTEGER bytes), or `None`.
+    #[pyfunction]
+    pub(super) fn crl_lookup(
+        py: Python<'_>,
+        der_data: Vec<u8>,
+        serial_number: Vec<u8>,
+    ) -> PyResult<Py<PyAny>> {
+        let crl = crate::x509::crl::Crl::from_der(&der_data).map_err(to_py_err)?;
+        match pyobj::crl_lookup_dict(py, &crl, &serial_number)? {
+            Some(entry) => Ok(entry.into()),
+            None => Ok(py.None()),
+        }
+    }
+
+    /// The hash algorithm name (`sha1`, `sha256`, `sha384`, `sha512`) a
+    /// signature algorithm OID implies, or `None` if the algorithm is not
+    /// one CertMonitor can verify.
+    #[pyfunction]
+    pub(super) fn signature_hash(algorithm: &str) -> Option<&'static str> {
+        crate::x509::verify::signature_algorithm(algorithm).map(|(_, hash)| hash.name())
+    }
+
+    /// Verify `signature` over `digest` with the public key in `spki_der`.
+    /// Returns False for a signature that does not verify; raises
+    /// `ValueError` when the algorithm or key is unsupported or malformed.
+    #[pyfunction]
+    pub(super) fn verify_signature(
+        py: Python<'_>,
+        algorithm: &str,
+        digest: Vec<u8>,
+        signature: Vec<u8>,
+        spki_der: Vec<u8>,
+    ) -> PyResult<bool> {
+        py.detach(|| {
+            crate::x509::verify::verify_signature(algorithm, &digest, &signature, &spki_der)
+        })
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))
+    }
+
+    /// The pieces needed to verify a certificate's signature and to use it
+    /// as a signer: `tbs`, `signature`, `signature_algorithm`, `spki`,
+    /// `key_bits`, `subject`, `subject_der`, `issuer_der`, `not_before`,
+    /// `not_after`, and `extended_key_usage`.
+    #[pyfunction]
+    pub(super) fn certificate_signature_parts(
+        py: Python<'_>,
+        der_data: Vec<u8>,
+    ) -> PyResult<Py<PyAny>> {
+        let cert = Certificate::from_der(&der_data).map_err(to_py_err)?;
+        Ok(pyobj::certificate_signature_parts_dict(py, &cert)?.into())
     }
 
     #[pymodule]
@@ -127,6 +233,13 @@ mod py {
         m.add_function(wrap_pyfunction!(analyze_chain, m)?)?;
         m.add_function(wrap_pyfunction!(pq_algorithms, m)?)?;
         m.add_function(wrap_pyfunction!(probe_tls_handshake, m)?)?;
+        m.add_function(wrap_pyfunction!(parse_ocsp_response, m)?)?;
+        m.add_function(wrap_pyfunction!(ocsp_cert_id_inputs, m)?)?;
+        m.add_function(wrap_pyfunction!(crl_info, m)?)?;
+        m.add_function(wrap_pyfunction!(crl_lookup, m)?)?;
+        m.add_function(wrap_pyfunction!(signature_hash, m)?)?;
+        m.add_function(wrap_pyfunction!(verify_signature, m)?)?;
+        m.add_function(wrap_pyfunction!(certificate_signature_parts, m)?)?;
         Ok(())
     }
 }

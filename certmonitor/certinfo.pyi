@@ -29,13 +29,81 @@ def probe_tls_handshake(
     port: int = 443,
     timeout_ms: int = 10000,
     server_name: str | None = None,
+    starttls: str | None = None,
+    proxy: tuple[str, str, int, str | None, str | None] | None = None,
 ) -> dict[str, Any]:
     """Probe a TLS 1.3 server's key-exchange group. `host` is the address to
     connect to and `server_name` the SNI to offer (defaults to `host`; IP
-    literals never send SNI). Returns a dict in every terminal state:
+    literals never send SNI). `starttls` names a service whose plaintext
+    preamble runs first (smtp, imap, pop3, ftp, postgres, ldap). `proxy` is a
+    `ProxyConfig` tuple (scheme, host, port, username, password) to tunnel
+    through an HTTP CONNECT or SOCKS5 proxy. Returns a dict in every terminal
+    state:
       - {"result": "group", "id", "name", "kind", "is_pq", "protocol",
          "via_hello_retry_request"}
       - {"result": "n/a", "reason", "protocol"}
       - {"result": "error", "error", "message"}
+    """
+    ...
+
+def parse_ocsp_response(der_data: bytes) -> dict[str, Any]:
+    """Parse a DER OCSP response (RFC 6960).
+
+    Returns `response_status`, `responder_name` (with `responder_name_der`) or
+    `responder_key_hash`,
+    `produced_at` (unix seconds), `signature_algorithm`, `signature`,
+    `tbs_response_data` (the signed bytes), `certs` (attached responder
+    certificates as DER), and `responses`: one dict per certificate with
+    `cert_id`, `status` (good, revoked, unknown), `this_update`,
+    `next_update`, `revocation_time`, and `revocation_reason`.
+    Raises `ValueError` on malformed input.
+    """
+    ...
+
+def ocsp_cert_id_inputs(leaf_der: bytes, issuer_der: bytes) -> dict[str, bytes] | None:
+    """The inputs an OCSP CertID is built from: `serial_number` (raw INTEGER
+    bytes), `issuer_name` (DER of the leaf's issuer name), and `issuer_key`
+    (the issuer's public key bits). `None` when `issuer_der` did not issue
+    `leaf_der`.
+    """
+    ...
+
+def crl_info(der_data: bytes) -> dict[str, Any]:
+    """A DER CRL's `issuer`, `this_update`, `next_update` (unix seconds or
+    None), `signature_algorithm`, `revoked_count`, and the signed bytes
+    (`tbs_cert_list`) with their `signature`.
+    """
+    ...
+
+def crl_lookup(der_data: bytes, serial_number: bytes) -> dict[str, Any] | None:
+    """The CRL entry for `serial_number` (raw INTEGER bytes, leading zeros
+    ignored): `revocation_time` and `revocation_reason`, or `None` when the
+    serial is not listed.
+    """
+    ...
+
+def signature_hash(algorithm: str) -> str | None:
+    """The `hashlib` name (`sha1`, `sha256`, `sha384`, `sha512`) implied by a
+    signature algorithm OID in dotted form, or `None` when CertMonitor cannot
+    verify that algorithm (RSA PKCS#1 v1.5 and ECDSA are supported).
+    """
+    ...
+
+def verify_signature(
+    algorithm: str, digest: bytes, signature: bytes, spki_der: bytes
+) -> bool:
+    """Verify `signature` over `digest` with the public key in `spki_der`
+    (a DER SubjectPublicKeyInfo). `digest` must already be hashed with the
+    algorithm `signature_hash(algorithm)` names. Returns `False` for a
+    signature that does not verify; raises `ValueError` when the algorithm,
+    curve, or key is unsupported or malformed.
+    """
+    ...
+
+def certificate_signature_parts(der_data: bytes) -> dict[str, Any]:
+    """The pieces needed to verify a certificate's own signature and to use it
+    as a signer: `tbs`, `signature`, `signature_algorithm`, `spki`, `key_bits`,
+    `subject`, `subject_der`, `issuer_der`, `not_before`, `not_after` (unix
+    seconds), and `extended_key_usage` (OIDs in dotted form).
     """
     ...

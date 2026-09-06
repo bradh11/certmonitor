@@ -5,6 +5,7 @@ import hashlib
 import ipaddress
 import re
 import logging
+from functools import partial
 import os
 import socket
 import ssl
@@ -17,10 +18,19 @@ from pathlib import Path
 from certmonitor import certinfo, config
 from certmonitor.cipher_algorithms import parse_cipher_suite
 from certmonitor.error_handlers import ErrorHandler
+from certmonitor.protocol_handlers import detection
+from certmonitor.protocol_handlers import starttls as starttls_negotiation
 from certmonitor.protocol_handlers.base import BaseProtocolHandler
+from certmonitor.protocol_handlers.connection import open_stream, open_tls_stream
+from certmonitor.protocol_handlers.proxy import ProxyConfig, parse_proxy
+from certmonitor.revocation import RevocationEvidence
 from certmonitor.protocol_handlers.ssh_handler import SSHHandler
 from certmonitor.protocol_handlers.ssl_handler import SSLHandler
 from certmonitor.validators import VALIDATORS
+
+
+# OpenSSL's X509_V_ERR_CERT_REVOKED, reported by a handshake with a CRL loaded.
+_X509_V_ERR_CERT_REVOKED = 23
 
 
 class CertMonitor:
@@ -39,6 +49,8 @@ class CertMonitor:
         capath: str | None = None,
         client_cert: str | None = None,
         client_key: str | None = None,
+        starttls: str | None = None,
+        proxy: str | None = None,
     ):
         """Initialize a monitor for a host without opening a connection.
 
@@ -63,9 +75,25 @@ class CertMonitor:
             capath: OpenSSL-compatible CA directory for the verified trust handshake.
             client_cert: Client certificate chain file for mutual TLS.
             client_key: Separate client private-key file, if needed.
+            starttls: Application protocol whose STARTTLS preamble runs before the
+                TLS handshake: `"smtp"`, `"imap"`, `"pop3"`, `"ftp"`, `"postgres"`,
+                or `"ldap"`. Leave it unset and CertMonitor discovers the service
+                itself, without looking at the port number: a plaintext greeting
+                names SMTP, FTP, IMAP, POP3, or SSH, and a silent service is asked
+                the PostgreSQL and LDAP StartTLS requests in turn. Discovery runs
+                only when the port turns out not to speak TLS directly, and is
+                bounded by `timeout`. Passing a protocol skips detection and
+                discovery entirely. Collection, trust verification, and the
+                post-quantum probe all run the preamble.
+            proxy: Route every connection through `http://[user:pass@]host:port`
+                (HTTP CONNECT) or `socks5://[user:pass@]host:port`. The proxy resolves
+                the target name. Results record the route with the password removed.
+                Collection, trust verification, and the post-quantum probe all
+                go through the tunnel.
 
         Raises:
-            ValueError: If `timeout` is not positive.
+            ValueError: If `timeout` is not positive or `starttls` is not a
+                supported protocol name.
 
         Example:
             ```python
@@ -75,6 +103,12 @@ class CertMonitor:
         """
         if timeout <= 0:
             raise ValueError("timeout must be positive")
+        if starttls is not None and starttls not in starttls_negotiation.PROTOCOLS:
+            raise ValueError(
+                f"starttls must be one of {', '.join(starttls_negotiation.PROTOCOLS)}, not {starttls!r}"
+            )
+        self.starttls = starttls
+        self.proxy: ProxyConfig | None = parse_proxy(proxy) if proxy else None
         self.connection_host = connection_host or host
         self.server_hostname = server_hostname or host
         self.timeout = timeout
@@ -247,38 +281,39 @@ class CertMonitor:
             self.connected = True
             return None
 
-        protocol_result = self.detect_protocol()
+        # An explicit STARTTLS protocol is the user's override: no detection,
+        # no discovery. Otherwise detection may already name a STARTTLS service
+        # from the greeting it peeked at.
+        protocol_result = "ssl" if self.starttls else self.detect_protocol()
         if isinstance(protocol_result, dict) and "error" in protocol_result:
             return protocol_result
+        protocol = cast(str, protocol_result)
+        if protocol.startswith("starttls:"):
+            self.starttls = protocol.partition(":")[2]
+            protocol = "ssl"
+        self.protocol = protocol
 
-        # If we get here, protocol_result is a string
-        self.protocol = cast(str, protocol_result)
+        unsupported = self._build_handler()
+        if unsupported is not None:
+            return unsupported
 
-        if self.protocol == "ssl":
-            self.handler = SSLHandler(
-                self.connection_host, self.port, self.error_handler
-            )
-            self.handler.server_hostname = self.server_hostname
-            self.handler.timeout = self.timeout
-            self.handler.client_cert = self.client_cert
-            self.handler.client_key = self.client_key
-        elif self.protocol == "ssh":
-            self.handler = SSHHandler(
-                self.connection_host, self.port, self.error_handler
-            )
-            self.handler.timeout = self.timeout
-        else:
-            return cast(
-                dict[str, Any],
-                self.error_handler.handle_error(
-                    "ProtocolError",
-                    f"Unsupported protocol: {self.protocol}",
-                    self.host,
-                    self.port,
-                ),
-            )
-
-        connection_result = self.handler.connect()
+        connection_result: dict[str, Any] | None = cast(Any, self.handler).connect()
+        if (
+            connection_result is not None
+            and self.protocol == "ssl"
+            and self.starttls is None
+        ):
+            # The port did not speak TLS directly. It may be a STARTTLS service
+            # (or SSH) that detection could not see because it had not greeted
+            # yet; ask it, then retry once with what discovery found.
+            discovered = self._discover_service()
+            if discovered is not None:
+                if discovered == "ssh":
+                    self.protocol = "ssh"
+                else:
+                    self.starttls = discovered
+                self._build_handler()
+                connection_result = cast(Any, self.handler).connect()
         if connection_result is not None:  # This means there was an error
             return connection_result
 
@@ -311,38 +346,74 @@ class CertMonitor:
         self._clear_snapshot()
         return self.get_cert_info()
 
-    def detect_protocol(self) -> str | dict[str, Any]:
-        """Detect the protocol used by the host."""
+    @property
+    def _connect(self) -> Callable[[str, int, float], socket.socket]:
+        """Opens plaintext streams the way this monitor reaches hosts (proxy included)."""
+        return partial(open_stream, proxy=self.proxy)
+
+    def _build_handler(self) -> dict[str, Any] | None:
+        """Create the handler for `self.protocol`; return an error dict if unsupported."""
+        if self.protocol == "ssl":
+            handler = SSLHandler(self.connection_host, self.port, self.error_handler)
+            handler.server_hostname = self.server_hostname
+            handler.timeout = self.timeout
+            handler.client_cert = self.client_cert
+            handler.client_key = self.client_key
+            handler.starttls = self.starttls
+            handler.proxy = self.proxy
+            self.handler = handler
+            return None
+        if self.protocol == "ssh":
+            ssh_handler = SSHHandler(
+                self.connection_host, self.port, self.error_handler
+            )
+            ssh_handler.timeout = self.timeout
+            ssh_handler.proxy = self.proxy
+            self.handler = ssh_handler
+            return None
+        return cast(
+            dict[str, Any],
+            self.error_handler.handle_error(
+                "ProtocolError",
+                f"Unsupported protocol: {self.protocol}",
+                self.host,
+                self.port,
+            ),
+        )
+
+    def _discover_service(self) -> str | None:
+        """Name the plaintext service on the port, or `None` if it cannot be named."""
         try:
-            with socket.create_connection(
-                (self.connection_host, self.port), timeout=self.timeout
-            ) as sock:
-                sock.setblocking(False)
-                try:
-                    data = sock.recv(4, socket.MSG_PEEK)
-                    if data.startswith(b"SSH-"):
-                        return "ssh"
-                    elif data and data[0] in [
-                        22,
-                        128,
-                        160,
-                    ]:  # Common first bytes for SSL/TLS
-                        return "ssl"
-                    else:
-                        return cast(
-                            dict[str, Any],
-                            self.error_handler.handle_error(
-                                "ProtocolDetectionError",
-                                f"Unable to determine protocol. First bytes: {data.hex()}",
-                                self.host,
-                                self.port,
-                            ),
-                        )
-                except OSError:
-                    # If no data is received, assume it's SSL
-                    return "ssl"
-                finally:
-                    sock.setblocking(True)
+            found = starttls_negotiation.discover(
+                self.connection_host,
+                self.port,
+                self.timeout,
+                connect=self._connect,
+            )
+        except OSError as exc:
+            logging.debug("Service discovery failed for %s: %s", self.host, exc)
+            return None
+        if found is not None:
+            logging.debug("Discovered %s on %s:%s", found, self.host, self.port)
+        return found
+
+    def detect_protocol(self) -> str | dict[str, Any]:
+        """Detect the protocol used by the host.
+
+        Returns `"ssh"`, `"ssl"`, or `"starttls:<protocol>"` when the peeked
+        greeting belongs to a STARTTLS service, or an error dict.
+        """
+        try:
+            found = detection.detect(
+                self.connection_host, self.port, self.timeout, connect=self._connect
+            )
+        except detection.ProtocolDetectionError as exc:
+            return cast(
+                dict[str, Any],
+                self.error_handler.handle_error(
+                    "ProtocolDetectionError", str(exc), self.host, self.port
+                ),
+            )
         except Exception as e:
             return cast(
                 dict[str, Any],
@@ -350,6 +421,9 @@ class CertMonitor:
                     "ConnectionError", str(e), self.host, self.port
                 ),
             )
+        if found.starttls:
+            return f"starttls:{found.starttls}"
+        return found.protocol
 
     def _ensure_connection(self) -> dict[str, Any] | None:
         """Ensures that a valid connection is established."""
@@ -518,6 +592,8 @@ class CertMonitor:
             if source is not None
             else {"type": "connection", "host": self.connection_host, "port": self.port}
         )
+        if self.proxy is not None:
+            cert_data["source"]["proxy"] = self.proxy.redacted
         self.cert_data = cert_data
         return cert_data
 
@@ -941,6 +1017,13 @@ class CertMonitor:
             return self.get_cipher_info()
         if source_name == "tls_probe":
             return self._fetch_tls_probe()
+        if source_name == "revocation":
+            cert_data = resolve("cert_data")
+            collection_error = self._source_error("cert_data", cert_data)
+            if collection_error is not None:
+                collection_error.setdefault("error", "MissingCertificate")
+                return collection_error
+            return self._fetch_revocation(cert_data)
         return {
             "error": "UnknownSource",
             "message": f"No fetcher registered for data source {source_name!r}.",
@@ -970,14 +1053,16 @@ class CertMonitor:
 
     def _verified_peer(self, legacy: bool) -> bytes:
         """Complete a verified handshake and return the DER leaf it observed."""
-        context = self._verify_context(legacy)
-        with socket.create_connection(
-            (self.connection_host, self.port), timeout=self.timeout
-        ) as sock:
-            with context.wrap_socket(
-                sock, server_hostname=self.server_hostname
-            ) as secure:
-                return secure.getpeercert(binary_form=True) or b""
+        with open_tls_stream(
+            self.connection_host,
+            self.port,
+            self.timeout,
+            self._verify_context(legacy),
+            server_hostname=self.server_hostname,
+            starttls=self.starttls,
+            proxy=self.proxy,
+        ) as secure:
+            return secure.getpeercert(binary_form=True) or b""
 
     def _verify_trust(self) -> dict[str, Any]:
         """Verify a separate handshake, requiring the collected leaf to match.
@@ -1064,6 +1149,87 @@ class CertMonitor:
             "reason": str(last_error),
         }
 
+    def _fetch_revocation(self, cert_data: dict[str, Any]) -> RevocationEvidence:
+        """Build the lazy OCSP and CRL evidence the `revocation` validator reads."""
+        assert self.der is not None
+        return RevocationEvidence(
+            leaf_der=self.der,
+            chain_der=list(cert_data.get("chain_der") or [self.der]),
+            cert_info=cert_data.get("cert_info") or {},
+            timeout=self.timeout,
+            proxy=self.proxy,
+            crl_check=None if self.offline else self._check_crl,
+            offline=self.offline,
+        )
+
+    def _check_crl(self, crl_der: bytes) -> dict[str, Any]:
+        """Let OpenSSL judge the collected leaf against `crl_der`.
+
+        The CRL is loaded into a verifying context with `VERIFY_CRL_CHECK_LEAF`
+        and one more handshake is run. OpenSSL verifies the CRL's signature
+        against the trusted CA and its validity window, then reports
+        `certificate revoked` if the leaf is listed. The strict context is
+        tried first and the legacy one second, as for trust verification.
+        """
+        assert self.der is not None
+        with tempfile.NamedTemporaryFile("w", suffix=".pem", delete=False) as handle:
+            handle.write(
+                ssl.DER_cert_to_PEM_cert(crl_der).replace("CERTIFICATE", "X509 CRL")
+            )
+            crl_path = handle.name
+        try:
+            last_error: Exception | None = None
+            for legacy in (False, True):
+                try:
+                    context = ssl.create_default_context(
+                        cafile=self.cafile, capath=self.capath
+                    )
+                    context.check_hostname = False
+                    context.load_verify_locations(cafile=crl_path)
+                    context.verify_flags |= ssl.VERIFY_CRL_CHECK_LEAF
+                    if legacy:
+                        context.minimum_version = ssl.TLSVersion.MINIMUM_SUPPORTED
+                        context.set_ciphers("ALL:@SECLEVEL=0")
+                    if self.client_cert:
+                        context.load_cert_chain(self.client_cert, self.client_key)
+                    with open_tls_stream(
+                        self.connection_host,
+                        self.port,
+                        self.timeout,
+                        context,
+                        server_hostname=self.server_hostname,
+                        starttls=self.starttls,
+                        proxy=self.proxy,
+                    ) as secure:
+                        peer = secure.getpeercert(binary_form=True)
+                except ssl.SSLCertVerificationError as exc:
+                    message = getattr(exc, "verify_message", None) or str(exc)
+                    if exc.verify_code == _X509_V_ERR_CERT_REVOKED:
+                        return {"status": "revoked", "verify_code": exc.verify_code}
+                    return {
+                        "status": "error",
+                        "error": "CRLVerificationFailed",
+                        "reason": f"OpenSSL could not check the CRL: {message}",
+                        "verify_code": exc.verify_code,
+                    }
+                except (OSError, ValueError) as exc:
+                    last_error = exc
+                    continue
+                if peer != self.der:
+                    return {
+                        "status": "error",
+                        "error": "SnapshotMismatch",
+                        "reason": "The CRL check observed a different certificate; refresh and retry.",
+                    }
+                return {"status": "good"}
+            return {
+                "status": "error",
+                "error": type(last_error).__name__,
+                "reason": str(last_error),
+            }
+        finally:
+            os.unlink(crl_path)
+
     def _fetch_tls_probe(self) -> dict[str, Any]:
         """Probe the negotiated TLS 1.3 key-exchange group via the Rust probe.
 
@@ -1109,6 +1275,8 @@ class CertMonitor:
                     self.port,
                     int(self.timeout * 1000),
                     server_name=self.server_hostname,
+                    starttls=self.starttls,
+                    proxy=tuple(self.proxy) if self.proxy is not None else None,
                 ),
             )
             observation.update(

@@ -11,13 +11,19 @@
 //   records.rs  , TLS record framing (read + write)
 //   handshake.rs, ClientHello builder + ServerHello / HRR parser
 //   mlkem_kat.rs, a real ML-KEM-768 KAT public key for the probe share
-//   probe.rs    , socket orchestration (the only part that does I/O)
+//   wire.rs     , deadline-bounded socket helpers for plaintext exchanges
+//   proxy.rs    , HTTP CONNECT and SOCKS5 tunnels
+//   starttls.rs , STARTTLS preambles
+//   probe.rs    , socket orchestration (connect, tunnel, preamble, ClientHello)
 
 pub mod handshake;
 pub mod key_exchange_groups;
 pub mod mlkem_kat;
 pub mod probe;
+pub mod proxy;
 pub mod records;
+pub mod starttls;
+pub mod wire;
 
 /// Errors from TLS record / handshake parsing. Deliberately separate
 /// from `der::ParseError`, different wire format, different failure

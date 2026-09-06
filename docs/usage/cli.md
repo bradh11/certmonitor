@@ -49,7 +49,7 @@ certmonitor check --file /etc/ssl/certs/service.pem --host service.example.com
 
 ## Connection options
 
-The constructor's connection options are available as flags: `--connection-host` and `--server-hostname` to split the address from the SNI name, `--cafile` or `--capath` for a private CA, and `--client-cert` with `--client-key` for mutual TLS. See [Using IP Addresses](ip.md) and [RootCertificate](../validators/root_certificate.md) for what they mean.
+STARTTLS services are discovered automatically; `--starttls smtp|imap|pop3|ftp|postgres|ldap` pins the preamble when you already know the service, see [STARTTLS Services](starttls.md). `--proxy http://[user:pass@]host:port` or `socks5://...` tunnels every connection; see [Proxies](proxy.md). The constructor's other connection options are available as flags: `--connection-host` and `--server-hostname` to split the address from the SNI name, `--cafile` or `--capath` for a private CA, and `--client-cert` with `--client-key` for mutual TLS. See [Using IP Addresses](ip.md) and [RootCertificate](../validators/root_certificate.md) for what they mean.
 
 ## Machine-readable output
 
@@ -57,7 +57,15 @@ The constructor's connection options are available as flags: `--connection-host`
 certmonitor check example.com expired.badssl.com --json > report.json
 ```
 
-`--json` emits a list with one entry per target: `target`, `results` (the same dict `validate()` returns, including `status` and `code`), `snapshot_at`, and `fingerprint_sha256` of the leaf certificate. The human-readable report prints the fingerprint on the target line. A target that could not be scanned at all carries `error` and `message` instead of failing the run.
+`--json` emits a list with one entry per target: `target`, `results` (the same dict `validate()` returns, including `status` and `code`), `snapshot_at`, `fingerprint_sha256`, the parsed `certificate`, and `public_key_info`, which is everything `certmonitor diff` needs later. The human-readable report prints the fingerprint on the target line. A target that could not be scanned at all carries `error` and `message` instead of failing the run.
+
+## Compare two runs
+
+```sh
+certmonitor diff yesterday.json today.json [--fail-on notice] [--json]
+```
+
+Explains what changed per target between two `check --json` reports and exits `1` when any change reaches the chosen severity. See [Detect Changes Between Scans](compare.md).
 
 ## Print the certificate
 
@@ -73,6 +81,7 @@ certmonitor info --file service.pem
 certmonitor --version
 certmonitor check [TARGET ...] [--file PATH] [-v NAMES] [--arg V.K=VALUE] [--json] [--fail-on-warn] [--workers N] [connection options]
 certmonitor info TARGET | --file PATH [--pem] [connection options]
+certmonitor diff PREVIOUS.json CURRENT.json [--fail-on notice|warning] [--json]
 certmonitor validators [--json]
 ```
 

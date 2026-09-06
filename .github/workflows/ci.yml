@@ -8,8 +8,9 @@ on:
   release:
     types: [published]
   schedule:
-    # Run security scans weekly on Sundays at 3 AM UTC
+    # Run security scans and the fuzz smoke test weekly on Sundays at 3 AM UTC
     - cron: '0 3 * * 0'
+  workflow_dispatch:  # lets the weekly jobs (fuzz smoke) be run by hand
 
 # Prevent duplicate runs for PR pushes
 concurrency:
@@ -360,3 +361,34 @@ jobs:
           version: "0.12.9"
       - name: Publish tested distributions to PyPI
         run: uv publish dist/*
+
+  # Weekly fuzz smoke test: every libFuzzer target for 60 seconds. Needs
+  # nightly Rust and cargo-fuzz, so it stays off the PR path; see
+  # fuzz/README.md. A crash lands in fuzz/artifacts/ and fails the job.
+  fuzz-smoke:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Install nightly Rust
+        uses: dtolnay/rust-toolchain@d1031067263f94b142dd6c0ce24c5eb9d02d52a0  # master, 2026-09
+        with:
+          toolchain: nightly
+
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz --locked
+
+      - name: Run every fuzz target for 60s
+        run: make fuzz-all FUZZ_DURATION=60
+
+      - name: Upload crash artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-artifacts
+          path: fuzz/artifacts/
+          if-no-files-found: ignore

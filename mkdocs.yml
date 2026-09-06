@@ -18,6 +18,9 @@ nav:
       - Command Line: usage/cli.md
       - Using IP Addresses: usage/ip.md
       - Certificates from Files: usage/files.md
+      - STARTTLS Services: usage/starttls.md
+      - Proxies: usage/proxy.md
+      - Detect Changes Between Scans: usage/compare.md
       - Context Manager vs Manual Close: usage/context_manager.md
       - Certificate Validators: usage/validators.md
       - Custom Validators: usage/custom_validators.md
@@ -43,6 +46,7 @@ nav:
       - WeakCipher: validators/weak_cipher.md
       - SensitiveDate: validators/sensitive_date.md
       - Chain: validators/chain.md
+      - Revocation: validators/revocation.md
       - PqKeyExchange: validators/pq_key_exchange.md
       - PqChain: validators/pq_chain.md
       - PqSignature: validators/pq_signature.md

@@ -4,20 +4,20 @@
 
 ### Test Modularization Status
 - **Modular test files:** 10 files
-- **Total test lines:** 2,652 lines
-- **Average file size:** 265 lines
+- **Total test lines:** 2,741 lines
+- **Average file size:** 274 lines
 - **Main test file:** 22 lines
 
 ### Test Coverage
-- **Overall coverage:** 99.8%
-- **Total tests:** 773
-- **Statements covered:** 1,669/1,673
-- **Files with coverage:** 30
+- **Overall coverage:** 99.9%
+- **Total tests:** 3291
+- **Statements covered:** 2,759/2,763
+- **Files with coverage:** 38
 
 ### Type Hint Coverage
-- **Files analyzed:** 26
-- **Files with type hints:** 24
-- **Type hint coverage:** 92.3%
+- **Files analyzed:** 34
+- **Files with type hints:** 32
+- **Type hint coverage:** 94.1%
 
 ### Code Quality
 - **Ruff issues:** 0
@@ -29,13 +29,13 @@
 - **Rust vulnerabilities found:** 0
 - **Python security scanning:** ✅ Enabled
 - **Python security issues found:** 0
-- **Files scanned by bandit:** 30
-- **Lines scanned by bandit:** 4,029
+- **Files scanned by bandit:** 38
+- **Lines scanned by bandit:** 5,952
 - **Overall security status:** 🔒 Clean
 - **PyO3 version:** 0.29
 
 ### Development Workflow
-- **Makefile commands:** 33 total
+- **Makefile commands:** 37 total
 - **Unified commands:** 5 (format, lint, test)
 - **Language-specific:** 5 (python-*, rust-*)
 - **Security commands:** 1 (security, audit)
@@ -49,12 +49,12 @@
 - **test_certificate_operations.py**: 522 lines, 27 functions
 - **test_validation.py**: 518 lines, 22 functions
 - **test_public_key_operations.py**: 213 lines, 12 functions
-- **test_initialization.py**: 209 lines, 17 functions
+- **test_initialization.py**: 211 lines, 17 functions
 - **test_raw_data_operations.py**: 70 lines, 4 functions
-- **test_review_regressions.py**: 319 lines, 37 functions
+- **test_review_regressions.py**: 324 lines, 37 functions
 - **test_utility_methods.py**: 140 lines, 11 functions
-- **test_connection_management.py**: 314 lines, 20 functions
-- **test_certificate_files.py**: 184 lines, 17 functions
+- **test_connection_management.py**: 390 lines, 22 functions
+- **test_certificate_files.py**: 190 lines, 17 functions
 - **test_cipher_operations.py**: 163 lines, 9 functions
 
 ### Main Test File
@@ -66,14 +66,21 @@
 
 ### Files with Type Hints
 - **config.py**: ❌ (14 lines)
-- **core.py**: ✅ (1325 lines)
-- **cli.py**: ✅ (347 lines)
-- **scanning.py**: ✅ (156 lines)
+- **core.py**: ✅ (1493 lines)
+- **revocation.py**: ✅ (591 lines)
+- **cli.py**: ✅ (433 lines)
+- **scanning.py**: ✅ (171 lines)
 - **error_handlers.py**: ✅ (29 lines)
 - **cipher_algorithms.py**: ✅ (109 lines)
-- **protocol_handlers/ssl_handler.py**: ✅ (229 lines)
+- **compare.py**: ✅ (235 lines)
+- **protocol_handlers/starttls.py**: ✅ (353 lines)
+- **protocol_handlers/ssl_handler.py**: ✅ (227 lines)
+- **protocol_handlers/detection.py**: ✅ (82 lines)
+- **protocol_handlers/proxy.py**: ✅ (226 lines)
+- **protocol_handlers/connection.py**: ✅ (76 lines)
 - **protocol_handlers/ssh_handler.py**: ✅ (79 lines)
-- **protocol_handlers/base.py**: ✅ (29 lines)
+- **protocol_handlers/http.py**: ✅ (229 lines)
+- **protocol_handlers/base.py**: ✅ (32 lines)
 - **utils/utils.py**: ❌ (1 lines)
 - **utils/identity.py**: ✅ (89 lines)
 - **validators/weak_cipher.py**: ✅ (116 lines)
@@ -86,6 +93,7 @@
 - **validators/pq_key_exchange.py**: ✅ (186 lines)
 - **validators/root_certificate_validator.py**: ✅ (88 lines)
 - **validators/pq_signature.py**: ✅ (187 lines)
+- **validators/revocation.py**: ✅ (167 lines)
 - **validators/tls_version.py**: ✅ (95 lines)
 - **validators/key_info.py**: ✅ (204 lines)
 - **validators/base.py**: ✅ (157 lines)
@@ -113,7 +121,7 @@
 
 ### Makefile Configuration
 - **Makefile present:** ✅ Yes
-- **Total commands:** 33
+- **Total commands:** 37
 - **Unified commands:** 5 (test-quick, test, format, format-check, lint)
 - **Language-specific commands:** 5 (python-format, python-lint, rust-format, rust-format-check, rust-lint)
 - **Security commands:** 1 (security)

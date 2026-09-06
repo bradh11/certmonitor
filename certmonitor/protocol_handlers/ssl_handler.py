@@ -6,6 +6,7 @@ import ssl
 from typing import Any, cast
 
 from .base import BaseProtocolHandler
+from .connection import open_tls_stream
 
 
 class SSLHandler(BaseProtocolHandler):
@@ -17,6 +18,7 @@ class SSLHandler(BaseProtocolHandler):
         self.timeout = 10.0
         self.client_cert: str | None = None
         self.client_key: str | None = None
+        self.starttls: str | None = None
         self.tls_version: str | None = None
 
     def _build_context(
@@ -46,26 +48,22 @@ class SSLHandler(BaseProtocolHandler):
             context.load_cert_chain(self.client_cert, self.client_key)
         return context
 
-    def _discard_socket(self) -> None:
-        if self.socket:
-            self.socket.close()
-            self.socket = None
-
     def _attempt(self, **options: Any) -> str | None:
         """Open one collection connection; return the error text on failure."""
         try:
-            context = self._build_context(**options)
-            self.socket = socket.create_connection(
-                (self.host, self.port), timeout=self.timeout
-            )
-            self.secure_socket = context.wrap_socket(
-                self.socket, server_hostname=self.server_hostname
+            self.secure_socket = open_tls_stream(
+                self.host,
+                self.port,
+                self.timeout,
+                self._build_context(**options),
+                server_hostname=self.server_hostname,
+                starttls=self.starttls,
+                proxy=self.proxy,
             )
             self.tls_version = self.secure_socket.version()
             return None
         except Exception as exc:  # noqa: BLE001
             logging.debug("TLS collection attempt failed for %s: %s", self.host, exc)
-            self._discard_socket()
             return str(exc)
 
     def connect(self) -> dict[str, Any] | None:

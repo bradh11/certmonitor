@@ -26,7 +26,7 @@ Revocation is not checked. CA issuer, OCSP, and CRL URLs in a certificate are re
 
 Choose validators and their arguments for the environment you're monitoring. A PQ readiness failure and an expired certificate represent different findings. Keep `status`, `reason`, and `snapshot_at` in stored results so operational failures and stale observations remain visible.
 
-Protocol detection, collection retries, trust verification, and the optional PQ probe can create additional connections. Set a suitable timeout and concurrency limit for your endpoints. See [Performance Tips](usage/performance.md) for a bounded scan example.
+Protocol detection, collection retries, trust verification, the optional PQ probe, and STARTTLS discovery on ports that refuse a TLS handshake can create additional connections. Set a suitable timeout and concurrency limit for your endpoints. See [Performance Tips](usage/performance.md) for a bounded scan example.
 
 ## Review security-tool exceptions
 

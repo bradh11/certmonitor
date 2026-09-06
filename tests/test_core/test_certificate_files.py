@@ -12,7 +12,13 @@ from certmonitor.validators import VALIDATORS
 FIXTURES = Path(__file__).resolve().parent.parent / "fixtures"
 CHAIN_DER = [(FIXTURES / f"chain_{i}.der").read_bytes() for i in range(3)]
 LEAF_HOST = "www.google.com"
-LIVE_ONLY = {"tls_version", "weak_cipher", "root_certificate", "pq_key_exchange"}
+LIVE_ONLY = {
+    "tls_version",
+    "weak_cipher",
+    "root_certificate",
+    "pq_key_exchange",
+    "revocation",
+}
 
 
 @pytest.fixture

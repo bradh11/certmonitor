@@ -42,7 +42,7 @@ with CertMonitor("example.com", enabled_validators=validators) as monitor:
         print(der["error"], der["message"])
 ```
 
-Notice the shape of this: you open one `with` block, and the certificate calls reuse the collected snapshot. When the block exits, CertMonitor cleans up for you. Protocol detection, trust verification, and an enabled PQ probe can use additional connections.
+Notice the shape of this: you open one `with` block, and the certificate calls reuse the collected snapshot. When the block exits, CertMonitor cleans up for you. Protocol detection, trust verification, STARTTLS discovery, and an enabled PQ probe can use additional connections.
 
 !!! tip "Why the context manager?"
     Using `with CertMonitor(...)` makes sure the collection connection is closed promptly when you're done. It's the recommended way to use CertMonitor, and it keeps your code tidy.
