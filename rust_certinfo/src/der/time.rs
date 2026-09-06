@@ -1,7 +1,7 @@
 // rust_certinfo/src/der/time.rs
 //
 // UTCTime and GeneralizedTime decoders. Both encode an instant in UTC.
-// We return the Unix timestamp in seconds (i64) — same shape as
+// We return the Unix timestamp in seconds (i64), same shape as
 // `x509-parser`'s `ASN1Time::timestamp()`.
 //
 // X.509 (RFC 5280 §4.1.2.5) constrains both forms to a single canonical
@@ -77,7 +77,7 @@ fn parse_uint(bytes: &[u8]) -> Result<u32, ParseError> {
 
 /// Convert (Y, M, D, h, m, s) UTC to Unix seconds.
 ///
-/// Hand-rolled to avoid pulling in `chrono`/`time` — we already have to
+/// Hand-rolled to avoid pulling in `chrono`/`time`, we already have to
 /// own the parser. Algorithm: count days from 1970-01-01 using the
 /// civil-from-days approach, then add seconds.
 fn to_unix_secs(
@@ -96,7 +96,7 @@ fn to_unix_secs(
     }
     if hour > 23 || minute > 59 || second > 60 {
         // ASN.1 GeneralizedTime allows leap seconds (60) but X.509 does
-        // not require us to recognize them as a real instant — we accept
+        // not require us to recognize them as a real instant, we accept
         // and clamp to 59 for the unix timestamp math.
         return Err(ParseError::InvalidTime);
     }
@@ -171,7 +171,7 @@ mod tests {
         // 2024 is a leap year
         let ts = parse_generalized_time(b"20240229000000Z").unwrap();
         assert_eq!(ts, 1_709_164_800);
-        // 2023 is not — Feb 29 should fail
+        // 2023 is not, Feb 29 should fail
         assert_eq!(
             parse_generalized_time(b"20230229000000Z").unwrap_err(),
             ParseError::InvalidTime

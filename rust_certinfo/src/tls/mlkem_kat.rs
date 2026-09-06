@@ -2,20 +2,20 @@
 //
 // A real, structurally valid ML-KEM-768 encapsulation key, used as the
 // ML-KEM half of the probe's X25519MLKEM768 key_share. The probe never
-// performs any ML-KEM operation — it sends this key, reads the
-// ServerHello, and hangs up — but the bytes must be a VALID FIPS 203
+// performs any ML-KEM operation, it sends this key, reads the
+// ServerHello, and hangs up, but the bytes must be a VALID FIPS 203
 // encapsulation key, because servers modulus-check the key before
 // replying (an invalid one draws a handshake_failure alert instead of a
 // ServerHello; see the live smoke test on issue #33).
 //
-// The key is opaque lattice key material — 768 packed coefficients plus
-// a 32-byte seed — so unlike the OID and group tables it cannot be
+// The key is opaque lattice key material, 768 packed coefficients plus
+// a 32-byte seed, so unlike the OID and group tables it cannot be
 // derived from a human-readable form; the only shorter representation is
 // a 32-byte seed expanded by a full ML-KEM keygen (SHAKE + NTT), which
 // would mean taking on the crypto dependency this crate deliberately
 // avoids. So the bytes ARE the source of truth. To keep them out of the
 // source as readable-but-meaningless hex, they live in a sibling binary
-// fixture and are embedded with `include_bytes!` — the same way the repo
+// fixture and are embedded with `include_bytes!`, the same way the repo
 // stores its DER test fixtures. A wrong-sized file fails the build.
 //
 // Provenance / regeneration: NIST ACVP-Server ML-KEM-keyGen-FIPS203
@@ -62,7 +62,7 @@ mod mlkem_kat_tests {
         // coefficient must be reduced mod q = 3329.
         assert!(
             coeffs.iter().all(|&c| c < 3329),
-            "ek has an out-of-range coefficient — not a valid FIPS 203 key"
+            "ek has an out-of-range coefficient, not a valid FIPS 203 key"
         );
     }
 }

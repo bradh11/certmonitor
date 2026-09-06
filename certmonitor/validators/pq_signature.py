@@ -33,7 +33,7 @@ _COMPOSITE_SIG_OIDS: frozenset[str] = frozenset(
 
 
 class PqSignatureResult(ValidationResult, total=False):
-    """Result shape for :class:`PqSignatureValidator` (envelope + data)."""
+    """Result shape for `PqSignatureValidator` (envelope + data)."""
 
     key_algorithm: str
     key_is_pq: bool
@@ -49,23 +49,23 @@ class PqSignatureValidator(BaseCertValidator):
     Judges the certificate the server presented for itself: whether its
     public key algorithm and its signature algorithm are post-quantum
     (standalone ML-DSA/SLH-DSA or a hybrid composite). The key and the
-    signature are reported separately because they migrate separately —
+    signature are reported separately because they migrate separately -
     the key is the operator's choice, while the signature is applied by
     the issuing CA.
 
-    By default ``is_valid`` is ``True`` when the **leaf key is
-    post-quantum** — the part the operator controls — matching the
-    ``pq_chain`` default so a PQ-keyed, classically-signed certificate
+    By default `is_valid` is `True` when the **leaf key is
+    post-quantum**, the part the operator controls, matching the
+    `pq_chain` default so a PQ-keyed, classically-signed certificate
     (one possible migration shape) gets one consistent verdict. Pass
-    ``require_pq_signature=True`` to additionally demand a post-quantum
+    `require_pq_signature=True` to additionally demand a post-quantum
     signature from the CA.
 
     The leaf data comes from chain analysis when available, with a leaf-only
     fallback otherwise. Collection or parsing failures produce a failed result.
     Algorithm recognition does not verify cryptographic signatures.
 
-    Opt-in: registered in ``VALIDATORS`` but not in
-    ``DEFAULT_VALIDATORS``.
+    Opt-in: registered in `VALIDATORS` but not in
+    `DEFAULT_VALIDATORS`.
 
     Attributes:
         name (str): The name of the validator.
@@ -85,25 +85,25 @@ class PqSignatureValidator(BaseCertValidator):
         """Judge the leaf certificate's post-quantum posture.
 
         Args:
-            cert: The cert data dict built by ``CertMonitor``; the leaf is
-                read from ``chain_analysis`` or the ``leaf_analysis``
+            cert: The cert data dict built by `CertMonitor`; the leaf is
+                read from `chain_analysis` or the `leaf_analysis`
                 fallback.
             host: The hostname (unused; dispatcher compatibility).
             port: The port (unused; dispatcher compatibility).
-            require_pq_signature: When ``True``, ``is_valid`` additionally
+            require_pq_signature: When `True`, `is_valid` additionally
                 requires the CA's signature algorithm to be post-quantum.
-                Default ``False``: the leaf key decides.
+                Default `False`: the leaf key decides.
 
         Returns:
-            dict: ``{key_algorithm, key_is_pq, signature_algorithm_oid,
-            signature_is_pq, is_hybrid_composite, is_pq, is_valid}`` —
-            per-cert field names match ``pq_chain``. ``is_pq`` is true
+            dict: `{key_algorithm, key_is_pq, signature_algorithm_oid,
+            signature_is_pq, is_hybrid_composite, is_pq, is_valid}` -
+            per-cert field names match `pq_chain`. `is_pq` is true
             when either the key or the signature is post-quantum;
-            ``is_hybrid_composite`` is true when either uses a composite
+            `is_hybrid_composite` is true when either uses a composite
             (PQ + classical) algorithm.
 
         Examples:
-            Example output (post-quantum leaf, classically signed — the
+            Example output (post-quantum leaf, classically signed, the
             realistic migration shape):
                 ```json
                 {

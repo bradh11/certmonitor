@@ -8,7 +8,7 @@ from .results import ValidationResult
 # Default allowed cipher suites, following Mozilla's "Intermediate" TLS
 # configuration. Includes the TLS 1.3 suites (IANA names) and the TLS 1.2
 # ECDHE/DHE AEAD suites (OpenSSL-style names). Override per call with the
-# ``allowed_cipher_suites`` user arg.
+# `allowed_cipher_suites` user arg.
 _DEFAULT_ALLOWED_CIPHER_SUITES: frozenset[str] = frozenset(
     {
         # TLS 1.3 (IANA names, as reported by Python's ssl module).
@@ -31,7 +31,7 @@ _DEFAULT_ALLOWED_CIPHER_SUITES: frozenset[str] = frozenset(
 
 
 class WeakCipherResult(ValidationResult, total=False):
-    """Result shape for :class:`WeakCipherValidator` (envelope + data)."""
+    """Result shape for `WeakCipherValidator` (envelope + data)."""
 
     cipher_suite: str | None
 
@@ -42,7 +42,7 @@ class WeakCipherValidator(BaseCipherValidator):
 
     The built-in allowed set contains modern AEAD suites. It is a library
     policy, not a live feed of external recommendations.
-    Override it per call with the ``allowed_cipher_suites`` argument.
+    Override it per call with the `allowed_cipher_suites` argument.
     """
 
     name: str = "weak_cipher"
@@ -63,7 +63,7 @@ class WeakCipherValidator(BaseCipherValidator):
             host (str): The hostname.
             port (int): The port number.
             allowed_cipher_suites (list, optional): Override the default
-                allowed cipher suites. When ``None`` (the default), the
+                allowed cipher suites. When `None` (the default), the
                 built-in allow-list is used.
 
         Returns:

@@ -72,7 +72,7 @@ impl<'a> Certificate<'a> {
         }
         // serialNumber
         let serial_raw = tbs.expect(tag::TAG_INTEGER)?;
-        // signature (inner AlgorithmIdentifier — should equal the outer one;
+        // signature (inner AlgorithmIdentifier, should equal the outer one;
         // we don't validate equality, just skip)
         let _inner_sig = AlgorithmIdentifier::parse(&mut tbs)?;
         let issuer = Name::parse(&mut tbs)?;
@@ -85,15 +85,15 @@ impl<'a> Certificate<'a> {
         while !tbs.is_empty() {
             match tbs.peek_tag() {
                 Some(0x81) => {
-                    // [1] IMPLICIT issuerUniqueID — skip
+                    // [1] IMPLICIT issuerUniqueID, skip
                     let _ = tbs.read_tlv()?;
                 }
                 Some(0x82) => {
-                    // [2] IMPLICIT subjectUniqueID — skip
+                    // [2] IMPLICIT subjectUniqueID, skip
                     let _ = tbs.read_tlv()?;
                 }
                 Some(tag::CONTEXT_CONSTRUCTED_3) => {
-                    // [3] EXPLICIT extensions — unwrap once to get the SEQUENCE
+                    // [3] EXPLICIT extensions, unwrap once to get the SEQUENCE
                     let mut ext_wrapper = tbs.expect_constructed(tag::CONTEXT_CONSTRUCTED_3)?;
                     let inner = ext_wrapper.expect(tag::TAG_SEQUENCE)?;
                     extensions_body = inner;

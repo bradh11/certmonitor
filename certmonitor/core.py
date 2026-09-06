@@ -50,7 +50,7 @@ class CertMonitor:
             host: The identity the certificate is checked against. Also the
                 default TCP destination and TLS SNI name.
             port: Target TCP port. Defaults to 443.
-            enabled_validators: Names to run. ``None`` uses the environment-backed
+            enabled_validators: Names to run. `None` uses the environment-backed
                 configuration; an empty list disables all checks.
             connection_host: Override the TCP destination, such as a backend IP.
             server_hostname: Override the TLS SNI name sent to the server.
@@ -64,7 +64,7 @@ class CertMonitor:
             client_key: Separate client private-key file, if needed.
 
         Raises:
-            ValueError: If ``timeout`` is not positive.
+            ValueError: If `timeout` is not positive.
 
         Example:
             ```python
@@ -869,9 +869,9 @@ class CertMonitor:
             return source_cache[source_name]
 
         for validator in active:
-            # ``requires`` is authoritative when a validator declares it as
+            # `requires` is authoritative when a validator declares it as
             # a real tuple; otherwise fall back to the legacy
-            # ``validator_type`` mapping (also what test doubles use).
+            # `validator_type` mapping (also what test doubles use).
             requires = getattr(validator, "requires", None)
             if not isinstance(requires, tuple):
                 vtype = getattr(validator, "validator_type", "cert")
@@ -888,7 +888,7 @@ class CertMonitor:
 
             # Uniform rule: if any required source could not be obtained,
             # the validator still appears in the results with a structured
-            # error — never silently omitted.
+            # error, never silently omitted.
             if source_error is not None:
                 results[validator.name] = source_error
                 continue
@@ -1077,10 +1077,10 @@ class CertMonitor:
 
         Skip-for-legacy short-circuit: the *primary* connection has already
         negotiated a TLS version, so if it is below TLS 1.3 there is no PQ
-        KEM to find — we return an ``n/a`` result without opening the
+        KEM to find, we return an `n/a` result without opening the
         probe's second TCP connection. Only TLS 1.3 (or an unknown version,
         out of caution) actually triggers the probe. Errors come back as
-        the probe's structured ``{"result": "error", ...}`` dict; this
+        the probe's structured `{"result": "error", ...}` dict; this
         never raises.
         """
         if self.offline:
@@ -1127,7 +1127,7 @@ class CertMonitor:
                 authenticated=False,
             )
             return observation
-        except Exception as exc:  # noqa: BLE001 — never let the probe raise into dispatch
+        except Exception as exc:  # noqa: BLE001  (never let the probe raise into dispatch)
             return {
                 "result": "error",
                 "error": "ProbeError",
@@ -1135,9 +1135,9 @@ class CertMonitor:
             }
 
     def _source_error(self, source_name: str, value: Any) -> dict[str, Any] | None:
-        """Return a structured error result if ``value`` is unusable.
+        """Return a structured error result if `value` is unusable.
 
-        Returns ``None`` when the source is good. The messages preserve the
+        Returns `None` when the source is good. The messages preserve the
         historical wording so existing callers and tests keep working.
         """
         if source_name == "cert_data":
@@ -1183,11 +1183,11 @@ class CertMonitor:
         framework_args: tuple[Any, ...],
         validator_args: dict[str, Any] | None,
     ) -> dict[str, Any]:
-        """Resolve user kwargs from ``validator_args`` and call ``validator.validate``.
+        """Resolve user kwargs from `validator_args` and call `validator.validate`.
 
-        Looks up the validator's cached ``_user_param_names`` (built at class
-        definition time by ``BaseCertValidator.__init_subclass__``) and projects
-        the per-validator entry of ``validator_args`` onto them. Returns a
+        Looks up the validator's cached `_user_param_names` (built at class
+        definition time by `BaseCertValidator.__init_subclass__`) and projects
+        the per-validator entry of `validator_args` onto them. Returns a
         structured error dict if the user passed unknown keys; otherwise calls
         the validator and returns its result.
         """
@@ -1199,10 +1199,10 @@ class CertMonitor:
         elif isinstance(raw, dict):
             kwargs = raw
         else:
-            # Backwards-compatibility shim: pre-#18, ``subject_alt_names`` accepted
+            # Backwards-compatibility shim: pre-#18, `subject_alt_names` accepted
             # a bare list of alternate names. Map a bare list to the validator's
             # single user param if (and only if) it has exactly one. Emit a
-            # ``DeprecationWarning`` so callers can migrate to the named form.
+            # `DeprecationWarning` so callers can migrate to the named form.
             user_param_names: frozenset[str] = getattr(
                 validator, "_user_param_names", frozenset()
             )
@@ -1281,19 +1281,19 @@ class CertMonitor:
     def describe_validators(self) -> dict[str, dict[str, Any]]:
         """Describe every registered validator and the user args it accepts.
 
-        Reads each validator's cached ``_user_params`` (built by
-        ``BaseCertValidator.__init_subclass__`` / ``BaseCipherValidator.__init_subclass__``
+        Reads each validator's cached `_user_params` (built by
+        `BaseCertValidator.__init_subclass__` / `BaseCipherValidator.__init_subclass__`
         at class definition time) and renders a serializable description suitable
-        for printing, logging, or feeding into a CLI ``--help`` page.
+        for printing, logging, or feeding into a CLI `--help` page.
 
         Returns:
             dict: Keyed by validator name. Each value contains:
 
-                - ``validator_type``: ``"cert"`` or ``"cipher"``.
-                - ``doc``: the validator class docstring (first line).
-                - ``args``: dict keyed by user arg name, each with ``annotation``
-                  (string), ``default`` (the literal default value), and
-                  ``required`` (always ``False`` — every user arg must declare a
+                - `validator_type`: `"cert"` or `"cipher"`.
+                - `doc`: the validator class docstring (first line).
+                - `args`: dict keyed by user arg name, each with `annotation`
+                  (string), `default` (the literal default value), and
+                  `required` (always `False`, every user arg must declare a
                   default).
 
         Example:
@@ -1310,8 +1310,8 @@ class CertMonitor:
             user_params = getattr(validator, "_user_params", {}) or {}
             args_info: dict[str, dict[str, Any]] = {}
             for param_name, param in user_params.items():
-                # ``str()`` renders both plain classes and parameterized
-                # generics; only plain classes need the ``<class 'X'>`` wrapper
+                # `str()` renders both plain classes and parameterized
+                # generics; only plain classes need the `<class 'X'>` wrapper
                 # unwrapped. Enforcement in __init_subclass__ guarantees every
                 # user param has an annotation, so no empty-annotation path.
                 rendered = str(param.annotation)

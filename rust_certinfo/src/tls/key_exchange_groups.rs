@@ -3,33 +3,33 @@
 // The TLS Supported Groups registry: which named group IDs CertMonitor
 // recognizes in a TLS 1.3 key exchange, and how each is classified for
 // post-quantum reporting. Self-contained data plus one lookup function,
-// kept apart from the wire-format code — tracking new group codepoints
+// kept apart from the wire-format code, tracking new group codepoints
 // never means touching parser logic.
 //
 // ## Which registry file do I touch?
 //
 // CertMonitor tracks the two distinct post-quantum surfaces in two
-// independent data files — they are different namespaces (ASN.1 OIDs
+// independent data files, they are different namespaces (ASN.1 OIDs
 // vs. 16-bit IANA codepoints) covering different algorithm families,
 // so adding an entry to one NEVER requires touching the other:
 //
 //   - New **certificate** algorithm (signatures/keys: ML-DSA, SLH-DSA,
-//     composites — published by NIST CSOR / IETF LAMPS)
+//     composites, published by NIST CSOR / IETF LAMPS)
 //       → `rust_certinfo/src/pq_algorithms.rs`
-//   - New **TLS key-exchange group** (KEMs: ML-KEM hybrids etc. —
+//   - New **TLS key-exchange group** (KEMs: ML-KEM hybrids etc. -
 //     published by the IANA TLS Supported Groups registry)
 //       → this file
 //
 // ## Adding a group
 //
 // Append one entry to `SUPPORTED_GROUPS` with the values the IANA
-// registry publishes — the numeric codepoint, the name, and a kind:
+// registry publishes, the numeric codepoint, the name, and a kind:
 //
 //     GroupInfo { id: 0x11EC, name: "X25519MLKEM768", kind: GroupKind::HybridPq },
 //
 // That is the whole job; `cargo test` checks the table (no duplicate
 // ids or names). The same registry covers TLS 1.2 ECDHE
-// (ServerKeyExchange.namedcurve) and TLS 1.3 (ServerHello.key_share) —
+// (ServerKeyExchange.namedcurve) and TLS 1.3 (ServerHello.key_share) -
 // only the wire location differs.
 //
 // ## Sources
@@ -51,13 +51,13 @@
 /// Python-facing `kind` values) are produced by [`GroupKind::as_str`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GroupKind {
-    /// Classical elliptic-curve Diffie-Hellman — no PQ protection.
+    /// Classical elliptic-curve Diffie-Hellman, no PQ protection.
     ClassicalEcdh,
-    /// Classical finite-field Diffie-Hellman — no PQ protection.
+    /// Classical finite-field Diffie-Hellman, no PQ protection.
     ClassicalFfdh,
     /// Hybrid: classical ECDH + ML-KEM/Kyber combined. Counts as PQ.
     /// ("Hybrid" is the key-exchange term for classical + PQ together;
-    /// the certificate-signature analogue is called "composite" — see
+    /// the certificate-signature analogue is called "composite", see
     /// `crate::pq_algorithms`.)
     HybridPq,
     /// Pure post-quantum KEM.

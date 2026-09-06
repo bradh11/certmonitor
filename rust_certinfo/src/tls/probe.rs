@@ -4,7 +4,7 @@
 // send one ClientHello that offers a real X25519MLKEM768 key_share,
 // read the server's first flight, extract the negotiated (or
 // HRR-requested) group, and hang up. No crypto, no key derivation, no
-// decryption, no certificate validation — this learns only which group
+// decryption, no certificate validation, this learns only which group
 // the server picks.
 //
 // Reachability decisions baked in (see issue #28 amendment and the
@@ -12,7 +12,7 @@
 //   - Real precomputed ML-KEM-768 key_share (mlkem_kat.rs): a classical
 //     or empty share makes PQ-capable CDNs answer classical or alert.
 //   - Per-call ClientHello random (no fixed fingerprint), no CSPRNG dep.
-//   - Bounded read (<= READ_CAP) with a read timeout — never block
+//   - Bounded read (<= READ_CAP) with a read timeout, never block
 //     forever, never allocate unboundedly.
 //   - Returns a result in EVERY terminal state (success / n/a / error);
 //     the only `Err` paths are internal bugs, so the Python layer never
@@ -73,7 +73,7 @@ static RANDOM_COUNTER: AtomicU64 = AtomicU64::new(0);
 /// Fill 32 bytes of ClientHello random without a CSPRNG dependency.
 /// A fixed value would make every probe trivially fingerprintable
 /// (the WAF-evasion concern in #28); this only needs to vary per call,
-/// which the counter guarantees — the bytes are never used
+/// which the counter guarantees, the bytes are never used
 /// cryptographically.
 fn client_random() -> [u8; 32] {
     let nanos = SystemTime::now()
@@ -316,7 +316,7 @@ fn summarize(summary: ServerHelloSummary) -> ProbeResult {
     let is_tls13 = summary.selected_version == Some(handshake::TLS13);
     if !is_tls13 {
         return ProbeResult::NotApplicable {
-            reason: "server negotiated TLS 1.2 or older — no PQ KEMs defined".into(),
+            reason: "server negotiated TLS 1.2 or older, no PQ KEMs defined".into(),
             protocol: "tls1.2_or_older".into(),
         };
     }
