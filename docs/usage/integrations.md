@@ -149,4 +149,4 @@ certmonitor check api.example.com --json -v expiration | python3 -c "import json
 
 ## From Python
 
-Every recipe above is a thin wrapper over `scan_hosts()` and `validate()`. If you would rather stay in Python, [Performance Tips](performance.md) shows the bounded scanner and the async pattern, and [Certificates from Files](files.md) covers offline checks. Store `fingerprint_sha256` with each result: a changed fingerprint on the next run is the earliest sign that a certificate was replaced.
+Every recipe above is a thin wrapper over `scan_hosts()` and `validate()`. If you would rather stay in Python, [Performance Tips](performance.md) shows the bounded scanner and the async pattern, and [Certificates from Files](files.md) covers offline checks. Store each run's JSON: `certmonitor diff yesterday.json today.json` (or `compare_snapshots()`) then tells you whether a replacement was a routine renewal or something that needs a look. See [Detect Changes Between Scans](compare.md).

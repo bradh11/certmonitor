@@ -170,6 +170,7 @@ Each validator reports its own `is_valid` flag plus the details behind its decis
 - 🔒 **Zero Dependencies:** no third-party Python runtime dependencies, ever. The required native extension is included in compatible platform wheels.
 - 📄 **Files too:** `CertMonitor.from_file()` runs the certificate checks on a PEM or DER file with no connection at all. See [Certificates from Files](usage/files.md).
 - 📮 **STARTTLS too:** mail, directory, and database ports (SMTP, IMAP, POP3, FTP, PostgreSQL, LDAP) are discovered on any port and get the right preamble before the handshake, so their certificates get the same checks; `starttls="smtp"` pins it when you already know. See [STARTTLS Services](usage/starttls.md).
+- 🔁 **Change detection:** `compare_snapshots()` and `certmonitor diff` tell a routine renewal from a removed SAN, a new issuer, a weaker key, or a check that started failing. See [Detect Changes Between Scans](usage/compare.md).
 - ⌨️ **Command line:** `certmonitor check example.com` runs the same validators from the shell, with `--json` output and exit codes for cron and CI. See [Command Line](usage/cli.md).
 - 🛡️ **Certificate Validators:** Modular checks for expiration, hostname, SANs, key strength, protocol, ciphers, and more.
 - ⚡ **Batch Monitoring:** overlap network waits with independent monitors and bounded workers.

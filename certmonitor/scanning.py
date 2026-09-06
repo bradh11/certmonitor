@@ -41,7 +41,8 @@ def scan_hosts(
     """Yield completed scans with at most `max_workers` endpoints in flight.
 
     Each result is a dict with `host`, `port`, `results` (the `validate()`
-    output), `snapshot_at`, and `fingerprint_sha256` of the collected leaf. If a scan raises, the dict carries an
+    output), `snapshot_at`, `fingerprint_sha256`, the parsed `certificate`, and
+    `public_key_info`, so two runs can be handed to `compare_snapshots()`. If a scan raises, the dict carries an
     `error` (exception class name) and `message` instead of aborting the
     whole scan, so one bad host never hides the rest. Results arrive in
     completion order. Stopping iteration early returns promptly; scans that
@@ -129,6 +130,8 @@ def scan_hosts(
                     "results": monitor.validate(validator_args),
                     "snapshot_at": monitor.snapshot_at,
                     "fingerprint_sha256": monitor.fingerprint_sha256,
+                    "certificate": monitor.cert_info,
+                    "public_key_info": monitor.public_key_info,
                 }
                 if monitor.connection_host != host:
                     report["connection_host"] = monitor.connection_host

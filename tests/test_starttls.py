@@ -338,6 +338,8 @@ def test_cli_passes_starttls(monkeypatch):
     fake.return_value.__enter__.return_value.validate.return_value = {}
     fake.return_value.__enter__.return_value.snapshot_at = None
     fake.return_value.__enter__.return_value.fingerprint_sha256 = None
+    fake.return_value.__enter__.return_value.cert_info = {}
+    fake.return_value.__enter__.return_value.public_key_info = None
     monkeypatch.setattr(cli, "CertMonitor", fake)
     assert (
         cli.main(

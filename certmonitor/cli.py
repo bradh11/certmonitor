@@ -15,6 +15,7 @@ from concurrent.futures import ThreadPoolExecutor
 from importlib.metadata import PackageNotFoundError, version
 from typing import Any
 
+from .compare import SEVERITIES, compare_snapshots
 from .core import CertMonitor
 from .protocol_handlers.starttls import PROTOCOLS as STARTTLS_PROTOCOLS
 
@@ -152,6 +153,8 @@ def _run_check_job(job: dict[str, Any], args: argparse.Namespace) -> dict[str, A
                 "results": results,
                 "snapshot_at": active.snapshot_at,
                 "fingerprint_sha256": active.fingerprint_sha256,
+                "certificate": active.cert_info,
+                "public_key_info": active.public_key_info,
             }
     except Exception as exc:  # noqa: BLE001  (one bad target must not stop the run)
         return {
@@ -229,6 +232,55 @@ def cmd_info(args: argparse.Namespace, out: Any) -> int:
         json.dump(payload, out, indent=2, default=str)
         print(file=out)
     return 0
+
+
+def _load_snapshots(path: str) -> dict[str, dict[str, Any]]:
+    """Read a `check --json` report or a single snapshot; key entries by target."""
+    with open(path, encoding="utf-8") as handle:
+        data = json.load(handle)
+    if isinstance(data, list):
+        return {
+            str(entry.get("target", index)): entry for index, entry in enumerate(data)
+        }
+    if isinstance(data, dict):
+        return {str(data.get("target", "snapshot")): data}
+    raise ValueError(f"{path}: expected a JSON object or list")
+
+
+def cmd_diff(args: argparse.Namespace, out: Any) -> int:
+    previous, current = _load_snapshots(args.previous), _load_snapshots(args.current)
+    threshold = SEVERITIES.index(args.fail_on)
+    reports: dict[str, dict[str, Any]] = {}
+    for target in current:
+        if target in previous:
+            reports[target] = compare_snapshots(previous[target], current[target])
+        else:
+            reports[target] = {
+                "changed": True,
+                "severity": "notice",
+                "findings": ["Not present in the previous run."],
+            }
+    for target in previous:
+        if target not in current:
+            reports[target] = {
+                "changed": True,
+                "severity": "notice",
+                "findings": ["Missing from the current run."],
+            }
+    if args.json:
+        json.dump(reports, out, indent=2)
+        print(file=out)
+    else:
+        for target, report in reports.items():
+            label = report["severity"].upper() if report["changed"] else "SAME"
+            print(f"{target}  {label}", file=out)
+            for finding in report["findings"]:
+                print(f"  {finding}", file=out)
+    worst = max(
+        (SEVERITIES.index(r["severity"]) for r in reports.values() if r["changed"]),
+        default=-1,
+    )
+    return 1 if worst >= threshold else 0
 
 
 def cmd_validators(args: argparse.Namespace, out: Any) -> int:
@@ -334,6 +386,22 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _add_connection_options(info)
     info.set_defaults(func=cmd_info)
+
+    diff = commands.add_parser(
+        "diff",
+        help="explain what changed between two check --json reports",
+        description="Compare two check --json reports (or two info outputs) for the same targets.",
+    )
+    diff.add_argument("previous", metavar="PREVIOUS.json")
+    diff.add_argument("current", metavar="CURRENT.json")
+    diff.add_argument("--json", action="store_true", help="machine-readable output")
+    diff.add_argument(
+        "--fail-on",
+        choices=SEVERITIES[1:],
+        default="warning",
+        help="exit 1 when any target reaches this severity (default warning)",
+    )
+    diff.set_defaults(func=cmd_diff)
 
     validators = commands.add_parser(
         "validators", help="list validators and their arguments"

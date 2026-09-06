@@ -210,6 +210,8 @@ def test_check_one_raising_target_does_not_stop_the_run(monkeypatch):
             }
         monitor.snapshot_at = "now"
         monitor.fingerprint_sha256 = None
+        monitor.cert_info = {}
+        monitor.public_key_info = None
         return fake
 
     monkeypatch.setattr(cli, "CertMonitor", MagicMock(side_effect=construct))
