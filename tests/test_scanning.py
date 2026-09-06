@@ -2,6 +2,7 @@
 
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from unittest.mock import MagicMock
 
 import certmonitor.scanning as scanning
@@ -64,12 +65,19 @@ def test_one_failing_host_does_not_abort_the_scan(monkeypatch):
 
 def test_breaking_early_returns_promptly(monkeypatch):
     release = threading.Event()
+    executors = []
 
     def slow_validate():
         release.wait(5)
         return {}
 
+    def recording_executor(*args, **kwargs):
+        executor = ThreadPoolExecutor(*args, **kwargs)
+        executors.append(executor)
+        return executor
+
     _fake_monitor(monkeypatch, slow_validate)
+    monkeypatch.setattr(scanning, "ThreadPoolExecutor", recording_executor)
     scans = scan_hosts([f"host{i}" for i in range(10)], max_workers=4)
     started = time.monotonic()
     release.set()
@@ -79,6 +87,10 @@ def test_breaking_early_returns_promptly(monkeypatch):
     elapsed = time.monotonic() - started
     release.set()
     assert elapsed < 2
+    # Closing the generator abandons in-flight workers; join them here so none
+    # outlives the fake monitor and reaches the real CertMonitor after teardown.
+    for executor in executors:
+        executor.shutdown(wait=True)
 
 
 def test_rejects_non_positive_limits():
