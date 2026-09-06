@@ -45,17 +45,19 @@ def test_bounds_input_consumption(monkeypatch):
 
 
 def test_one_failing_host_does_not_abort_the_scan(monkeypatch):
-    mock = _fake_monitor(monkeypatch, passing_hostname)
-
-    def enter(*args, **kwargs):
+    def construct(host, port, *args, **kwargs):
+        # Workers construct monitors concurrently, so decide per host here
+        # rather than from whichever call happened to be recorded last.
         monitor = MagicMock()
-        if mock.call_args_list[-1].args[0] == "bad.test":
-            monitor.validate.side_effect = RuntimeError("validator exploded")
+        inner = monitor.__enter__.return_value
+        if host == "bad.test":
+            inner.validate.side_effect = RuntimeError("validator exploded")
         else:
-            monitor.validate.return_value = {"hostname": {"is_valid": True}}
+            inner.validate.return_value = {"hostname": {"is_valid": True}}
+        inner.snapshot_at = "2026-09-05T00:00:00+00:00"
         return monitor
 
-    mock.return_value.__enter__.side_effect = enter
+    monkeypatch.setattr(scanning, "CertMonitor", MagicMock(side_effect=construct))
     results = {r["host"]: r for r in scan_hosts(["ok.test", "bad.test", "also.test"])}
     assert set(results) == {"ok.test", "bad.test", "also.test"}
     assert results["bad.test"]["error"] == "RuntimeError"

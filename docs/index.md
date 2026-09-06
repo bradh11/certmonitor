@@ -269,7 +269,7 @@ export ENABLED_VALIDATORS="expiration,hostname,root_certificate,key_info,tls_ver
 ---
 
 ## 🔎 Protocol Detection
-CertMonitor automatically detects the protocol (SSL/TLS or SSH) for the target host. Most features are focused on SSL/TLS. SSH support is limited.
+CertMonitor automatically detects the protocol (SSL/TLS or SSH) for the target host. Services that greet in plaintext and upgrade with STARTTLS (SMTP, IMAP, POP3, FTP, PostgreSQL, LDAP) are discovered on any port and get the right preamble; pass `starttls=` to pin one. See [STARTTLS Services](usage/starttls.md). Most features are focused on SSL/TLS. SSH support is limited.
 
 ---
 

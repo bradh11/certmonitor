@@ -55,6 +55,19 @@ import json
 print(json.dumps(monitor.validate(), indent=2))
 ```
 
+## STARTTLS ports
+
+**Symptom:** a mail, directory, or database port returns an `SSLError` such as `Failed to establish SSL connection with any protocol`, or a `StartTLSError` naming the server's reply.
+
+CertMonitor discovers STARTTLS services on its own, so the usual cause is that discovery could not name the service, or the server refused to upgrade:
+
+- **Check what was found.** After connecting, `monitor.starttls` holds the discovered protocol, or `None` if nothing was named.
+- **Pin the protocol.** `CertMonitor("mail.example.com", 587, starttls="smtp")` skips detection and discovery and runs that preamble directly. If this works when discovery did not, the server's greeting is unusual or slow; pinning is the right fix.
+- **Read the server's reply.** A `StartTLSError` carries it, for example `SMTP server does not advertise STARTTLS` or `PostgreSQL server declined SSL`. The service is reachable but is not offering TLS on that port.
+- **Try the implicit-TLS port.** 465, 993, 995, and 636 speak TLS from the first byte and need no preamble at all.
+
+See [STARTTLS Services](starttls.md) for how discovery works and when to pin.
+
 ## SSH vs SSL/TLS
 
 CertMonitor auto-detects the protocol. Features like raw DER/PEM and cipher info are **SSL/TLS only**, so calling them against an SSH host returns a `ProtocolError`. See [Protocol Detection](protocol.md).

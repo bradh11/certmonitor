@@ -224,7 +224,26 @@ class TestProtocolDetection:
             mock_create.return_value.__enter__.return_value = mock_socket
             assert monitor.detect_protocol() == expected
 
-    def test_connect_applies_a_discovered_starttls_protocol(self):
+    def test_detect_protocol_unreachable_discovery_is_a_detection_error(self):
+        """If discovery cannot reconnect, the greeting still counts as unnamed."""
+        monitor = CertMonitor("www.example.com")
+
+        mock_socket = MagicMock()
+        mock_socket.recv.return_value = b"220 "
+
+        with (
+            patch(
+                "certmonitor.protocol_handlers.connection.socket.create_connection"
+            ) as mock_create,
+            patch(
+                "certmonitor.protocol_handlers.starttls.discover",
+                side_effect=OSError("connection reset"),
+            ),
+        ):
+            mock_create.return_value.__enter__.return_value = mock_socket
+            result = monitor.detect_protocol()
+        assert result["error"] == "ProtocolDetectionError"
+
         """connect() turns "starttls:<name>" into an SSL handler with that preamble."""
         monitor = CertMonitor("www.example.com")
 

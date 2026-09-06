@@ -1,9 +1,9 @@
 # Protocol Detection
 
-!!! note "STARTTLS ports are not detected"
-    A service that greets in plaintext and upgrades with STARTTLS looks like neither TLS nor SSH on its first bytes. Pass `starttls="smtp"` (or another supported protocol) and detection is skipped; see [STARTTLS Services](starttls.md).
+You don't have to tell CertMonitor what kind of endpoint you're connecting to. It figures that out for you by detecting the protocol used by the target host and port, including services that greet in plaintext and upgrade with STARTTLS. Most of the API is built for SSL/TLS. SSH support is currently limited to reading a version banner; it does not validate SSH host keys.
 
-You don't have to tell CertMonitor what kind of endpoint you're connecting to. It figures that out for you by detecting the protocol used by the target host and port. Most of the API is built for SSL/TLS. SSH support is currently limited to reading a version banner; it does not validate SSH host keys.
+!!! note "Forcing a STARTTLS protocol"
+    Pass `starttls="smtp"` (or another supported protocol) when you already know the service. Detection and discovery are skipped and that preamble runs before every handshake; see [STARTTLS Services](starttls.md).
 
 ## How Protocol Detection Works
 
@@ -13,11 +13,16 @@ When you create a `CertMonitor` instance and connect to a host, here's what happ
 2. It peeks at the first few bytes sent by the server:
     - If the bytes start with `SSH-`, the protocol is detected as SSH.
     - If the bytes match common SSL/TLS handshake patterns, the protocol is detected as SSL/TLS.
-    - If a nonblocking read would have to wait, CertMonitor assumes SSL/TLS (since TLS servers wait for the client to start). An empty read after the peer closes is an error.
-3. If the protocol cannot be determined, CertMonitor returns a structured error.
+    - If a nonblocking read would have to wait, CertMonitor assumes SSL/TLS (since TLS servers wait for the client to start).
+    - Anything else is a plaintext greeting, so CertMonitor asks STARTTLS discovery to name the service: IMAP, POP3, SSH, or the `220` shared by SMTP and FTP.
+3. If a TLS handshake then fails on a port that looked silent, CertMonitor runs the same discovery before giving up. A greeting that had not arrived yet is read now, and a silent service is asked the PostgreSQL and LDAP StartTLS requests in turn. Discovery never looks at the port number and is bounded by `timeout`.
+4. If the service still cannot be named, CertMonitor returns the structured error from the handshake.
 
 !!! note "Why peek at the bytes?"
-    Different protocols announce themselves differently the moment a connection opens. SSH servers send a banner that starts with `SSH-`, while TLS servers expect the client to begin the handshake. Reading those first bytes lets CertMonitor route you to the right handler without you having to configure anything.
+    Different protocols announce themselves differently the moment a connection opens. SSH servers send a banner that starts with `SSH-`, mail and directory servers send a plaintext greeting, and TLS servers expect the client to begin the handshake. Reading those first bytes lets CertMonitor route you to the right handler without you having to configure anything.
+
+!!! note "Why discover after the handshake fails, not before?"
+    Waiting for a greeting on every port would slow down every HTTPS check, and most ports are HTTPS. A TLS server answers a ClientHello straight away, so trying the handshake first costs nothing when it works. Only a port that refuses it pays for discovery, and that port was going to fail anyway.
 
 ## Protocol Detection Flow
 
@@ -32,8 +37,15 @@ flowchart TD
     D -- Starts with 'SSH-' --> F[Set protocol = SSH]
     D -- SSL/TLS handshake pattern --> G[Set protocol = SSL/TLS]
     D -- Read would block --> H[Assume protocol = SSL/TLS]
-    D -- Unknown or closed --> I[Return protocol detection error]
-    F & G & H --> J[Continue with protocol-specific handler]
+    D -- Plaintext greeting --> K[STARTTLS discovery names the service]
+    K -- Named --> L[Set protocol = SSL/TLS with that preamble]
+    K -- Not named --> I[Return protocol detection error]
+    H --> M{TLS handshake succeeds?}
+    M -- Yes --> J[Continue with protocol-specific handler]
+    M -- No --> N[STARTTLS discovery: greeting, then PostgreSQL and LDAP requests]
+    N -- Named --> O[Retry with the discovered preamble or the SSH handler]
+    N -- Not named --> P[Return the handshake error]
+    F & G & L & O --> J
 ```
 
 ## Protocol Handler Selection
@@ -66,7 +78,7 @@ with CertMonitor("my-ssh-server.example.com", port=22) as monitor:
     print(monitor.protocol)  # 'ssh' if detection succeeds
 ```
 
-A delayed SSH banner can be mistaken for TLS by this heuristic. If detection fails, inspect the structured connection error; don't treat the guessed protocol as proof.
+A delayed SSH banner looks like a silent TLS server at first. The failed handshake then triggers discovery, which reads the banner and switches to the SSH handler, so the delay costs one extra connection rather than a wrong answer. If detection still fails, inspect the structured connection error; don't treat the guessed protocol as proof.
 
 ## Current Support and Roadmap
 
