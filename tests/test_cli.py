@@ -295,3 +295,11 @@ def test_info_live_target_uses_connection_options(monkeypatch):
     assert fake.call_args.args[:2] == ("a.test", 8443)
     assert fake.call_args.kwargs["timeout"] == 2
     assert fake.call_args.kwargs["server_hostname"] == "sni.test"
+
+
+def test_summary_renders_missing_fields_as_question_marks():
+    assert (
+        cli._summary("expiration", {"is_valid": True, "status": "pass"})
+        == "? days remaining"
+    )
+    assert cli._summary("unknown_validator", {"is_valid": True}) == ""

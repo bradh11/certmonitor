@@ -8,6 +8,18 @@ import certmonitor.scanning as scanning
 from certmonitor.scanning import scan_hosts
 
 
+def passing_hostname(*args, **kwargs):
+    return {"hostname": {"is_valid": True}}
+
+
+def passing_expiration(*args, **kwargs):
+    return {"expiration": {"is_valid": True}}
+
+
+def no_results(*args, **kwargs):
+    return {}
+
+
 def _fake_monitor(monkeypatch, validate):
     mock = MagicMock()
     mock.return_value.__enter__.return_value.validate.side_effect = validate
@@ -24,7 +36,7 @@ def test_bounds_input_consumption(monkeypatch):
             consumed.append(index)
             yield f"host{index}"
 
-    _fake_monitor(monkeypatch, lambda: {"hostname": {"is_valid": True}})
+    _fake_monitor(monkeypatch, passing_hostname)
     results = scan_hosts(hosts(), max_workers=3)
     next(results)
     assert len(consumed) == 3
@@ -32,7 +44,7 @@ def test_bounds_input_consumption(monkeypatch):
 
 
 def test_one_failing_host_does_not_abort_the_scan(monkeypatch):
-    mock = _fake_monitor(monkeypatch, lambda: {"hostname": {"is_valid": True}})
+    mock = _fake_monitor(monkeypatch, passing_hostname)
 
     def enter(*args, **kwargs):
         monitor = MagicMock()
@@ -79,9 +91,7 @@ def test_rejects_non_positive_limits():
 
 
 def test_host_port_pairs_and_validator_args(monkeypatch):
-    mock = _fake_monitor(
-        monkeypatch, lambda *a, **k: {"expiration": {"is_valid": True}}
-    )
+    mock = _fake_monitor(monkeypatch, passing_expiration)
     results = {
         (r["host"], r["port"]): r
         for r in scan_hosts(
@@ -95,3 +105,31 @@ def test_host_port_pairs_and_validator_args(monkeypatch):
     assert constructed == {("a.test", 443), ("b.test", 8443)}
     validate = mock.return_value.__enter__.return_value.validate
     assert validate.call_args.args == ({"expiration": {"warning_days": 30}},)
+
+
+def test_endpoint_dicts_and_shared_options(monkeypatch):
+    mock = _fake_monitor(monkeypatch, passing_expiration)
+    mock.return_value.__enter__.return_value.connection_host = "192.0.2.10"
+    results = list(
+        scan_hosts(
+            [{"host": "api.test", "connection_host": "192.0.2.10", "timeout": 2}],
+            cafile="ca.pem",
+            client_cert="client.pem",
+        )
+    )
+    kwargs = mock.call_args.kwargs
+    assert mock.call_args.args[:2] == ("api.test", 443)
+    assert kwargs["connection_host"] == "192.0.2.10"
+    assert kwargs["timeout"] == 2  # endpoint overrides the scan-level default
+    assert kwargs["cafile"] == "ca.pem" and kwargs["client_cert"] == "client.pem"
+    assert results[0]["connection_host"] == "192.0.2.10"
+
+
+def test_invalid_endpoint_dict_is_a_per_entry_error(monkeypatch):
+    _fake_monitor(monkeypatch, no_results)
+    results = list(
+        scan_hosts([{"port": 443}, {"host": "x.test", "bogus": 1}, "ok.test"])
+    )
+    errors = [r for r in results if "error" in r]
+    assert len(errors) == 2 and all(r["error"] == "ValueError" for r in errors)
+    assert [r["host"] for r in results if "error" not in r] == ["ok.test"]

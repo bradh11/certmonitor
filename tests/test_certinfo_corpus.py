@@ -246,7 +246,11 @@ class TestCorpusValidityTimestamps:
             )
 
 
-@pytest.mark.parametrize("path", _corpus(), ids=lambda p: p.stem)
+def _corpus_id(path):
+    return path.stem
+
+
+@pytest.mark.parametrize("path", _corpus(), ids=_corpus_id)
 def test_parser_matches_openssl_identity_and_validity(path, tmp_path):
     """Compare interpreted fields against CPython's OpenSSL decoder."""
     import ssl

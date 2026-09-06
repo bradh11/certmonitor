@@ -56,7 +56,7 @@ def test_reconnect_keeps_snapshot_and_refresh_discards_it(monkeypatch):
     monitor.cert_info = {"retained": True}
     monitor.der = b"retained"
     monkeypatch.setattr(
-        monitor, "detect_protocol", lambda: {"error": "ConnectionError"}
+        monitor, "detect_protocol", MagicMock(return_value={"error": "ConnectionError"})
     )
     assert monitor.connect()["error"] == "ConnectionError"
     assert monitor.cert_data == {"cert_info": {"retained": True}}
@@ -88,7 +88,9 @@ def test_cipher_access_after_close_keeps_certificate_snapshot(monkeypatch):
     monkeypatch.setattr(
         monitor,
         "_verify_trust",
-        lambda: {"is_valid": True, "status": "pass", "trust_verified": True},
+        MagicMock(
+            return_value={"is_valid": True, "status": "pass", "trust_verified": True}
+        ),
     )
     results = monitor.validate()
     assert results["weak_cipher"]["is_valid"] is True
@@ -158,7 +160,9 @@ def test_trust_result_preserves_issuer_and_warnings(monkeypatch):
     monkeypatch.setattr(
         monitor,
         "_verify_trust",
-        lambda: {"is_valid": True, "status": "pass", "trust_verified": True},
+        MagicMock(
+            return_value={"is_valid": True, "status": "pass", "trust_verified": True}
+        ),
     )
     result = monitor.validate()["root_certificate"]
     assert result["issuer"] == issuer

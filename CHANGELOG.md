@@ -60,7 +60,7 @@ trust verification reports `revocation_status: not_checked`.
 - The `expiration` result includes `lifetime_days`.
 - A `certmonitor` command: `check` validates hosts and certificate files with human-readable or `--json` output and CI-friendly exit codes, `info` prints a parsed certificate or its PEM, and `validators` lists validators and their arguments. Standard library only (#82).
 - `CertMonitor.from_file()` and `CertMonitor.from_bytes()` run the certificate checks on a PEM or DER file (or in-memory data) without a connection. Connection-only checks report `status: unsupported`, and `cert_data["source"]` records where a certificate came from (#78).
-- `scan_hosts()` scans many hosts with a bounded worker pool and yields one result per host, including hosts whose scan raised. Entries may be `(host, port)` pairs, and `validator_args` applies to every host.
+- `scan_hosts()` scans many hosts with a bounded worker pool and yields one result per host, including hosts whose scan raised. Entries may be `(host, port)` pairs or dicts carrying per-endpoint connection settings (`connection_host`, `server_hostname`, `timeout`, CA store, client certificate); `validator_args`, `cafile`, `capath`, `client_cert`, and `client_key` apply to every host.
 - Python 3.14 support, now part of the CI test matrix.
 - Python 3.15 pre-release support: CI exercises 3.15 betas via `allow-prereleases` so the package is ready ahead of the final release.
 
