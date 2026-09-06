@@ -80,7 +80,8 @@ These examples show selected fields from illustrative scans. `validate()` also a
     "days_to_expiry": 56,
     "expires_on": "2026-08-08T22:14:02+00:00",
     "warnings": [],
-    "lifetime_days": 90
+    "lifetime_days": 90,
+    "lifetime_limit_days": 200
   },
   "key_info": {
     "key_type": "ecPublicKey",
@@ -109,7 +110,8 @@ When a check fails, the same envelope carries a human-readable `reason` you can 
     "expires_on": "2015-04-12T23:59:59+00:00",
     "warnings": ["Certificate is expired and has been expired for (-4080 days)"],
     "reason": "Certificate expired 4080 days ago (expired on 2015-04-12).",
-    "lifetime_days": 3
+    "lifetime_days": 3,
+    "lifetime_limit_days": 1187
   }
 }
 ```

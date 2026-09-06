@@ -48,16 +48,37 @@ def test_lifetime_policy_uses_total_not_remaining():
     assert "total lifetime" in result["warnings"][0]
 
 
-def test_default_lifetime_policy_is_the_public_pki_limit():
-    long_lived = ExpirationValidator().validate(
-        certificate(start=-1, end=500), "example.com", 443
+def test_default_policy_follows_the_public_tls_schedule():
+    # Issued after March 2026: the 200-day step applies.
+    recent = ExpirationValidator().validate(
+        certificate(start=-1, end=364), "example.com", 443
     )
-    assert long_lived["is_valid"] is True
-    assert "exceeds the 398-day limit" in long_lived["warnings"][0]
+    assert recent["lifetime_limit_days"] == 200
+    assert "exceeds the 200-day public TLS limit" in recent["warnings"][0]
+    assert recent["is_valid"] is True
     within = ExpirationValidator().validate(
-        certificate(start=-1, end=390), "example.com", 443
+        certificate(start=-1, end=180), "example.com", 443
     )
     assert within["warnings"] == []
+
+
+def test_schedule_uses_the_limit_in_force_on_the_issue_date():
+    from datetime import date
+
+    from certmonitor.validators.expiration import public_tls_lifetime_limit
+
+    assert public_tls_lifetime_limit(date(2017, 12, 1)) == 1187
+    assert public_tls_lifetime_limit(date(2019, 6, 1)) == 825
+    assert public_tls_lifetime_limit(date(2021, 1, 1)) == 398
+    assert public_tls_lifetime_limit(date(2026, 3, 15)) == 200
+    assert public_tls_lifetime_limit(date(2027, 3, 15)) == 100
+    assert public_tls_lifetime_limit(date(2029, 3, 15)) == 47
+    # A 2025 certificate with 390 days was compliant then and is not flagged now.
+    old = ExpirationValidator().validate(
+        certificate(start=-500, end=-110), "example.com", 443
+    )
+    assert old["lifetime_limit_days"] == 398
+    assert not any("lifetime" in w for w in old["warnings"])
 
 
 def test_lifetime_policy_can_be_relaxed_or_disabled():
@@ -66,10 +87,12 @@ def test_lifetime_policy_can_be_relaxed_or_disabled():
         cert, "example.com", 443, max_lifetime_days=1000
     )
     assert relaxed["warnings"] == []
+    assert relaxed["lifetime_limit_days"] == 1000
     disabled = ExpirationValidator().validate(
         cert, "example.com", 443, max_lifetime_days=None
     )
     assert disabled["warnings"] == []
+    assert "lifetime_limit_days" not in disabled
 
 
 def test_expired_reason_survives_lifetime_policy():
@@ -92,7 +115,13 @@ def test_missing_not_before_skips_start_and_lifetime_checks():
 
 
 @pytest.mark.parametrize(
-    "kwargs", [{"warning_days": -1}, {"critical_days": 10}, {"max_lifetime_days": 0}]
+    "kwargs",
+    [
+        {"warning_days": -1},
+        {"critical_days": 10},
+        {"max_lifetime_days": 0},
+        {"max_lifetime_days": "forever"},
+    ],
 )
 def test_invalid_policy(kwargs):
     with pytest.raises(ValueError):

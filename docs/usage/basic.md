@@ -114,6 +114,7 @@ This is the full result of a scan against example.com at the time of writing. Ce
     "expires_on": "2026-10-27T22:17:21+00:00",
     "warnings": [],
     "lifetime_days": 90,
+    "lifetime_limit_days": 200,
     "status": "pass",
     "code": "expiration.pass"
   },
