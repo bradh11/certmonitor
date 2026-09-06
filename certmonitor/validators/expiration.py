@@ -1,15 +1,31 @@
 # validators/expiration.py
 
 import datetime
-from typing import Any
+from typing import Any, cast
 
 from ._utils import parse_not_after, parse_not_before
 from .base import BaseCertValidator
 from .results import ValidationResult
 
-# CA/Browser Forum baseline: publicly trusted certificates issued since
-# September 2020 may not be valid for more than 398 days.
-DEFAULT_MAX_LIFETIME_DAYS = 398
+# CA/Browser Forum maximum validity for publicly trusted TLS certificates,
+# keyed on the certificate's issue date. Ballot SC-081 (2025) set the 200,
+# 100, and 47 day steps; 398 came from the 2020 baseline and 825 from 2018.
+PUBLIC_TLS_LIFETIME_SCHEDULE: tuple[tuple[datetime.date, int], ...] = (
+    (datetime.date(2029, 3, 15), 47),
+    (datetime.date(2027, 3, 15), 100),
+    (datetime.date(2026, 3, 15), 200),
+    (datetime.date(2020, 9, 1), 398),
+    (datetime.date(2018, 3, 1), 825),
+)
+PUBLIC_TLS_POLICY = "public"
+
+
+def public_tls_lifetime_limit(issued: datetime.date) -> int:
+    """Return the public TLS validity limit in days for a certificate issued on `issued`."""
+    for start, limit in PUBLIC_TLS_LIFETIME_SCHEDULE:
+        if issued >= start:
+            return limit
+    return 1187  # 39 months, the limit before March 2018
 
 
 class ExpirationResult(ValidationResult, total=False):
@@ -18,6 +34,7 @@ class ExpirationResult(ValidationResult, total=False):
     days_to_expiry: int
     expires_on: str
     lifetime_days: int
+    lifetime_limit_days: int
 
 
 class ExpirationValidator(BaseCertValidator):
@@ -38,7 +55,7 @@ class ExpirationValidator(BaseCertValidator):
         *,
         warning_days: float = 7,
         critical_days: float = 1,
-        max_lifetime_days: float | None = DEFAULT_MAX_LIFETIME_DAYS,
+        max_lifetime_days: float | str | None = PUBLIC_TLS_POLICY,
     ) -> ExpirationResult:
         """
         Validates the validity window of the provided SSL certificate and its total lifetime.
@@ -53,20 +70,22 @@ class ExpirationValidator(BaseCertValidator):
             port (int): The port number (not used in this validator).
             warning_days (float): Warn when this many days or fewer remain. Defaults to 7.
             critical_days (float): Use a critical warning within this many days. Defaults to 1.
-            max_lifetime_days (float, optional): Warn when the total lifetime from notBefore
-                to notAfter exceeds this many days. Defaults to 398, the CA/Browser Forum
-                limit for publicly trusted certificates. Lower it to tighten the policy,
-                raise it for a private PKI, or pass `None` to disable the check.
-                Fractional-day thresholds are supported, including less than one day remaining.
+            max_lifetime_days (float | str, optional): Warn when the total lifetime from
+                notBefore to notAfter exceeds this many days. Defaults to `"public"`, the
+                CA/Browser Forum limit that applied on the certificate's issue date (825
+                days from March 2018, 398 from September 2020, 200 from March 2026, 100
+                from March 2027, 47 from March 2029). Pass a number to set your own limit
+                for a private PKI, or `None` to disable the check. Fractional-day
+                thresholds are supported, including less than one day remaining.
 
         Returns:
             dict: A dictionary containing the validation results, including whether the certificate is valid,
                   the number of days until expiry, the expiration date, the total lifetime in days
-                  (when notBefore is available), and any warnings.
+                  and the limit it was compared with (when notBefore is available), and any warnings.
 
         Raises:
             ValueError: If thresholds do not satisfy 0 <= critical_days <= warning_days,
-                or an explicit max_lifetime_days is not positive.
+                or max_lifetime_days is neither `"public"`, a positive number, nor `None`.
 
         Examples:
             Example output (success):
@@ -78,6 +97,7 @@ class ExpirationValidator(BaseCertValidator):
                     "days_to_expiry": 120,
                     "expires_on": "2025-09-01T23:59:59+00:00",
                     "lifetime_days": 365,
+                    "lifetime_limit_days": 398,
                     "warnings": []
                 }
                 ```
@@ -91,6 +111,7 @@ class ExpirationValidator(BaseCertValidator):
                     "days_to_expiry": -10,
                     "expires_on": "2025-04-30T23:59:59+00:00",
                     "lifetime_days": 365,
+                    "lifetime_limit_days": 398,
                     "warnings": [
                         "Certificate is expired and has been expired for (-10 days)"
                     ],
@@ -100,7 +121,14 @@ class ExpirationValidator(BaseCertValidator):
         """
         if not 0 <= critical_days <= warning_days:
             raise ValueError("Require 0 <= critical_days <= warning_days")
-        if max_lifetime_days is not None and max_lifetime_days <= 0:
+        if (
+            isinstance(max_lifetime_days, str)
+            and max_lifetime_days != PUBLIC_TLS_POLICY
+        ):
+            raise ValueError(
+                f'max_lifetime_days must be "{PUBLIC_TLS_POLICY}", a positive number, or None'
+            )
+        if isinstance(max_lifetime_days, (int, float)) and max_lifetime_days <= 0:
             raise ValueError("max_lifetime_days must be positive")
         utc = datetime.timezone.utc
         now = datetime.datetime.now(utc)
@@ -139,11 +167,20 @@ class ExpirationValidator(BaseCertValidator):
         if not_before is not None:
             lifetime = not_after - not_before
             result["lifetime_days"] = lifetime.days
-            if max_lifetime_days is not None and lifetime > datetime.timedelta(
-                days=max_lifetime_days
-            ):
-                warnings.append(
-                    f"Certificate total lifetime ({lifetime.days} days) exceeds the "
-                    f"{max_lifetime_days}-day limit."
+            limit: float | None
+            if max_lifetime_days == PUBLIC_TLS_POLICY:
+                limit = public_tls_lifetime_limit(not_before.date())
+                label = (
+                    f"{limit}-day public TLS limit for certificates issued on "
+                    f"{not_before.date().isoformat()}"
                 )
+            else:
+                limit = cast("float | None", max_lifetime_days)
+                label = f"{limit}-day limit"
+            if limit is not None:
+                result["lifetime_limit_days"] = int(limit)
+                if lifetime > datetime.timedelta(days=limit):
+                    warnings.append(
+                        f"Certificate total lifetime ({lifetime.days} days) exceeds the {label}."
+                    )
         return result

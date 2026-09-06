@@ -116,6 +116,7 @@ This is the full result of a scan against example.com at the time of writing. Ce
     "expires_on": "2026-10-27T22:17:21+00:00",
     "warnings": [],
     "lifetime_days": 90,
+    "lifetime_limit_days": 200,
     "status": "pass",
     "code": "expiration.pass"
   },
@@ -327,8 +328,9 @@ for result in scan_hosts(["example.com", "example.org"], max_workers=4, timeout=
 
 Client authentication accepts `client_cert` and optional `client_key` paths.
 Expiration checks both validity boundaries and warns when the total lifetime
-exceeds 398 days, the public TLS issuance limit. Set `max_lifetime_days` to
-tighten or relax that policy for a private PKI, or `None` to disable it.
+exceeds the public TLS limit that applied on the issue date (200 days from
+March 2026, 100 from March 2027, 47 from March 2029). Set `max_lifetime_days`
+to a number for a private PKI policy, or `None` to disable the check.
 Results from `validate()` retain `is_valid` and add `status`
 (`pass`, `warn`, `fail`, `error`, `unsupported`) and a stable
 `<validator>.<status>` code.

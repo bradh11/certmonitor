@@ -34,6 +34,7 @@ These examples show selected fields from illustrative scans. `validate()` also a
   "days_to_expiry": 56,
   "expires_on": "2026-08-08T22:14:02+00:00",
   "lifetime_days": 365,
+  "lifetime_limit_days": 398,
   "warnings": []
 }
 ```
@@ -47,7 +48,8 @@ An expired one flips `is_valid` to `false` and adds a `reason` you can drop stra
   "expires_on": "2015-04-12T23:59:59+00:00",
   "warnings": ["Certificate is expired and has been expired for (-4080 days)"],
   "reason": "Certificate expired 4080 days ago (expired on 2015-04-12).",
-  "lifetime_days": 3
+  "lifetime_days": 3,
+  "lifetime_limit_days": 1187
 }
 ```
 
@@ -60,7 +62,7 @@ Pass via `validator_args={"expiration": {...}}`. The arguments and their default
 
 Thresholds accept fractional days and require `0 <= critical_days <= warning_days`.
 
-The lifetime policy defaults to 398 days, the CA/Browser Forum limit for publicly trusted certificates, and it warns rather than fails. Lower `max_lifetime_days` to tighten the policy, raise it for a private PKI that issues longer certificates, or pass `None` to skip the check:
+The lifetime policy defaults to `"public"`: the CA/Browser Forum limit that applied on the certificate's issue date. That is 825 days from March 2018, 398 from September 2020, 200 from March 2026, 100 from March 2027, and 47 from March 2029, so a certificate is judged by the rule it was issued under, and the limit used is reported in `lifetime_limit_days`. The check warns rather than fails. Pass a number for a private PKI policy, or `None` to skip the check:
 
 ```python
 results = monitor.validate({"expiration": {"max_lifetime_days": 825}})

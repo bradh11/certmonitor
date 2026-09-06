@@ -41,6 +41,7 @@ Out of the box, `validate()` runs the three default validators: `expiration`, `h
     "expires_on": "2026-10-27T22:17:21+00:00",
     "warnings": [],
     "lifetime_days": 90,
+    "lifetime_limit_days": 200,
     "status": "pass",
     "code": "expiration.pass"
   },
