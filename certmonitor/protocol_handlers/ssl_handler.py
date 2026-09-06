@@ -3,7 +3,6 @@
 import logging
 import socket
 import ssl
-import warnings
 from typing import Any, cast
 
 from .base import BaseProtocolHandler
@@ -20,89 +19,77 @@ class SSLHandler(BaseProtocolHandler):
         self.client_key: str | None = None
         self.tls_version: str | None = None
 
-    def get_supported_protocols(self) -> list[int]:
-        supported_protocols: list[int] = []
-        # NOTE: Legacy TLS/SSL versions are intentionally included for security assessment
-        # This tool needs to detect and analyze weak configurations in legacy systems
-        for protocol in [
-            ssl.PROTOCOL_TLS_CLIENT,
-            ssl.PROTOCOL_TLSv1_2,
-            ssl.PROTOCOL_TLSv1_1,  # Intentionally weak - for legacy detection
-            ssl.PROTOCOL_TLSv1,  # Intentionally weak - for legacy detection
-            ssl.PROTOCOL_SSLv23,  # Intentionally weak - for legacy detection
-        ]:
-            try:
-                with warnings.catch_warnings():
-                    warnings.simplefilter("ignore", category=DeprecationWarning)
-                    ssl.SSLContext(protocol)
-                supported_protocols.append(protocol)
-            except AttributeError:
-                pass
-        return supported_protocols
+    def _build_context(
+        self,
+        *,
+        maximum_version: ssl.TLSVersion | None = None,
+        legacy_server_connect: bool = False,
+    ) -> ssl.SSLContext:
+        """Build the permissive collection context.
+
+        One `PROTOCOL_TLS_CLIENT` context with the version range opened all the
+        way down lets OpenSSL negotiate anything the server supports, including
+        TLS 1.0 and 1.1 where the local build allows them, without touching the
+        deprecated per-protocol constants. Verification is off on purpose: this
+        connection collects evidence, and trust is checked separately.
+        """
+        context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        context.check_hostname = False
+        context.verify_mode = ssl.CERT_NONE
+        context.minimum_version = ssl.TLSVersion.MINIMUM_SUPPORTED
+        context.maximum_version = maximum_version or ssl.TLSVersion.MAXIMUM_SUPPORTED
+        context.set_ciphers("ALL:@SECLEVEL=0")
+        context.options &= ~ssl.OP_NO_RENEGOTIATION
+        if legacy_server_connect:
+            context.options |= getattr(ssl, "OP_LEGACY_SERVER_CONNECT", 0x4)
+        if self.client_cert:
+            context.load_cert_chain(self.client_cert, self.client_key)
+        return context
+
+    def _discard_socket(self) -> None:
+        if self.socket:
+            self.socket.close()
+            self.socket = None
+
+    def _attempt(self, **options: Any) -> str | None:
+        """Open one collection connection; return the error text on failure."""
+        try:
+            context = self._build_context(**options)
+            self.socket = socket.create_connection(
+                (self.host, self.port), timeout=self.timeout
+            )
+            self.secure_socket = context.wrap_socket(
+                self.socket, server_hostname=self.server_hostname
+            )
+            self.tls_version = self.secure_socket.version()
+            return None
+        except Exception as exc:  # noqa: BLE001
+            logging.debug("TLS collection attempt failed for %s: %s", self.host, exc)
+            self._discard_socket()
+            return str(exc)
 
     def connect(self) -> dict[str, Any] | None:
-        """Negotiate a permissive TLS session, trying each protocol in turn.
+        """Negotiate a permissive TLS session for certificate collection.
 
-        Every protocol attempt gets its own `timeout`, so a server that
-        silently drops a modern ClientHello still leaves time for the legacy
-        fallbacks this handler exists to exercise. The worst case is therefore
-        `timeout` multiplied by the number of supported protocols.
+        The first attempt offers every protocol version the local build
+        supports. If that fails, a second attempt caps the offer at TLS 1.2 for
+        servers that mishandle a TLS 1.3 ClientHello. A server that demands
+        legacy renegotiation gets one retry with that option enabled. Every
+        attempt gets its own `timeout`.
         """
-        protocols = self.get_supported_protocols()
-        for protocol in protocols:
-            try:
-                with warnings.catch_warnings():
-                    warnings.simplefilter("ignore", category=DeprecationWarning)
-                    context = ssl.SSLContext(protocol)
-                    context.set_ciphers("ALL:@SECLEVEL=0")
-                    if self.client_cert:
-                        context.load_cert_chain(self.client_cert, self.client_key)
-                    context.check_hostname = False
-                    context.verify_mode = ssl.CERT_NONE
-                    context.options &= ~ssl.OP_NO_RENEGOTIATION
-
-                self.socket = socket.create_connection(
-                    (self.host, self.port), timeout=self.timeout
-                )
-                self.secure_socket = context.wrap_socket(
-                    self.socket, server_hostname=self.server_hostname
-                )
-                self.tls_version = self.secure_socket.version()
-                return None  # Explicitly return None on success
-            except ssl.SSLError as ssl_e:
-                if "UNSAFE_LEGACY_RENEGOTIATION_DISABLED" in str(ssl_e):
-                    # Retry with unsafe legacy renegotiation enabled
-                    try:
-                        context.options &= ~ssl.OP_NO_RENEGOTIATION
-                        self.socket = socket.create_connection(
-                            (self.host, self.port), timeout=self.timeout
-                        )
-                        self.secure_socket = context.wrap_socket(
-                            self.socket, server_hostname=self.server_hostname
-                        )
-                        self.tls_version = self.secure_socket.version()
-                        return None
-                    except Exception as retry_e:
-                        logging.error(
-                            f"Error connecting with unsafe legacy renegotiation: {retry_e}"
-                        )
-                        # Continue to next protocol instead of returning error
-                        if self.socket:
-                            self.socket.close()
-                            self.socket = None
-                        continue
-                # Continue to next protocol for other SSL errors
-                if self.socket:
-                    self.socket.close()
-                    self.socket = None
-                continue
-            except Exception:
-                if self.socket:
-                    self.socket.close()
-                    self.socket = None
-                # Continue to next protocol
-
-        # If all protocols fail
+        attempts: list[dict[str, Any]] = [
+            {},
+            {"maximum_version": ssl.TLSVersion.TLSv1_2},
+        ]
+        for options in attempts:
+            error = self._attempt(**options)
+            if error is None:
+                return None
+            if "UNSAFE_LEGACY_RENEGOTIATION_DISABLED" in error.upper().replace(
+                " ", "_"
+            ):
+                if self._attempt(**options, legacy_server_connect=True) is None:
+                    return None
         return cast(
             dict[str, Any],
             self.error_handler.handle_error(

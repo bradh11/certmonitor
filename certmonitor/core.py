@@ -53,7 +53,7 @@ class CertMonitor:
             connection_host: Override the TCP destination, such as a backend IP.
             server_hostname: Override the TLS SNI name sent to the server.
             timeout: Positive timeout in seconds for each network operation,
-                including each protocol attempt made while collecting the
+                including each connection attempt made while collecting the
                 certificate. This is not a whole-scan deadline; platform DNS
                 resolution cannot be interrupted by this timeout.
             cafile: PEM CA bundle for the separate verified trust handshake.
