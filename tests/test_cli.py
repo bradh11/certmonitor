@@ -152,6 +152,17 @@ def test_check_missing_file_is_an_error_line(tmp_path):
     code, out = run(["check", "--file", str(tmp_path / "nope.pem"), "-v", "key_info"])
     assert code == 1
     assert "ERROR" in out
+    # The report keeps the file error rather than tripping over its own fields.
+    assert "AttributeError" not in out
+    assert "CertificateError" in out or "No such file" in out
+
+
+def test_misspelled_validator_fails_the_run(bundle):
+    code, out = run(
+        ["check", "--file", bundle, "--host", LEAF_HOST, "-v", "hostname,expiraton"]
+    )
+    assert code == 1
+    assert "ERROR  expiraton" in out and "not implemented" in out
 
 
 def test_check_requires_a_target(capsys):

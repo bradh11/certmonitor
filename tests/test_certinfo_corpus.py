@@ -156,7 +156,10 @@ class TestAnalyzeChain:
     @pytest.fixture(scope="class")
     def analysis(self):
         chain = [
-            (Path("tests/fixtures") / f"chain_{i}.der").read_bytes() for i in range(3)
+            (
+                Path(__file__).resolve().parents[0] / "fixtures" / f"chain_{i}.der"
+            ).read_bytes()
+            for i in range(3)
         ]
         return certinfo.analyze_chain(chain)
 
