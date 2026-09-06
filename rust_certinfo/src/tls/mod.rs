@@ -18,6 +18,7 @@ pub mod key_exchange_groups;
 pub mod mlkem_kat;
 pub mod probe;
 pub mod records;
+pub mod starttls;
 
 /// Errors from TLS record / handshake parsing. Deliberately separate
 /// from `der::ParseError`, different wire format, different failure

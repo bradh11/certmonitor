@@ -76,8 +76,8 @@ Ports that are TLS from the first byte (465 for SMTPS, 993 for IMAPS, 995 for PO
 ## What changes with STARTTLS
 
 - **An explicit `starttls` skips detection and discovery.** The first bytes on a STARTTLS port are the service banner, not a TLS record, so CertMonitor trusts your choice instead of peeking or probing.
-- **Every connection runs the preamble.** The permissive collection connection and the separate verified trust handshake both negotiate STARTTLS, so `root_certificate` works the same way it does for HTTPS.
-- **The post-quantum probe reports `unsupported`.** The native probe does not yet speak the preambles; `pq_key_exchange` returns `status: unsupported` with a reason rather than a wrong answer.
+- **Every connection runs the preamble.** The permissive collection connection, the separate verified trust handshake, and the post-quantum probe all negotiate STARTTLS, so `root_certificate` and `pq_key_exchange` work the same way they do for HTTPS.
+- **The post-quantum probe runs it too.** The native probe performs the same preamble before its ClientHello, so `pq_key_exchange` reports the negotiated group for STARTTLS endpoints just as it does for HTTPS.
 - **A refusal is an error, not a guess.** If the server does not offer STARTTLS, or declines it, the collection fails with the server's own reply in the message (for example `SMTP server does not advertise STARTTLS` or `PostgreSQL server declined SSL`).
 
 ## Fleets

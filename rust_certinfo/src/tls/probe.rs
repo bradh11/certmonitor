@@ -29,6 +29,7 @@ use crate::tls::handshake::{
 use crate::tls::key_exchange_groups as groups;
 use crate::tls::mlkem_kat::MLKEM768_KAT_EK;
 use crate::tls::records;
+use crate::tls::starttls;
 
 /// Named group codepoints the probe offers, PQ-capable first.
 const GROUP_X25519MLKEM768: u16 = 0x11EC;
@@ -123,9 +124,16 @@ fn sni_for(host: &str) -> Option<&str> {
 
 /// Run the probe against `host:port`. `server_name` is the SNI to offer;
 /// `None` derives it from `host` (omitted for IP literals either way).
+/// `starttls_protocol` runs that service's plaintext preamble first.
 /// `timeout` bounds the whole probe (connect + write + read), enforced as
 /// a deadline. Never panics.
-pub fn probe(host: &str, port: u16, server_name: Option<&str>, timeout: Duration) -> ProbeResult {
+pub fn probe(
+    host: &str,
+    port: u16,
+    server_name: Option<&str>,
+    starttls_protocol: Option<&str>,
+    timeout: Duration,
+) -> ProbeResult {
     let deadline = std::time::Instant::now() + timeout;
 
     // Resolve and connect to the first address that answers.
@@ -163,6 +171,15 @@ pub fn probe(host: &str, port: u16, server_name: Option<&str>, timeout: Duration
             }
         }
     };
+
+    if let Some(protocol) = starttls_protocol {
+        if let Err(message) = starttls::negotiate(&mut stream, protocol, deadline) {
+            return ProbeResult::Error {
+                kind: "StartTLSError".into(),
+                message,
+            };
+        }
+    }
 
     let share = x25519mlkem768_share();
     let key_shares: [(u16, &[u8]); 1] = [(GROUP_X25519MLKEM768, &share)];
@@ -494,7 +511,7 @@ mod tests {
     #[test]
     fn connect_failure_is_error_not_panic() {
         // Port 1 on localhost: nothing listening, fast refusal.
-        let result = probe("127.0.0.1", 1, None, Duration::from_millis(500));
+        let result = probe("127.0.0.1", 1, None, None, Duration::from_millis(500));
         match result {
             ProbeResult::Error { kind, .. } => {
                 assert!(

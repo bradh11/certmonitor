@@ -29,10 +29,13 @@ def probe_tls_handshake(
     port: int = 443,
     timeout_ms: int = 10000,
     server_name: str | None = None,
+    starttls: str | None = None,
 ) -> dict[str, Any]:
     """Probe a TLS 1.3 server's key-exchange group. `host` is the address to
     connect to and `server_name` the SNI to offer (defaults to `host`; IP
-    literals never send SNI). Returns a dict in every terminal state:
+    literals never send SNI). `starttls` names a service whose plaintext
+    preamble runs first (smtp, imap, pop3, ftp, postgres, ldap). Returns a
+    dict in every terminal state:
       - {"result": "group", "id", "name", "kind", "is_pq", "protocol",
          "via_hello_retry_request"}
       - {"result": "n/a", "reason", "protocol"}
