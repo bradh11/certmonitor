@@ -57,7 +57,15 @@ STARTTLS services are discovered automatically; `--starttls smtp|imap|pop3|ftp|p
 certmonitor check example.com expired.badssl.com --json > report.json
 ```
 
-`--json` emits a list with one entry per target: `target`, `results` (the same dict `validate()` returns, including `status` and `code`), `snapshot_at`, and `fingerprint_sha256` of the leaf certificate. The human-readable report prints the fingerprint on the target line. A target that could not be scanned at all carries `error` and `message` instead of failing the run.
+`--json` emits a list with one entry per target: `target`, `results` (the same dict `validate()` returns, including `status` and `code`), `snapshot_at`, `fingerprint_sha256`, the parsed `certificate`, and `public_key_info`, which is everything `certmonitor diff` needs later. The human-readable report prints the fingerprint on the target line. A target that could not be scanned at all carries `error` and `message` instead of failing the run.
+
+## Compare two runs
+
+```sh
+certmonitor diff yesterday.json today.json [--fail-on notice] [--json]
+```
+
+Explains what changed per target between two `check --json` reports and exits `1` when any change reaches the chosen severity. See [Detect Changes Between Scans](compare.md).
 
 ## Print the certificate
 
@@ -73,6 +81,7 @@ certmonitor info --file service.pem
 certmonitor --version
 certmonitor check [TARGET ...] [--file PATH] [-v NAMES] [--arg V.K=VALUE] [--json] [--fail-on-warn] [--workers N] [connection options]
 certmonitor info TARGET | --file PATH [--pem] [connection options]
+certmonitor diff PREVIOUS.json CURRENT.json [--fail-on notice|warning] [--json]
 certmonitor validators [--json]
 ```
 

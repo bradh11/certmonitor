@@ -19,6 +19,7 @@ nav:
       - Using IP Addresses: usage/ip.md
       - Certificates from Files: usage/files.md
       - STARTTLS Services: usage/starttls.md
+      - Detect Changes Between Scans: usage/compare.md
       - Context Manager vs Manual Close: usage/context_manager.md
       - Certificate Validators: usage/validators.md
       - Custom Validators: usage/custom_validators.md
