@@ -63,9 +63,9 @@ A revoked one fails, and says when and why:
 
 Each method in `methods` is consulted in order, OCSP first by default:
 
-1. **A `revoked` answer from any source fails the check at once.** A forged "revoked" can only cause a false alarm, never hide a real one, so it is acted on even before the signature question below is settled.
+1. **Only a proven answer decides.** The signature question comes before the answer's content, for `revoked` as much as for `good` (RFC 6960 §3.2). A response that fails verification was tampered with or signed by the wrong party, and acting on its "revoked" would let anyone on the path to the responder raise false alarms and skip a CRL that holds the truth.
 2. **A `good` answer passes only when it is proven.** OCSP answers are verified in-house: the response must be signed by the issuing CA, or by a responder certificate that the CA issued for OCSP signing and that is valid today (RFC 6960 §4.2.2.2), using RSA PKCS#1 v1.5 or ECDSA over P-256 or P-384. CRL answers are proven by OpenSSL: the CRL is loaded into a verifying TLS context and its signature, validity window, and the leaf's serial are checked in one extra handshake. A `good` that cannot be verified, say a response signed with an algorithm CertMonitor does not implement, is reported as `warn` with the reason in `verification_error`, and the next method is consulted; if the CRL then confirms it, the result is a verified `pass` with `source: "crl"`.
-3. **A `good` whose signature was checked and is wrong is no evidence at all.** The response was tampered with, or signed by something other than the CA or its responder. It never passes and never warns, not even with `accept_unverified`; the next method is consulted, and if nothing else answers the result is `status: "error"` with `error: "OCSPInvalidSignature"`. `methods.ocsp.verification` tells the two apart: `unsupported` means "could not check", `failed` means "checked and wrong".
+3. **A response whose signature was checked and is wrong is no evidence at all**, whether it says `good` or `revoked`. It is discarded before its content is read, not even `accept_unverified` rescues it, the next method is consulted, and if nothing else answers the result is `status: "error"` with `error: "OCSPInvalidSignature"`. A response that could not be checked is held back instead: an unverified `good` is a `warn`, an unverified `revoked` is an `error` with `error: "OCSPUnverifiedRevocation"` so it is visible without being treated as proof. `methods.ocsp.verification` tells the cases apart: `verified`, `unsupported` (could not check), or `failed` (checked and wrong).
 4. **Nothing usable is an error, never a pass.** If every source is unreachable, stale, or answers about the wrong certificate, the result is `status: "error"` with each source's problem in `reason`.
 
 The per-method detail always lands in `methods`, so you can see what each source said even when the verdict came from the other one.
@@ -78,7 +78,7 @@ The per-method detail always lands in `methods`, so you can see what each source
 | Argument | Type | Default | Meaning |
 |---|---|---|---|
 | `methods` | `list[str]` | `["ocsp", "crl"]` | Sources to consult, in order. Any subset of `ocsp` and `crl`. |
-| `accept_unverified` | `bool` | `False` | Treat an OCSP `good` whose signature could not be checked (unsupported algorithm) as a pass instead of a warning. Never applies to a signature that was checked and failed. |
+| `accept_unverified` | `bool` | `False` | Act on an OCSP answer whose signature could not be checked (unsupported algorithm) as if it were verified: `good` passes, `revoked` fails. Never applies to a signature that was checked and failed. |
 
 ```python
 monitor.validate({"revocation": {"methods": ["crl"]}})

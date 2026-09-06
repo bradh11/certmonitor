@@ -19,7 +19,7 @@ rename the headers to emoji form when cutting a release.
 - TBD
 
 ### Fixed
-- TBD
+- `revocation`: an OCSP response whose signature fails verification is discarded before its content is read, so a forged `revoked` no longer fails the check or bypasses a valid CRL fallback (RFC 6960 §3.2). An unverifiable `revoked` (unsupported algorithm) is reported as `error: OCSPUnverifiedRevocation` rather than acted on, unless `accept_unverified=True`.
 
 ## [0.5.1] - 2026-09-06
 

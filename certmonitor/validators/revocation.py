@@ -30,24 +30,27 @@ class RevocationValidator(_ValidatorBase):
     `certmonitor check -v revocation`. The certificate's own pointers are
     used: its OCSP responder URL and its CRL distribution points.
 
-    Each method is tried in order. A `revoked` answer from any method fails
-    the check at once. A `good` answer passes only when it is proven: CRL
-    answers are, because OpenSSL verifies the CRL's signature and validity
-    while loading it; OCSP answers are, when the response is signed by the
-    issuing CA or an authorized responder with RSA PKCS#1 v1.5 or ECDSA
-    (P-256, P-384). An OCSP `good` that cannot be verified, for example one
-    signed with an algorithm CertMonitor does not implement, is reported as
-    a warning unless a verified method confirms it, or
-    `accept_unverified=True` accepts the responder's word. A response whose
-    signature was checked and is wrong is discarded as evidence: it never
-    passes, never warns, and if no other method answers the result is an
-    `error` (`OCSPInvalidSignature`).
+    Each method is tried in order and only a proven answer decides: a
+    verified `revoked` fails the check, a verified `good` passes it. CRL
+    answers are proven by OpenSSL, which verifies the CRL's signature and
+    validity while loading it; OCSP answers are proven when the response is
+    signed by the issuing CA or an authorized responder with RSA PKCS#1 v1.5
+    or ECDSA (P-256, P-384). An OCSP response whose signature was checked and
+    is wrong is discarded before its content is read, whatever it claims; if
+    no other method answers, the result is an `error` (`OCSPInvalidSignature`).
+    An OCSP response that cannot be checked, for example one signed with an
+    algorithm CertMonitor does not implement, is held back: a `good` becomes a
+    warning and a `revoked` becomes an `error` (`OCSPUnverifiedRevocation`)
+    unless a verified method answers or `accept_unverified=True` accepts the
+    responder's word for either verdict.
 
     Args:
         methods: Order in which to consult `"ocsp"` and `"crl"`. Defaults
             to OCSP first, then the CRL.
-        accept_unverified: Treat an OCSP `good` whose signature could not be
-            verified as a pass instead of a warning.
+        accept_unverified: Act on an OCSP answer whose signature could not be
+            checked (unsupported algorithm) as if it were verified: `good`
+            passes and `revoked` fails. Never applies to a signature that was
+            checked and found wrong.
 
     Example:
         ```python
@@ -77,11 +80,24 @@ class RevocationValidator(_ValidatorBase):
                 f"unknown revocation method(s) {', '.join(unknown)}; choose from ocsp, crl"
             )
         answers: dict[str, dict[str, Any]] = {}
-        unverified_good: dict[str, Any] | None = None
+        unverified: dict[str, Any] | None = None
         for method in order:
             answer = dict(evidence.answer(method))
             answer.pop("_next_update", None)
             answers[method] = answer
+            if answer["status"] not in ("good", "revoked"):
+                continue
+            # The signature question comes before the answer's content: an
+            # unverified response is interpreted neither as good nor as
+            # revoked (RFC 6960 §3.2). One whose signature was checked and is
+            # wrong is discarded outright, since it was tampered with or came
+            # from the wrong signer; one that could not be checked is held
+            # back unless the caller opted to take the responder's word.
+            if answer.get("verification") == "failed":
+                continue
+            if not answer.get("signature_verified") and not accept_unverified:
+                unverified = unverified or answer
+                continue
             if answer["status"] == "revoked":
                 return self._verdict(
                     answer,
@@ -90,30 +106,34 @@ class RevocationValidator(_ValidatorBase):
                     status="fail",
                     reason=self._revoked_reason(answer),
                 )
-            if answer["status"] == "good":
-                if answer.get("signature_verified"):
-                    return self._verdict(answer, answers, is_valid=True, status="pass")
-                if answer.get("verification") == "failed":
-                    # A wrong signature is not weak evidence, it is no evidence:
-                    # the response was tampered with or came from the wrong
-                    # signer. Never pass or warn on it; keep looking.
-                    continue
-                if accept_unverified:
-                    return self._verdict(answer, answers, is_valid=True, status="pass")
-                unverified_good = unverified_good or answer
-        if unverified_good is not None:
+            return self._verdict(answer, answers, is_valid=True, status="pass")
+        if unverified is not None:
+            why = str(unverified.get("verification_error", "unknown reason"))
+            if unverified["status"] == "good":
+                return self._verdict(
+                    unverified,
+                    answers,
+                    is_valid=True,
+                    status="warn",
+                    warnings=[
+                        "The OCSP responder reported the certificate as good, but the "
+                        f"response could not be verified ({why}). Set "
+                        "accept_unverified=True to treat it as proof, or enable the crl "
+                        "method for a verified answer."
+                    ],
+                )
             return self._verdict(
-                unverified_good,
+                unverified,
                 answers,
-                is_valid=True,
-                status="warn",
-                warnings=[
-                    "The OCSP responder reported the certificate as good, but the "
-                    "response could not be verified ("
-                    + str(unverified_good.get("verification_error", "unknown reason"))
-                    + "). Set accept_unverified=True to treat it as proof, or enable "
-                    "the crl method for a verified answer."
-                ],
+                is_valid=False,
+                status="error",
+                error="OCSPUnverifiedRevocation",
+                reason=(
+                    "The OCSP responder reported the certificate as revoked, but the "
+                    f"response could not be verified ({why}); the claim was not acted "
+                    "on. Set accept_unverified=True to treat it as proof, or enable the "
+                    "crl method for a verified answer."
+                ),
             )
         if all(answer["status"] == "unsupported" for answer in answers.values()):
             reasons = " ".join(answer.get("reason", "") for answer in answers.values())
