@@ -2,6 +2,7 @@
 
 from datetime import datetime, timezone
 import ipaddress
+import re
 import logging
 import os
 import socket
@@ -10,6 +11,7 @@ import tempfile
 import warnings
 from typing import Any, cast
 from collections.abc import Callable, Mapping
+from pathlib import Path
 
 from certmonitor import certinfo, config
 from certmonitor.cipher_algorithms import parse_cipher_suite
@@ -80,6 +82,8 @@ class CertMonitor:
         self.snapshot_at: str | None = None
         self._verify_contexts: dict[bool, ssl.SSLContext] = {}
         self._trust_verdict: tuple[bytes, dict[str, Any]] | None = None
+        self._certificate_source: dict[str, Any] | None = None
+        self._offline_bytes: bytes | None = None
         self.host = host
         self.port = port
         self.is_ip = self._is_ip_address(host)
@@ -100,6 +104,119 @@ class CertMonitor:
         self.protocol: str | None = None
         self.connected = False
 
+    @classmethod
+    def from_file(
+        cls,
+        path: str | os.PathLike[str],
+        *,
+        host: str | None = None,
+        port: int = 443,
+        enabled_validators: list[str] | None = None,
+    ) -> "CertMonitor":
+        """Build a monitor from a certificate file instead of a connection.
+
+        The file may be PEM (a single certificate or a chain, leaf first) or
+        DER. Everything that only needs certificate data works as it does for
+        a connected monitor: `get_cert_info()`, the public key helpers,
+        `validate()`, and `refresh()`, which re-reads the file. Checks that
+        need a live connection (`tls_version`, `weak_cipher`, `root_certificate`,
+        `pq_key_exchange`) report `status: unsupported` with a reason.
+
+        Args:
+            path: Path to the PEM or DER file.
+            host: The identity the certificate should be valid for, used by
+                `hostname` and `subject_alt_names`. Without it those two
+                checks report `unsupported` rather than guessing.
+            port: Port to report alongside the host. Defaults to 443.
+            enabled_validators: Names to run. `None` uses the environment-backed
+                configuration.
+
+        Example:
+            ```python
+            with CertMonitor.from_file("service.pem", host="service.example.com") as monitor:
+                print(monitor.validate()["expiration"])
+            ```
+        """
+        monitor = cls(host or "", port, enabled_validators)
+        monitor._certificate_source = {"type": "file", "path": os.fspath(path)}
+        monitor.protocol = "ssl"
+        return monitor
+
+    @classmethod
+    def from_bytes(
+        cls,
+        data: bytes | str,
+        *,
+        host: str | None = None,
+        port: int = 443,
+        enabled_validators: list[str] | None = None,
+    ) -> "CertMonitor":
+        """Build a monitor from PEM text or DER bytes already in memory.
+
+        Behaves like `from_file()`; use it for certificates fetched from an
+        API, a secrets store, or a database. `refresh()` re-parses the same
+        bytes.
+
+        Args:
+            data: PEM text (str or bytes) or DER bytes.
+            host: The identity the certificate should be valid for.
+            port: Port to report alongside the host. Defaults to 443.
+            enabled_validators: Names to run. `None` uses the environment-backed
+                configuration.
+        """
+        monitor = cls(host or "", port, enabled_validators)
+        monitor._offline_bytes = data.encode() if isinstance(data, str) else bytes(data)
+        monitor._certificate_source = {"type": "bytes"}
+        monitor.protocol = "ssl"
+        return monitor
+
+    @property
+    def offline(self) -> bool:
+        """True when the certificate comes from a file or bytes, not a connection."""
+        return self._certificate_source is not None
+
+    _PEM_BLOCK = re.compile(
+        rb"-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----", re.S
+    )
+
+    def _load_offline_certificate(self) -> dict[str, Any]:
+        """Read and decode the offline certificate into the collector's shape."""
+        assert self._certificate_source is not None
+        try:
+            if self._certificate_source["type"] == "file":
+                data = Path(self._certificate_source["path"]).read_bytes()
+            else:
+                data = self._offline_bytes or b""
+            blocks = self._PEM_BLOCK.findall(data)
+            if blocks:
+                pems = [block.decode("ascii") + "\n" for block in blocks]
+                chain_der = [ssl.PEM_cert_to_DER_cert(pem) for pem in pems]
+            elif data:
+                chain_der = [bytes(data)]
+                pems = [ssl.DER_cert_to_PEM_cert(chain_der[0])]
+            else:
+                raise ValueError("no certificate data")
+            cert_info = self._parse_pem_cert(pems[0])
+            if not cert_info:
+                raise ValueError("data is not a PEM or DER X.509 certificate")
+        except Exception as exc:  # noqa: BLE001
+            return cast(
+                dict[str, Any],
+                self.error_handler.handle_error(
+                    "CertificateError",
+                    f"Could not load certificate: {exc}",
+                    self.host,
+                    self.port,
+                ),
+            )
+        return {
+            "cert_info": cert_info,
+            "der": chain_der[0],
+            "pem": pems[0],
+            "chain_der": chain_der,
+            "chain_error": None,
+        }
+
     def __enter__(self) -> "CertMonitor":
         """Enter the runtime context related to this object."""
         self.connect()
@@ -113,6 +230,9 @@ class CertMonitor:
         """Establishes a connection to the host if not already connected."""
         if self.connected:
             logging.debug("Already connected, skipping connection attempt")
+            return None
+        if self.offline:
+            self.connected = True
             return None
 
         protocol_result = self.detect_protocol()
@@ -221,6 +341,9 @@ class CertMonitor:
 
     def _ensure_connection(self) -> dict[str, Any] | None:
         """Ensures that a valid connection is established."""
+        if self.offline:
+            self.connected = True
+            return None
         if not self.connected:
             connect_result = self.connect()
             if connect_result is not None:  # This means there was an error
@@ -251,6 +374,21 @@ class CertMonitor:
 
         return None  # No error, connection is established
 
+    _OFFLINE_REASON = (
+        "{what} requires a live connection; this certificate was loaded from a file."
+    )
+
+    def _offline_error(self, what: str) -> dict[str, Any]:
+        return cast(
+            dict[str, Any],
+            self.error_handler.handle_error(
+                "OfflineSource",
+                self._OFFLINE_REASON.format(what=what),
+                self.host,
+                self.port,
+            ),
+        )
+
     def _is_ip_address(self, host: str) -> bool:
         """Check if the provided host is an IP address."""
         try:
@@ -265,7 +403,9 @@ class CertMonitor:
         if connection_result is not None:  # Connection failed
             return connection_result
 
-        if self.handler is None:
+        if self.offline:
+            cert_data = self._load_offline_certificate()
+        elif self.handler is None:
             return cast(
                 dict[str, Any],
                 self.error_handler.handle_error(
@@ -275,8 +415,8 @@ class CertMonitor:
                     self.port,
                 ),
             )
-
-        cert_data = self.handler.fetch_raw_cert()
+        else:
+            cert_data = self.handler.fetch_raw_cert()
 
         if isinstance(cert_data, dict) and "error" in cert_data:
             return cert_data
@@ -359,11 +499,19 @@ class CertMonitor:
 
         self.snapshot_at = datetime.now(timezone.utc).isoformat()
         cert_data["snapshot_at"] = self.snapshot_at
+        source = self._certificate_source
+        cert_data["source"] = (
+            dict(source)
+            if source is not None
+            else {"type": "connection", "host": self.connection_host, "port": self.port}
+        )
         self.cert_data = cert_data
         return cert_data
 
     def _fetch_raw_cipher(self) -> tuple[str, str, int] | dict[str, Any]:
         """Fetch the raw cipher information."""
+        if self.offline:
+            return self._offline_error("Cipher information")
         connection_result = self._ensure_connection()
         if connection_result is not None:  # Connection failed
             return connection_result
@@ -851,6 +999,12 @@ class CertMonitor:
         `validate()` calls on the same snapshot; `refresh()` collects a new
         leaf and verifies it again.
         """
+        if self.offline:
+            return {
+                "is_valid": False,
+                "status": "unsupported",
+                "reason": self._OFFLINE_REASON.format(what="Trust verification"),
+            }
         if self.protocol != "ssl" or not self.der:
             return {
                 "is_valid": False,
@@ -929,6 +1083,12 @@ class CertMonitor:
         the probe's structured ``{"result": "error", ...}`` dict; this
         never raises.
         """
+        if self.offline:
+            return {
+                "result": "n/a",
+                "protocol": "offline",
+                "reason": self._OFFLINE_REASON.format(what="The post-quantum probe"),
+            }
         # The probe speaks TLS; never run it against non-SSL protocols
         # (e.g. SSH hosts), regardless of validator configuration.
         if self.protocol is not None and self.protocol != "ssl":
@@ -1001,6 +1161,12 @@ class CertMonitor:
             # error); the consuming validator interprets it, so it is never
             # a "source failure" that skips the validator.
             return None
+        if isinstance(value, dict) and value.get("error") == "OfflineSource":
+            return {
+                "is_valid": False,
+                "status": "unsupported",
+                "reason": value["message"],
+            }
         if isinstance(value, dict) and "error" in value:
             label = "Cipher" if source_name == "cipher_info" else source_name
             return {
