@@ -141,7 +141,9 @@ class TestLeafAnalysisFallbackSource:
             return monitor._fetch_raw_cert()
 
     def test_leaf_analysis_populated_when_chain_missing(self):
-        der = (Path("tests/fixtures") / "chain_0.der").read_bytes()
+        der = (
+            Path(__file__).resolve().parents[1] / "fixtures" / "chain_0.der"
+        ).read_bytes()
         cert_data = self._run_fetch(
             {"cert_info": {"subject": {}}, "der": der, "pem": None}
         )
@@ -153,7 +155,10 @@ class TestLeafAnalysisFallbackSource:
 
     def test_no_leaf_analysis_when_chain_present(self):
         ders = [
-            (Path("tests/fixtures") / f"chain_{i}.der").read_bytes() for i in range(3)
+            (
+                Path(__file__).resolve().parents[1] / "fixtures" / f"chain_{i}.der"
+            ).read_bytes()
+            for i in range(3)
         ]
         cert_data = self._run_fetch(
             {

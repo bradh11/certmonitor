@@ -38,7 +38,10 @@ class RevocationValidator(_ValidatorBase):
     (P-256, P-384). An OCSP `good` that cannot be verified, for example one
     signed with an algorithm CertMonitor does not implement, is reported as
     a warning unless a verified method confirms it, or
-    `accept_unverified=True` accepts the responder's word.
+    `accept_unverified=True` accepts the responder's word. A response whose
+    signature was checked and is wrong is discarded as evidence: it never
+    passes, never warns, and if no other method answers the result is an
+    `error` (`OCSPInvalidSignature`).
 
     Args:
         methods: Order in which to consult `"ocsp"` and `"crl"`. Defaults
@@ -88,7 +91,14 @@ class RevocationValidator(_ValidatorBase):
                     reason=self._revoked_reason(answer),
                 )
             if answer["status"] == "good":
-                if answer.get("signature_verified") or accept_unverified:
+                if answer.get("signature_verified"):
+                    return self._verdict(answer, answers, is_valid=True, status="pass")
+                if answer.get("verification") == "failed":
+                    # A wrong signature is not weak evidence, it is no evidence:
+                    # the response was tampered with or came from the wrong
+                    # signer. Never pass or warn on it; keep looking.
+                    continue
+                if accept_unverified:
                     return self._verdict(answer, answers, is_valid=True, status="pass")
                 unverified_good = unverified_good or answer
         if unverified_good is not None:
@@ -110,17 +120,22 @@ class RevocationValidator(_ValidatorBase):
             return self._verdict(
                 None, answers, is_valid=False, status="unsupported", reason=reasons
             )
-        problems = [
-            f"{method}: {answer.get('reason', answer['status'])}"
-            for method, answer in answers.items()
-            if answer["status"] != "good"
-        ]
+        problems = []
+        for method, answer in answers.items():
+            if answer.get("verification") == "failed":
+                problems.append(
+                    f"{method}: response signature failed verification "
+                    f"({answer.get('verification_error', 'unknown reason')})"
+                )
+            elif answer["status"] != "good":
+                problems.append(f"{method}: {answer.get('reason', answer['status'])}")
+        failed = any(a.get("verification") == "failed" for a in answers.values())
         return self._verdict(
             None,
             answers,
             is_valid=False,
             status="error",
-            error="RevocationUnavailable",
+            error="OCSPInvalidSignature" if failed else "RevocationUnavailable",
             reason="No revocation source gave a usable answer ("
             + "; ".join(problems)
             + ")",

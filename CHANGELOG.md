@@ -16,10 +16,15 @@ rename the headers to emoji form when cutting a release.
 - TBD
 
 ### Changed
-- TBD
+- An unknown validator name in `enabled_validators`, `ENABLED_VALIDATORS`, or `certmonitor check -v` now reports `status: error` with `error: UnknownValidator` instead of `unsupported`, so a misspelled check fails the run rather than passing silently.
+- `compare_snapshots()` and `certmonitor diff` report a validator that appeared or disappeared between two runs, and describe a failed scan on either side through a `scan_error` section instead of comparing fields against a missing certificate.
 
 ### Fixed
-- TBD
+- `revocation`: an OCSP response whose signature was checked and found wrong is no longer a warning. It is discarded as evidence, `accept_unverified` does not apply to it, and if no other method answers the result is `status: error` with `error: OCSPInvalidSignature`. `methods.ocsp.verification` distinguishes `verified`, `unsupported`, and `failed`.
+- `revocation`: cached OCSP answers and CRLs are never reused past their own `nextUpdate`. The previous five-minute minimum could serve signed evidence after it expired.
+- `certmonitor check` and `scan_hosts()` no longer replace a collection error (such as a missing certificate file) with an `AttributeError` about `public_key_info`; the original error and the validator results are reported.
+- The Prometheus textfile recipe sets the metrics file to world-readable before the atomic rename; temporary files are created owner-only, which kept node_exporter from reading them.
+- Three tests read fixtures relative to the working directory instead of the test file and failed when run from another directory.
 
 ## [0.5.0] - 2026-09-06
 

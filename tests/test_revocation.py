@@ -392,35 +392,59 @@ def test_ocsp_signed_by_an_ecdsa_ca_is_verified(ec_pki):
     )
 
 
-def test_tampered_ocsp_response_is_a_warning_with_the_reason(pki, monkeypatch):
-    real_fetch = http.fetch
-
+def _flipping_fetch(pki, real_fetch):
     def flip_a_signature_byte(url, **kwargs):
-        body = bytearray(real_fetch(url, **kwargs))
+        body = real_fetch(url, **kwargs)
+        if url != pki.ocsp_url:
+            return body
+        body = bytearray(body)
         signature = certinfo.parse_ocsp_response(bytes(body))["signature"]
         body[body.find(signature)] ^= 0x01
         return bytes(body)
 
-    monkeypatch.setattr(http, "fetch", flip_a_signature_byte)
+    return flip_a_signature_byte
+
+
+def test_tampered_ocsp_response_is_unusable_evidence(pki, monkeypatch):
+    monkeypatch.setattr(http, "fetch", _flipping_fetch(pki, http.fetch))
     server, options = monitor_for(pki, "good", chain=True)
     with server, CertMonitor("localhost", server.port, **options) as monitor:
-        result = monitor.validate({"revocation": {"methods": ["ocsp"]}})["revocation"]
-    assert result["status"] == "warn", result
-    assert result["signature_verified"] is False
-    assert (
-        result["methods"]["ocsp"]["verification_error"] == "signature does not verify"
-    )
-    assert "signature does not verify" in result["warnings"][0]
+        # OCSP alone: a wrong signature is an error, never a warning or a pass,
+        # and accept_unverified does not rescue it.
+        alone = monitor.validate({"revocation": {"methods": ["ocsp"]}})["revocation"]
+        accepted = monitor.validate(
+            {"revocation": {"methods": ["ocsp"], "accept_unverified": True}}
+        )["revocation"]
+        # With the CRL available, the verified CRL answer decides.
+        both = monitor.validate()["revocation"]
+    for result in (alone, accepted):
+        assert result["status"] == "error", result
+        assert result["is_valid"] is False
+        assert result["error"] == "OCSPInvalidSignature"
+        assert "signature does not verify" in result["reason"]
+        assert result["methods"]["ocsp"]["verification"] == "failed"
+        assert result["methods"]["ocsp"]["signature_verified"] is False
+    assert both["status"] == "pass", both
+    assert both["source"] == "crl"
+    assert both["methods"]["ocsp"]["verification"] == "failed"
 
 
-def test_ocsp_good_passes_when_unverified_answers_are_accepted(pki):
+def test_ocsp_good_passes_when_unverified_answers_are_accepted(pki, monkeypatch):
+    # An algorithm CertMonitor cannot check leaves the answer unverified but not
+    # disproven; accept_unverified takes the responder's word for that case.
+    monkeypatch.setattr(certinfo, "signature_hash", MagicMock(return_value=None))
     server, options = monitor_for(pki, "good")
     with server, CertMonitor("localhost", server.port, **options) as monitor:
         result = monitor.validate(
             {"revocation": {"methods": ["ocsp"], "accept_unverified": True}}
         )["revocation"]
+        warned = monitor.validate({"revocation": {"methods": ["ocsp"]}})["revocation"]
     assert result["status"] == "pass"
     assert result["source"] == "ocsp"
+    assert result["signature_verified"] is False
+    assert result["methods"]["ocsp"]["verification"] == "unsupported"
+    assert warned["status"] == "warn"
+    assert "unsupported signature algorithm" in warned["warnings"][0]
 
 
 def test_default_order_stops_at_a_verified_ocsp_answer(pki):
@@ -658,8 +682,11 @@ def test_helpers():
     assert revocation.http_urls(None) == []
     now = 1_000_000.0
     assert revocation._expiry_for(None, now) == now + 3600
-    assert revocation._expiry_for(int(now) + 10, now) == now + 300
+    assert revocation._expiry_for(int(now) + 10, now) == now + 10
     assert revocation._expiry_for(int(now) + 10**7, now) == now + 86400
+    assert revocation._still_current(None, now)
+    assert revocation._still_current(int(now) + 1, now)
+    assert not revocation._still_current(int(now), now)
 
 
 def test_cache_expires_and_evicts_the_oldest():
@@ -912,13 +939,16 @@ def test_verify_ocsp_response_rejects_unauthorized_responders(pki):
     parsed, issuer, key_hash = _parsed_ocsp(pki, signer="responder")
     now = time.time()
     assert revocation.verify_ocsp_response(parsed, issuer, key_hash, now) == (
-        True,
+        "verified",
         None,
     )
 
     stripped = {**parsed, "certs": []}
-    ok, why = revocation.verify_ocsp_response(stripped, issuer, key_hash, now)
-    assert not ok and "not signed by the issuer or an authorized responder" in why
+    outcome, why = revocation.verify_ocsp_response(stripped, issuer, key_hash, now)
+    assert (
+        outcome == "failed"
+        and "not signed by the issuer or an authorized responder" in why
+    )
 
     # Unparseable and unrelated certificates are skipped; a plain leaf that does
     # name the responder is refused for lacking the OCSP signing purpose.
@@ -930,13 +960,13 @@ def test_verify_ocsp_response_rejects_unauthorized_responders(pki):
         "certs": [b"junk", other_der, leaf_der],
         "responder_name_der": leaf_name,
     }
-    ok, why = revocation.verify_ocsp_response(impostor, issuer, key_hash, now)
-    assert not ok and "extended key usage" in why
+    outcome, why = revocation.verify_ocsp_response(impostor, issuer, key_hash, now)
+    assert outcome == "failed" and "extended key usage" in why
 
     expired = revocation.verify_ocsp_response(
         parsed, issuer, key_hash, now + 10 * 86400
     )
-    assert expired == (False, "responder certificate is not currently valid")
+    assert expired == ("failed", "responder certificate is not currently valid")
 
     unsigned = {**parsed, "signature": b""}
     assert revocation.verify_ocsp_response(unsigned, issuer, key_hash, now)[1] == (
@@ -949,17 +979,19 @@ def test_verify_ocsp_response_rejects_a_responder_from_another_ca(pki, ec_pki):
     foreign = ssl.PEM_cert_to_DER_cert((ec_pki.directory / "responder.pem").read_text())
     foreign_name = certinfo.certificate_signature_parts(foreign)["subject_der"]
     swapped = {**parsed, "certs": [foreign], "responder_name_der": foreign_name}
-    ok, why = revocation.verify_ocsp_response(swapped, issuer, key_hash, time.time())
-    assert not ok and "not issued by the certificate's CA" in why
+    outcome, why = revocation.verify_ocsp_response(
+        swapped, issuer, key_hash, time.time()
+    )
+    assert outcome == "failed" and "not issued by the certificate's CA" in why
 
     # A responder certificate whose own signature is broken is refused.
     responder = ssl.PEM_cert_to_DER_cert((pki.directory / "responder.pem").read_text())
     broken = bytearray(responder)
     broken[-1] ^= 0x01
-    ok, why = revocation.verify_ocsp_response(
+    outcome, why = revocation.verify_ocsp_response(
         {**parsed, "certs": [bytes(broken)]}, issuer, key_hash, time.time()
     )
-    assert not ok and why.startswith("responder certificate:")
+    assert outcome == "failed" and why.startswith("responder certificate:")
 
 
 def test_signature_primitives_surface_errors(pki):
@@ -969,9 +1001,54 @@ def test_signature_primitives_surface_errors(pki):
     spki = certinfo.certificate_signature_parts(issuer)["spki"]
     with pytest.raises(ValueError, match="digest length"):
         certinfo.verify_signature("1.2.840.113549.1.1.11", b"short", b"sig", spki)
-    ok, why = revocation._signed_by(spki, "1.2.840.113549.1.1.11", b"tbs", b"sig")
-    assert not ok and why == "signature does not verify"
-    ok, why = revocation._signed_by(
+    outcome, why = revocation._signed_by(spki, "1.2.840.113549.1.1.11", b"tbs", b"sig")
+    assert outcome == "failed" and why == "signature does not verify"
+    outcome, why = revocation._signed_by(spki, "1.3.101.112", b"tbs", b"sig")
+    assert outcome == "unsupported" and "unsupported signature algorithm" in why
+    ec_spki = ssl.PEM_cert_to_DER_cert((pki.directory / "good.pem").read_text())
+    ec_spki = certinfo.certificate_signature_parts(ec_spki)["spki"]
+    outcome, why = revocation._signed_by(ec_spki, "1.2.840.10045.4.3.2", b"tbs", b"sig")
+    assert outcome == "unsupported" and "does not match the key type" in why
+    outcome, why = revocation._signed_by(
         b"\x30\x00", "1.2.840.113549.1.1.11", b"tbs", b"sig"
     )
-    assert not ok and "SubjectPublicKeyInfo" in why
+    assert outcome == "failed" and "SubjectPublicKeyInfo" in why
+
+
+def test_cached_answers_never_outlive_next_update(pki):
+    leaf = ssl.PEM_cert_to_DER_cert((pki.directory / "good.pem").read_text())
+    issuer = ssl.PEM_cert_to_DER_cert(pki.ca_pem.read_text())
+    now = time.time()
+    first = revocation.check_ocsp(leaf, issuer, pki.ocsp_url, timeout=5, now=now)
+    assert first["cached"] is False and first["status"] == "good"
+    assert revocation.check_ocsp(leaf, issuer, pki.ocsp_url, timeout=5, now=now + 1)[
+        "cached"
+    ]
+
+    # An entry whose own nextUpdate has passed must not be served, even if
+    # something left it in the cache with time to spare.
+    _, expected = revocation.build_ocsp_request(leaf, issuer)
+    key = (pki.ocsp_url, expected["issuer_key_hash"], expected["serial_number"])
+    stale = {**first, "_next_update": int(now) - 1}
+    revocation.OCSP_CACHE.put(key, stale, expires_at=now + 3600)
+    refreshed = revocation.check_ocsp(leaf, issuer, pki.ocsp_url, timeout=5, now=now)
+    assert refreshed["cached"] is False
+
+    # A CRL past its nextUpdate is fetched again rather than reused.
+    der, info, cached = revocation.fetch_crl(pki.crl_url, timeout=5, now=now)
+    assert cached is False
+    assert revocation.fetch_crl(pki.crl_url, timeout=5, now=now + 1)[2] is True
+    revocation.CRL_CACHE.put(
+        pki.crl_url, (der, {**info, "next_update": int(now) - 1}), expires_at=now + 3600
+    )
+    assert revocation.fetch_crl(pki.crl_url, timeout=5, now=now)[2] is False
+
+
+def test_unknown_validator_names_are_errors(pki):
+    server, options = monitor_for(pki, "good")
+    options["enabled_validators"] = ["hostname", "expiraton"]
+    with server, CertMonitor("localhost", server.port, **options) as monitor:
+        results = monitor.validate()
+    assert results["expiraton"]["status"] == "error"
+    assert results["expiraton"]["error"] == "UnknownValidator"
+    assert results["hostname"]["status"] == "pass"
