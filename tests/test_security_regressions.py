@@ -6,7 +6,7 @@ import socket
 import ssl
 import subprocess
 import threading
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -234,13 +234,14 @@ def test_rotation_requires_refresh_and_never_mixes_trust(local_pki):
             assert monitor.validate()["root_certificate"]["is_valid"]
             original_der, original_time = monitor.der, monitor.snapshot_at
             current[0] = 1
-            result = monitor.validate()["root_certificate"]
-            assert result["status"] == "error"
-            assert result["error"] == "SnapshotMismatch"
+            with patch.object(monitor, "_verify_trust_now") as verify:
+                cached = monitor.validate()["root_certificate"]
+            verify.assert_not_called()  # same snapshot, same verdict, no handshake
+            assert cached["is_valid"]
             monitor.refresh()
             assert monitor.der != original_der
             assert monitor.snapshot_at != original_time
-            assert monitor.validate()["root_certificate"]["is_valid"]
+            assert monitor.validate()["root_certificate"]["is_valid"]  # verified anew
 
 
 def test_client_certificate(local_pki):

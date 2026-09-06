@@ -63,6 +63,7 @@ trust verification reports `revocation_status: not_checked`.
 - Python 3.15 pre-release support: CI exercises 3.15 betas via `allow-prereleases` so the package is ready ahead of the final release.
 
 ### Changed
+- The `root_certificate` verdict is bound to the collected leaf and reused by later `validate()` calls on the same snapshot; `refresh()` collects and verifies again. Verifying contexts are built once per monitor (#69).
 - Reviewed the tutorials and reference documentation for current behavior, preserved API docstrings, and improved navigation, code examples, and light/dark reading styles.
 - **Breaking:** `root_certificate` establishes trust with a separate verified TLS handshake against the system or configured CA store instead of issuer metadata heuristics. The verified leaf must match the collected snapshot (`SnapshotMismatch` otherwise). Hosts that only negotiate with legacy protocol or cipher settings are verified with matching settings and carry a warning. Revocation is reported as `not_checked`.
 - `hostname` accepts an `expected_identity` argument (via `validator_args`) to check a different name than the one the monitor connected with.

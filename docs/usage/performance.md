@@ -63,7 +63,7 @@ The semaphore limits active scans to four. This example still creates one task p
 The Rust TLS probe releases the GIL during its network work. The certificate parser does not make that same guarantee; don't assume all Rust calls run concurrently just because they're written in Rust.
 
 !!! tip "Count connections as well as hosts"
-    Protocol detection, collection retries, verified trust, and an enabled PQ probe can make separate connections. Account for those when choosing a rate limit, especially against a small appliance or a shared service.
+    Protocol detection, collection, verified trust, and an enabled PQ probe each make their own connection, once per observation. Account for those when choosing a rate limit, especially against a small appliance or a shared service.
 
 ## Reuse a snapshot deliberately
 

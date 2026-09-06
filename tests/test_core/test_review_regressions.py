@@ -182,6 +182,42 @@ class TestVerifiedTrust:
         assert results["root_certificate"]["error"] == "ConnectionError"
         assert results["root_certificate"]["issuer"] == {}
 
+    def test_verdict_is_reused_for_the_same_snapshot(self):
+        monitor = self._monitor()
+        with patch.object(monitor, "_verified_peer", return_value=b"collected") as peer:
+            first = monitor._verify_trust()
+            second = monitor._verify_trust()
+        assert peer.call_count == 1
+        assert first == second
+        assert first is not second and first["warnings"] is not second["warnings"]
+
+    def test_new_leaf_is_verified_again(self):
+        monitor = self._monitor()
+        with patch.object(monitor, "_verified_peer", return_value=b"collected") as peer:
+            monitor._verify_trust()
+            monitor.der = b"rotated"
+            peer.return_value = b"rotated"
+            monitor._verify_trust()
+        assert peer.call_count == 2
+
+    def test_errors_are_not_cached(self):
+        monitor = self._monitor()
+        with patch.object(
+            monitor, "_verified_peer", side_effect=OSError("refused")
+        ) as peer:
+            monitor._verify_trust()
+            monitor._verify_trust()
+        assert peer.call_count == 4  # strict + legacy, twice
+
+    def test_refresh_clears_the_cached_verdict(self, monkeypatch):
+        monitor = self._monitor()
+        with patch.object(monitor, "_verified_peer", return_value=b"collected"):
+            monitor._verify_trust()
+        assert monitor._trust_verdict is not None
+        monkeypatch.setattr(monitor, "get_cert_info", lambda: {})
+        monitor.refresh()
+        assert monitor._trust_verdict is None
+
     def test_verify_context_is_built_once_per_setting(self):
         monitor = self._monitor()
         with patch("ssl.create_default_context") as create:

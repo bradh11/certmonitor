@@ -61,7 +61,7 @@ An untrusted self-signed certificate fails. The result keeps the issuer for cont
 
 ## What it checks
 
-A certificate is considered trusted only when Python's standard-library `ssl` module verifies the chain against the system trust store, or the `cafile` / `capath` you configure. That module ships with every CPython build and needs no extra installation. The verified handshake must return the same leaf certificate as the collected snapshot; a different leaf returns `SnapshotMismatch`, requiring `refresh()`. Issuer names and OCSP/caIssuers URLs do not establish trust.
+A certificate is considered trusted only when Python's standard-library `ssl` module verifies the chain against the system trust store, or the `cafile` / `capath` you configure. That module ships with every CPython build and needs no extra installation. The verified handshake must return the same leaf certificate as the collected snapshot; a different leaf returns `SnapshotMismatch`, requiring `refresh()`. The verdict is bound to that snapshot and reused by later `validate()` calls, so trust costs one extra connection per observation rather than per call; `refresh()` collects and verifies again. Issuer names and OCSP/caIssuers URLs do not establish trust.
 
 !!! warning "Collection and verification are separate"
     CertMonitor connects with `CERT_NONE` on purpose so it can inspect misconfigured and legacy servers. Trust is checked on a separate verified connection; hostname identity is checked by [Hostname](hostname.md). For chain structure (missing intermediates, ordering, weak signatures) use [Chain](chain.md); both can be enabled together. Revocation is not checked.
