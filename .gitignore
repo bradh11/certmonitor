@@ -275,6 +275,7 @@ $RECYCLE.BIN/
 .venv
 .vscode
 test.py
+test3.py
 .vscode/launch.json
 
 # Reference files that should not be included in the final package

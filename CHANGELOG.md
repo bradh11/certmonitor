@@ -58,7 +58,7 @@ trust verification reports `revocation_status: not_checked`.
 - `refresh()` collects a new snapshot, and `snapshot_at` records when a certificate was collected.
 - Every `validate()` result carries `status` (`pass`, `warn`, `fail`, `error`, `unsupported`) and a stable `<validator>.<status>` code. Mistakes in `validator_args` report `status: error` with `InvalidValidatorArgs` or `UnknownValidatorArgs`.
 - The `expiration` result includes `lifetime_days`.
-- `scan_hosts()` scans many hosts with a bounded worker pool and yields one result per host, including hosts whose scan raised.
+- `scan_hosts()` scans many hosts with a bounded worker pool and yields one result per host, including hosts whose scan raised. Entries may be `(host, port)` pairs, and `validator_args` applies to every host.
 - Python 3.14 support, now part of the CI test matrix.
 - Python 3.15 pre-release support: CI exercises 3.15 betas via `allow-prereleases` so the package is ready ahead of the final release.
 
