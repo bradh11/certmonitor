@@ -1,13 +1,13 @@
 // rust_certinfo/src/lib.rs
 //
 // PyO3 module for the `certinfo` Python extension. This file is a thin
-// shim — the actual parsing lives in `crate::der` (DER primitives) and
+// shim, the actual parsing lives in `crate::der` (DER primitives) and
 // `crate::x509` (RFC 5280 structures), with the Python-facing dict
 // conversions in `crate::pyobj`.
 //
 // The PyO3 layer is gated behind the `python` feature (on by default).
 // Disabling it (`--no-default-features`) gives you the pure-Rust parser
-// with no Python runtime dependency — that's the mode the in-repo
+// with no Python runtime dependency, that's the mode the in-repo
 // `fuzz/` crate uses to fuzz `Certificate::from_der` as a standalone
 // binary, since the fuzzer isn't loaded by a Python interpreter and
 // can't resolve PyO3 symbols at runtime.
@@ -23,13 +23,13 @@ mod der;
 mod error;
 mod pq_algorithms;
 // Public so the in-repo fuzz crate (and the upcoming probe, #33) can
-// reach the parsers; deliberately NOT exported to Python yet — the
+// reach the parsers; deliberately NOT exported to Python yet, the
 // PyO3 surface for TLS probing lands with tls/probe.rs (#33).
 pub mod tls;
 mod x509;
 
-// Public Rust API. The Python wheel doesn't use these — the wheel calls
-// the `#[pyfunction]` entry points further down — but the in-repo fuzz
+// Public Rust API. The Python wheel doesn't use these, the wheel calls
+// the `#[pyfunction]` entry points further down, but the in-repo fuzz
 // crate at `fuzz/` does, and any future in-tree Rust consumer (e.g. a
 // CLI) can use the same surface.
 pub use crate::error::ParseError;
@@ -97,7 +97,7 @@ mod py {
     /// connection to `host` (offering `server_name`, or `host`, as SNI),
     /// sends one ClientHello offering X25519MLKEM768, reads
     /// the ServerHello, extracts the negotiated (or HRR-requested)
-    /// group, and closes — no crypto, no certificate validation.
+    /// group, and closes, no crypto, no certificate validation.
     ///
     /// Returns a dict in every terminal state (never raises for network
     /// or protocol conditions); see `pyobj::probe_result_dict` for the

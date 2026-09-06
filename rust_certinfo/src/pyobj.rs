@@ -110,7 +110,7 @@ pub fn key_info_dict<'py>(
             key_bits,
         } => {
             // Same {algorithm, size, curve} shape as RSA/EC. For PQ keys
-            // `size` is the subjectPublicKey bit length — informational
+            // `size` is the subjectPublicKey bit length, informational
             // only; PQ strength is judged by algorithm identity, never by
             // size. Consumers (key_info / pq_signature validators) key off
             // the `algorithm` string.

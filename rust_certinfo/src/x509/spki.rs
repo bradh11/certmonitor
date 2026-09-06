@@ -7,10 +7,10 @@
 //
 // Two key types matter for the public web today: RSA and EC. For RSA we
 // extract the modulus bit length from the inner SubjectPublicKey contents.
-// For EC the curve OID lives in `algorithm.parameters` — the algorithm
+// For EC the curve OID lives in `algorithm.parameters`, the algorithm
 // OID itself is always id-ecPublicKey, never the curve. Post-quantum
 // algorithms (ML-DSA, SLH-DSA, composite ML-DSA) are recognized via the
-// registry in `crate::pq_algorithms` — for those the OID alone
+// registry in `crate::pq_algorithms`, for those the OID alone
 // identifies the parameter set, and we report the subjectPublicKey bit
 // length as `key_bits`. Anything else collapses to `Unknown`.
 
@@ -42,7 +42,7 @@ pub enum PublicKeyAlgorithm<'a> {
     },
     /// Post-quantum algorithm from the `crate::pq_algorithms` registry.
     /// The OID alone identifies the parameter set (no parameters, no
-    /// curve), so strength is judged by algorithm identity — `key_bits`
+    /// curve), so strength is judged by algorithm identity, `key_bits`
     /// is the raw subjectPublicKey bit length, reported for information
     /// only (e.g. ML-DSA-65 → 15616).
     PostQuantum {
@@ -281,7 +281,7 @@ mod tests {
 
     /// Build a minimal SPKI: `AlgorithmIdentifier { OID, no parameters }`
     /// followed by a BIT STRING wrapping `key_len` zero bytes. This is
-    /// the shape ML-DSA / SLH-DSA / composite keys use — absent parameters.
+    /// the shape ML-DSA / SLH-DSA / composite keys use, absent parameters.
     fn synthetic_spki(alg_oid: &[u8], key_len: usize) -> Vec<u8> {
         let alg = der_tlv(
             tag::TAG_SEQUENCE,
@@ -371,7 +371,7 @@ mod tests {
 
     #[test]
     fn unrecognized_oid_still_collapses_to_unknown() {
-        // 1.2.3.4 — not RSA, not EC, not in the PQ table.
+        // 1.2.3.4, not RSA, not EC, not in the PQ table.
         let bytes = synthetic_spki(&[0x2a, 0x03, 0x04], 16);
         match parse_spki(&bytes) {
             PublicKeyAlgorithm::Unknown => {}

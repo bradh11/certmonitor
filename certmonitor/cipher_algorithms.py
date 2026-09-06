@@ -8,7 +8,7 @@ from re import Pattern
 """
 This module defines the patterns for parsing a negotiated cipher suite
 name into its components (encryption, key exchange, MAC), used by
-``CertMonitor.get_cipher_info`` for the structured cipher breakdown.
+`CertMonitor.get_cipher_info` for the structured cipher breakdown.
 
 Users and maintainers can:
 1. View current algorithms using `list_algorithms()`.

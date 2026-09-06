@@ -142,11 +142,11 @@ class SSLHandler(BaseProtocolHandler):
     def _fetch_chain_der(self) -> tuple[list[bytes] | None, str | None]:
         """Retrieve the peer certificate chain as a list of DER byte strings.
 
-        Python 3.13 exposes ``SSLSocket.get_verified_chain()``, which returns
+        Python 3.13 exposes `SSLSocket.get_verified_chain()`, which returns
         DER bytes directly. Python 3.10 to 3.12 only exposes the chain through
-        the private ``_sslobj`` attribute as ``_ssl.Certificate`` instances,
+        the private `_sslobj` attribute as `_ssl.Certificate` instances,
         so we pull those, ask each for its PEM, and convert back to DER using
-        the public ``ssl.PEM_cert_to_DER_cert`` helper. If neither API is
+        the public `ssl.PEM_cert_to_DER_cert` helper. If neither API is
         available, an informative error is returned.
         """
         if not self.secure_socket:

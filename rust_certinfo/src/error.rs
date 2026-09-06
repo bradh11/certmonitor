@@ -1,7 +1,7 @@
 // rust_certinfo/src/error.rs
 //
 // All parser errors flow through this single type. Every public function
-// in `der/` and `x509/` returns `Result<_, ParseError>` — there are no
+// in `der/` and `x509/` returns `Result<_, ParseError>`, there are no
 // panics on user-supplied bytes. The PyO3 layer in `lib.rs` translates
 // `ParseError` to `pyo3::exceptions::PyValueError` exactly as the previous
 // `x509_parser` integration did.

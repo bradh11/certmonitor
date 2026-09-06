@@ -19,9 +19,9 @@ from .weak_cipher import WeakCipherValidator
 # ... Import other validators as needed
 
 
-# A global registry of validator instances. The ``chain`` validator is
-# registered here but NOT in ``DEFAULT_VALIDATORS`` — users opt in by
-# naming it in ``enabled_validators=`` or ``ENABLED_VALIDATORS``.
+# A global registry of validator instances. The `chain` validator is
+# registered here but NOT in `DEFAULT_VALIDATORS`, users opt in by
+# naming it in `enabled_validators=` or `ENABLED_VALIDATORS`.
 VALIDATORS = {
     "expiration": ExpirationValidator(),
     "hostname": HostnameValidator(),

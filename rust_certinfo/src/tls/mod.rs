@@ -6,12 +6,12 @@
 // `crate::pyobj`.
 //
 // Layout follows the issue #28 plan:
-//   key_exchange_groups.rs — IANA Supported Groups registry
+//   key_exchange_groups.rs, IANA Supported Groups registry
 //                            (contributor data file)
-//   records.rs   — TLS record framing (read + write)
-//   handshake.rs — ClientHello builder + ServerHello / HRR parser
-//   mlkem_kat.rs — a real ML-KEM-768 KAT public key for the probe share
-//   probe.rs     — socket orchestration (the only part that does I/O)
+//   records.rs  , TLS record framing (read + write)
+//   handshake.rs, ClientHello builder + ServerHello / HRR parser
+//   mlkem_kat.rs, a real ML-KEM-768 KAT public key for the probe share
+//   probe.rs    , socket orchestration (the only part that does I/O)
 
 pub mod handshake;
 pub mod key_exchange_groups;
@@ -20,7 +20,7 @@ pub mod probe;
 pub mod records;
 
 /// Errors from TLS record / handshake parsing. Deliberately separate
-/// from `der::ParseError` — different wire format, different failure
+/// from `der::ParseError`, different wire format, different failure
 /// modes. Every parser path returns `Result`; nothing panics on
 /// malformed input.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
