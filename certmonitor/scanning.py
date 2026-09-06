@@ -8,12 +8,13 @@ from .core import CertMonitor
 
 
 def scan_hosts(
-    hosts: Iterable[str],
+    hosts: Iterable[str | tuple[str, int]],
     *,
     port: int = 443,
     max_workers: int = 8,
     timeout: float = 10,
     enabled_validators: list[str] | None = None,
+    validator_args: dict[str, Any] | None = None,
 ) -> Iterator[dict[str, Any]]:
     """Yield completed scans with at most `max_workers` endpoints in flight.
 
@@ -29,11 +30,14 @@ def scan_hosts(
     is not interruptible.
 
     Args:
-        hosts: Host names or IP addresses to scan. Consumed lazily.
-        port: TCP port to scan on every host. Defaults to 443.
+        hosts: Host names or IP addresses to scan, or `(host, port)` pairs for
+            endpoints on other ports. Consumed lazily.
+        port: TCP port for entries given as a bare host. Defaults to 443.
         max_workers: Maximum number of concurrent scans. Defaults to 8.
         timeout: Per-operation network timeout in seconds. Defaults to 10.
         enabled_validators: Validator names to run; `None` uses the defaults.
+        validator_args: Per-validator keyword arguments applied to every host,
+            in the same shape `validate()` accepts.
 
     Raises:
         ValueError: If `max_workers` or `timeout` is not positive.
@@ -42,29 +46,31 @@ def scan_hosts(
         ```python
         from certmonitor import scan_hosts
 
-        for scan in scan_hosts(["example.com", "example.org"], max_workers=4):
-            print(scan["host"], scan["results"]["expiration"]["status"])
+        targets = ["example.com", ("legacy.example.net", 8443)]
+        for scan in scan_hosts(targets, max_workers=4):
+            print(scan["host"], scan["port"], scan["results"]["expiration"]["status"])
         ```
     """
     if max_workers < 1 or timeout <= 0:
         raise ValueError("max_workers and timeout must be positive")
     endpoints = iter(hosts)
 
-    def scan(host: str) -> dict[str, Any]:
+    def scan(entry: str | tuple[str, int]) -> dict[str, Any]:
+        host, entry_port = (entry, port) if isinstance(entry, str) else entry
         try:
             with CertMonitor(
-                host, port, enabled_validators, timeout=timeout
+                host, entry_port, enabled_validators, timeout=timeout
             ) as monitor:
                 return {
                     "host": host,
-                    "port": port,
-                    "results": monitor.validate(),
+                    "port": entry_port,
+                    "results": monitor.validate(validator_args),
                     "snapshot_at": monitor.snapshot_at,
                 }
         except Exception as exc:  # noqa: BLE001
             return {
                 "host": host,
-                "port": port,
+                "port": entry_port,
                 "results": {},
                 "snapshot_at": None,
                 "error": type(exc).__name__,

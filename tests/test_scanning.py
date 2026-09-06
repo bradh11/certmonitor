@@ -76,3 +76,22 @@ def test_rejects_non_positive_limits():
         next(scan_hosts(["a"], max_workers=0))
     with pytest.raises(ValueError):
         next(scan_hosts(["a"], timeout=0))
+
+
+def test_host_port_pairs_and_validator_args(monkeypatch):
+    mock = _fake_monitor(
+        monkeypatch, lambda *a, **k: {"expiration": {"is_valid": True}}
+    )
+    results = {
+        (r["host"], r["port"]): r
+        for r in scan_hosts(
+            ["a.test", ("b.test", 8443)],
+            port=443,
+            validator_args={"expiration": {"warning_days": 30}},
+        )
+    }
+    assert set(results) == {("a.test", 443), ("b.test", 8443)}
+    constructed = {(c.args[0], c.args[1]) for c in mock.call_args_list}
+    assert constructed == {("a.test", 443), ("b.test", 8443)}
+    validate = mock.return_value.__enter__.return_value.validate
+    assert validate.call_args.args == ({"expiration": {"warning_days": 30}},)

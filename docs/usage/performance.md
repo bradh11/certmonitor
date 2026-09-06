@@ -12,7 +12,7 @@ For a synchronous script, `scan_hosts()` handles the workers and connection clea
 from certmonitor import scan_hosts
 
 hosts = ["example.com", "www.python.org", "pypi.org"]
-for scan in scan_hosts(hosts, max_workers=4, timeout=5):
+for scan in scan_hosts(hosts, max_workers=4, timeout=5):  # entries may be (host, port) pairs
     print(scan["host"], scan["snapshot_at"])
     for name, result in scan["results"].items():
         print(" ", name, result["status"], result.get("reason", ""))
@@ -20,7 +20,7 @@ for scan in scan_hosts(hosts, max_workers=4, timeout=5):
 
 Results arrive in completion order, so a slow host doesn't hold up completed results. Each result includes the host, port, observation timestamp, and the usual validator results. At most `max_workers` endpoints are in flight; the input can be an iterator instead of a list.
 
-The default validators run unless you supply `enabled_validators`. This helper has a deliberately small interface. If you need per-host alternate names, custom CA files, or separate connection addresses, create your own `CertMonitor` inside each worker.
+The default validators run unless you supply `enabled_validators`, and `validator_args` applies the same per-validator options to every host. This helper has a deliberately small interface. If you need per-host alternate names, custom CA files, or separate connection addresses, create your own `CertMonitor` inside each worker.
 
 ## Use it from async code
 
