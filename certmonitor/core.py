@@ -1,6 +1,7 @@
 # core.py
 
 from datetime import datetime, timezone
+import hashlib
 import ipaddress
 import re
 import logging
@@ -169,6 +170,17 @@ class CertMonitor:
         monitor._certificate_source = {"type": "bytes"}
         monitor.protocol = "ssl"
         return monitor
+
+    @property
+    def fingerprint_sha256(self) -> str | None:
+        """Lowercase hex SHA-256 of the collected leaf DER, or `None` before collection.
+
+        The same value `openssl x509 -fingerprint -sha256` prints without the
+        colons, so it can be compared with what a CA, a load balancer, or a
+        previous scan recorded. A changed fingerprint means the certificate
+        was replaced.
+        """
+        return hashlib.sha256(self.der).hexdigest() if self.der else None
 
     @property
     def offline(self) -> bool:
@@ -499,6 +511,7 @@ class CertMonitor:
 
         self.snapshot_at = datetime.now(timezone.utc).isoformat()
         cert_data["snapshot_at"] = self.snapshot_at
+        cert_data["fingerprint_sha256"] = self.fingerprint_sha256
         source = self._certificate_source
         cert_data["source"] = (
             dict(source)
@@ -637,7 +650,10 @@ class CertMonitor:
 
                 # The _fetch_raw_cert already sets self.cert_data, self.public_key_der, self.public_key_pem
                 # We just need to structure the cert_info part
-                self.cert_info = self._to_structured_dict(cert_data["cert_info"])
+                structured = self._to_structured_dict(cert_data["cert_info"])
+                if self.fingerprint_sha256:
+                    structured["fingerprint_sha256"] = self.fingerprint_sha256
+                self.cert_info = structured
                 # Update the cert_data with the structured version
                 if not hasattr(self, "cert_data") or not self.cert_data:
                     self.cert_data = {}

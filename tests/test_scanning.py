@@ -133,3 +133,9 @@ def test_invalid_endpoint_dict_is_a_per_entry_error(monkeypatch):
     errors = [r for r in results if "error" in r]
     assert len(errors) == 2 and all(r["error"] == "ValueError" for r in errors)
     assert [r["host"] for r in results if "error" not in r] == ["ok.test"]
+
+
+def test_results_carry_the_fingerprint(monkeypatch):
+    mock = _fake_monitor(monkeypatch, no_results)
+    mock.return_value.__enter__.return_value.fingerprint_sha256 = "ab" * 32
+    assert next(scan_hosts(["a.test"]))["fingerprint_sha256"] == "ab" * 32

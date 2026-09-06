@@ -47,6 +47,17 @@ MIIDdzCCAl+gAwIBAgIEAgAAuQ...(truncated for brevity)...IDAQAB
 !!! note "DER is bytes, not text"
     On success, `get_raw_der()` returns raw bytes; on failure, it returns an error dictionary. Check the type before encoding or saving it. Printing them directly is noisy, so base64-encode the value first when you need something readable.
 
+## Fingerprint
+
+Every collected certificate carries its SHA-256 fingerprint: `monitor.fingerprint_sha256`, `get_cert_info()["fingerprint_sha256"]`, and the `fingerprint_sha256` field in `scan_hosts()` results and `certmonitor check --json`. It is the lowercase hex digest of the DER bytes, the same value `openssl x509 -fingerprint -sha256` prints without the colons.
+
+```python
+with CertMonitor("example.com") as monitor:
+    print(monitor.get_cert_info()["fingerprint_sha256"])
+```
+
+Store it with your results: a changed fingerprint on the next scan means the certificate was replaced, which is the cheapest renewal detector there is.
+
 ## How retrieval fits together
 
 Here's the path a certificate takes, from the connection to whichever format you ask for:

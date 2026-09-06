@@ -96,7 +96,8 @@ An illustrative certificate dictionary (your host and observation date will diff
   "crlDistributionPoints": [
     "http://crl3.digicert.com/DigiCertGlobalG2TLSRSASHA2562020CA1-1.crl",
     "http://crl4.digicert.com/DigiCertGlobalG2TLSRSASHA2562020CA1-1.crl"
-  ]
+  ]  ],
+  "fingerprint_sha256": "63ee284705b0cc2a22b72e4a71e60a2516811717f5302b819451852f203b1a7b"
 }
 ```
 
