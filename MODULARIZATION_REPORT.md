@@ -10,8 +10,8 @@
 
 ### Test Coverage
 - **Overall coverage:** 99.9%
-- **Total tests:** 3291
-- **Statements covered:** 2,759/2,763
+- **Total tests:** 3296
+- **Statements covered:** 2,797/2,801
 - **Files with coverage:** 38
 
 ### Type Hint Coverage
@@ -30,7 +30,7 @@
 - **Python security scanning:** ✅ Enabled
 - **Python security issues found:** 0
 - **Files scanned by bandit:** 38
-- **Lines scanned by bandit:** 5,952
+- **Lines scanned by bandit:** 6,031
 - **Overall security status:** 🔒 Clean
 - **PyO3 version:** 0.29
 
@@ -66,13 +66,13 @@
 
 ### Files with Type Hints
 - **config.py**: ❌ (14 lines)
-- **core.py**: ✅ (1493 lines)
-- **revocation.py**: ✅ (591 lines)
+- **core.py**: ✅ (1495 lines)
+- **revocation.py**: ✅ (619 lines)
 - **cli.py**: ✅ (433 lines)
 - **scanning.py**: ✅ (171 lines)
 - **error_handlers.py**: ✅ (29 lines)
 - **cipher_algorithms.py**: ✅ (109 lines)
-- **compare.py**: ✅ (235 lines)
+- **compare.py**: ✅ (285 lines)
 - **protocol_handlers/starttls.py**: ✅ (353 lines)
 - **protocol_handlers/ssl_handler.py**: ✅ (227 lines)
 - **protocol_handlers/detection.py**: ✅ (82 lines)
@@ -93,7 +93,7 @@
 - **validators/pq_key_exchange.py**: ✅ (186 lines)
 - **validators/root_certificate_validator.py**: ✅ (88 lines)
 - **validators/pq_signature.py**: ✅ (187 lines)
-- **validators/revocation.py**: ✅ (167 lines)
+- **validators/revocation.py**: ✅ (182 lines)
 - **validators/tls_version.py**: ✅ (95 lines)
 - **validators/key_info.py**: ✅ (204 lines)
 - **validators/base.py**: ✅ (157 lines)

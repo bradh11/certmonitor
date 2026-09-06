@@ -31,6 +31,14 @@ def _certificate(snapshot: dict[str, Any]) -> dict[str, Any]:
     return snapshot
 
 
+def _scan_error(snapshot: dict[str, Any]) -> str | None:
+    """`"Error: message"` when the snapshot is a failed scan, else `None`."""
+    if not isinstance(snapshot.get("error"), str) or snapshot.get("results"):
+        return None
+    message = snapshot.get("message")
+    return f"{snapshot['error']}: {message}" if message else str(snapshot["error"])
+
+
 def _results(snapshot: dict[str, Any]) -> dict[str, Any]:
     results = snapshot.get("results")
     return results if isinstance(results, dict) else {}
@@ -97,7 +105,10 @@ def compare_snapshots(
         `"warning"` for changes that usually mean trouble); a `findings` list of
         one-sentence explanations; and detail sections `fingerprint`, `validity`,
         `sans`, `issuer`, `subject`, `key`, and `status_changes`, each present
-        only when that aspect changed.
+        only when that aspect changed. `status_changes` also records checks
+        that appeared or disappeared between the two runs. When either
+        snapshot is a failed scan, a `scan_error` section carries the error
+        and no field-by-field comparison is attempted.
 
     Example:
         ```python
@@ -118,6 +129,35 @@ def compare_snapshots(
         nonlocal severity
         if SEVERITIES.index(level) > SEVERITIES.index(severity):
             severity = level
+
+    # A scan that failed outright has no certificate to compare. Say so
+    # instead of reporting every field as "changed to None".
+    errors = {
+        side: error
+        for side, snapshot in (("previous", previous), ("current", current))
+        if (error := _scan_error(snapshot)) is not None
+    }
+    if errors:
+        detail["scan_error"] = errors
+        if "current" in errors:
+            findings.append(
+                f"The current scan failed ({errors['current']}); the certificate "
+                "could not be observed."
+            )
+            raise_to("warning")
+        else:
+            findings.append(
+                f"The previous scan failed ({errors['previous']}); this is the first "
+                "successful observation, so there is nothing to compare against."
+            )
+            raise_to("notice")
+        return {
+            "changed": "current" in errors,
+            "replaced": False,
+            "severity": severity,
+            "findings": findings,
+            **detail,
+        }
 
     old_fp, new_fp = _fingerprint(previous, before), _fingerprint(current, after)
     replaced = bool(old_fp and new_fp and old_fp != new_fp) or (
@@ -209,10 +249,20 @@ def compare_snapshots(
     for name in sorted(set(before_results) | set(after_results)):
         old_status = (before_results.get(name) or {}).get("status")
         new_status = (after_results.get(name) or {}).get("status")
-        if old_status != new_status and old_status and new_status:
-            status_changes[name] = {"previous": old_status, "current": new_status}
+        if old_status == new_status:
+            continue
+        status_changes[name] = {"previous": old_status, "current": new_status}
+        if old_status and new_status:
             findings.append(f"{name} went from {old_status} to {new_status}.")
             raise_to("warning" if new_status in ("fail", "error") else "notice")
+        elif old_status:
+            # A check that stopped running is worth knowing about: the
+            # validator was disabled, misspelled, or failed to load.
+            findings.append(f"{name} is no longer checked (it was {old_status}).")
+            raise_to("notice")
+        else:
+            findings.append(f"{name} is newly checked ({new_status}).")
+            raise_to("notice")
     if status_changes:
         detail["status_changes"] = status_changes
 

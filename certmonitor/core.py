@@ -128,6 +128,7 @@ class CertMonitor:
         self.cert_data: dict[str, Any] = {}
         self.public_key_der = None
         self.public_key_pem = None
+        self.public_key_info: dict[str, Any] | None = None
         self.validators = VALIDATORS
         self.enabled_validators = (
             enabled_validators
@@ -912,7 +913,8 @@ class CertMonitor:
             if requested_validator not in self.validators:
                 results[requested_validator] = {
                     "is_valid": False,
-                    "status": "unsupported",
+                    "status": "error",
+                    "error": "UnknownValidator",
                     "reason": f"Validator '{requested_validator}' is not implemented.",
                 }
 

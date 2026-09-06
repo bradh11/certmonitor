@@ -21,6 +21,54 @@ rename the headers to emoji form when cutting a release.
 ### Fixed
 - TBD
 
+## [0.5.1] - 2026-09-06
+
+# 📦 CertMonitor v0.5.1 – Dependable Verdicts
+
+**Release Date:** September 6, 2026
+**Repository:** [bradh11/certmonitor](https://github.com/bradh11/certmonitor)
+
+---
+
+## 🚀 Overview
+
+A hardening release that follows 0.5.0 by a day. Every change makes a result dependable when the evidence behind it is invalid, stale, missing, or unavailable: an OCSP response with a wrong signature is an error rather than a warning, cached revocation answers stop at their own `nextUpdate`, a misspelled validator name fails the run instead of passing silently, snapshot comparisons report checks that disappear and scans that fail, and a failed collection keeps its real error in the CLI and fleet reports. No new features, no new dependencies.
+
+---
+
+## 🔄 Changed
+- An unknown validator name in `enabled_validators`, `ENABLED_VALIDATORS`, or `certmonitor check -v` now reports `status: error` with `error: UnknownValidator` instead of `unsupported`, so a misspelled check fails the run rather than passing silently.
+- `compare_snapshots()` and `certmonitor diff` report a validator that appeared or disappeared between two runs, and describe a failed scan on either side through a `scan_error` section instead of comparing fields against a missing certificate.
+
+---
+
+## 🛠️ Fixed
+- `revocation`: an OCSP response whose signature was checked and found wrong is no longer a warning. It is discarded as evidence, `accept_unverified` does not apply to it, and if no other method answers the result is `status: error` with `error: OCSPInvalidSignature`. `methods.ocsp.verification` distinguishes `verified`, `unsupported`, and `failed`.
+- `revocation`: cached OCSP answers and CRLs are never reused past their own `nextUpdate`. The previous five-minute minimum could serve signed evidence after it expired.
+- `certmonitor check` and `scan_hosts()` no longer replace a collection error (such as a missing certificate file) with an `AttributeError` about `public_key_info`; the original error and the validator results are reported.
+- The Prometheus textfile recipe sets the metrics file to world-readable before the atomic rename; temporary files are created owner-only, which kept node_exporter from reading them.
+- Three tests read fixtures relative to the working directory instead of the test file and failed when run from another directory.
+
+---
+
+## 📚 Documentation
+
+Comprehensive documentation is available at [certmonitor.readthedocs.io](https://certmonitor.readthedocs.io/).
+
+---
+
+## 🐍 Python Compatibility
+
+Tested with Python 3.10 through 3.15 with 99% code coverage across all supported versions.
+
+---
+
+## 📝 License
+
+This project is licensed under the MIT License. See the [LICENSE](https://github.com/bradh11/certmonitor/blob/main/LICENSE) file for details.
+
+**Full Changelog**: https://github.com/bradh11/certmonitor/compare/v0.5.0...v0.5.1
+
 ## [0.5.0] - 2026-09-06
 
 # 📦 CertMonitor v0.5.0 – Verified Trust, Revocation, STARTTLS, and a CLI

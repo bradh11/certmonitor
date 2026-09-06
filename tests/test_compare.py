@@ -275,3 +275,51 @@ def test_unparsable_dates_are_ignored_rather_than_fatal():
 def test_names_that_are_not_dicts_are_rendered_verbatim():
     report = compare_snapshots({"issuer": "Old CA"}, {"issuer": "New CA"})
     assert report["findings"] == ["Issuer changed from Old CA to New CA."]
+
+
+def test_disappearing_and_appearing_checks_are_findings():
+    before = snapshot(
+        results={"hostname": {"status": "pass"}, "expiration": {"status": "pass"}}
+    )
+    after = snapshot(
+        results={"expiration": {"status": "pass"}, "chain": {"status": "warn"}}
+    )
+    report = compare_snapshots(before, after)
+    assert report["changed"] is True
+    assert report["severity"] == "notice"
+    assert "hostname is no longer checked (it was pass)." in report["findings"]
+    assert "chain is newly checked (warn)." in report["findings"]
+    assert report["status_changes"]["hostname"] == {"previous": "pass", "current": None}
+    assert report["status_changes"]["chain"] == {"previous": None, "current": "warn"}
+
+
+def test_errored_scans_are_reported_not_compared():
+    good = snapshot()
+    failed = {
+        "host": "a.test",
+        "port": 443,
+        "results": {},
+        "error": "ConnectionError",
+        "message": "refused",
+    }
+    current_failed = compare_snapshots(good, failed)
+    assert current_failed["changed"] is True
+    assert current_failed["severity"] == "warning"
+    assert current_failed["findings"] == [
+        "The current scan failed (ConnectionError: refused); the certificate could not be observed."
+    ]
+    assert "fingerprint" not in current_failed and "issuer" not in current_failed
+    assert current_failed["scan_error"] == {"current": "ConnectionError: refused"}
+
+    previous_failed = compare_snapshots(failed, good)
+    assert previous_failed["changed"] is False
+    assert previous_failed["severity"] == "notice"
+    assert previous_failed["findings"][0].startswith(
+        "The previous scan failed (ConnectionError: refused)"
+    )
+
+    both = compare_snapshots(failed, {**failed, "message": None})
+    assert both["scan_error"] == {
+        "previous": "ConnectionError: refused",
+        "current": "ConnectionError",
+    }

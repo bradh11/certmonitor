@@ -54,6 +54,7 @@ for scan in scan_hosts(TARGETS, max_workers=4, timeout=10):
 OUTPUT.parent.mkdir(parents=True, exist_ok=True)
 with tempfile.NamedTemporaryFile("w", dir=OUTPUT.parent, delete=False) as handle:
     handle.write("\n".join(lines) + "\n")
+os.chmod(handle.name, 0o644)  # temp files are owner-only; node_exporter runs as its own user
 os.replace(handle.name, OUTPUT)  # atomic: node_exporter never reads a half-written file
 ```
 

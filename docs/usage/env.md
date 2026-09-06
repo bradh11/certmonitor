@@ -34,4 +34,4 @@ The enabled set is resolved in this order:
     ```
 
 !!! note "Names must be valid"
-    An unknown name produces a per-validator result of `{"is_valid": false, "reason": "Validator '<name>' is not implemented."}` rather than an exception. Check the [validator list](../validators/index.md) for the exact names.
+    An unknown name produces a per-validator result with `status: "error"` and `error: "UnknownValidator"` rather than an exception, so a typo fails the run instead of silently skipping the check. Check the [validator list](../validators/index.md) for the exact names.

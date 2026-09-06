@@ -65,7 +65,8 @@ Each method in `methods` is consulted in order, OCSP first by default:
 
 1. **A `revoked` answer from any source fails the check at once.** A forged "revoked" can only cause a false alarm, never hide a real one, so it is acted on even before the signature question below is settled.
 2. **A `good` answer passes only when it is proven.** OCSP answers are verified in-house: the response must be signed by the issuing CA, or by a responder certificate that the CA issued for OCSP signing and that is valid today (RFC 6960 §4.2.2.2), using RSA PKCS#1 v1.5 or ECDSA over P-256 or P-384. CRL answers are proven by OpenSSL: the CRL is loaded into a verifying TLS context and its signature, validity window, and the leaf's serial are checked in one extra handshake. A `good` that cannot be verified, say a response signed with an algorithm CertMonitor does not implement, is reported as `warn` with the reason in `verification_error`, and the next method is consulted; if the CRL then confirms it, the result is a verified `pass` with `source: "crl"`.
-3. **Nothing usable is an error, never a pass.** If every source is unreachable, stale, or answers about the wrong certificate, the result is `status: "error"` with each source's problem in `reason`.
+3. **A `good` whose signature was checked and is wrong is no evidence at all.** The response was tampered with, or signed by something other than the CA or its responder. It never passes and never warns, not even with `accept_unverified`; the next method is consulted, and if nothing else answers the result is `status: "error"` with `error: "OCSPInvalidSignature"`. `methods.ocsp.verification` tells the two apart: `unsupported` means "could not check", `failed` means "checked and wrong".
+4. **Nothing usable is an error, never a pass.** If every source is unreachable, stale, or answers about the wrong certificate, the result is `status: "error"` with each source's problem in `reason`.
 
 The per-method detail always lands in `methods`, so you can see what each source said even when the verdict came from the other one.
 
@@ -77,7 +78,7 @@ The per-method detail always lands in `methods`, so you can see what each source
 | Argument | Type | Default | Meaning |
 |---|---|---|---|
 | `methods` | `list[str]` | `["ocsp", "crl"]` | Sources to consult, in order. Any subset of `ocsp` and `crl`. |
-| `accept_unverified` | `bool` | `False` | Treat an OCSP `good` whose signature could not be verified as a pass instead of a warning. |
+| `accept_unverified` | `bool` | `False` | Treat an OCSP `good` whose signature could not be checked (unsupported algorithm) as a pass instead of a warning. Never applies to a signature that was checked and failed. |
 
 ```python
 monitor.validate({"revocation": {"methods": ["crl"]}})
@@ -92,7 +93,7 @@ certmonitor check example.com -v revocation --arg 'revocation.methods=["crl"]'
 
 - **OCSP** is one small HTTP `POST` to the responder. The request is built from the certificate's serial and its issuer's name and key, so the issuer certificate is needed; it comes from the served chain, or from the certificate's `caIssuers` pointer when the server sends only the leaf. Verifying the response takes a few milliseconds of arithmetic.
 - **CRL** is one download plus one TLS handshake. CRLs range from a few kilobytes to many megabytes; the download is capped at 16 MiB.
-- **Both are cached** process-wide until their `nextUpdate`, so a fleet scan fetches each CA's CRL and each certificate's OCSP answer once. Set `methods=["crl"]` when many hosts share a CA and you want one download for all of them.
+- **Both are cached** process-wide until their `nextUpdate` and never a second longer: the cache reuses signed evidence only while the signer said it was valid. A fleet scan therefore fetches each CA's CRL and each certificate's OCSP answer once per validity window. Set `methods=["crl"]` when many hosts share a CA and you want one download for all of them.
 - **Fetches respect the monitor's `timeout` and `proxy`**, including SOCKS5, because they go through the same connection code as everything else.
 
 ## When it reports `unsupported`
@@ -107,7 +108,7 @@ certmonitor check example.com -v revocation --arg 'revocation.methods=["crl"]'
 |---|---|
 | `revocation_status` | `good`, `revoked`, or `unknown` (the source had no record of this certificate). |
 | `source` | The method whose answer produced the verdict, `ocsp` or `crl`. |
-| `signature_verified` | Whether that answer's signature was checked. Always `true` for CRL answers; `true` for OCSP when the responder's signature verified, with `methods.ocsp.verification_error` explaining a `false`. |
+| `signature_verified` | Whether that answer's signature was checked. Always `true` for CRL answers; `true` for OCSP when the responder's signature verified. `methods.ocsp.verification` is `verified`, `unsupported`, or `failed`, and `verification_error` explains anything but `verified`. |
 | `this_update`, `next_update` | The answer's validity window, ISO 8601 UTC. |
 | `revocation_time`, `revocation_reason` | Set when revoked; the reason uses RFC 5280 names such as `key_compromise` or `superseded`. |
 | `methods` | Every method consulted, with its own status, URL, timing, and any error. |
