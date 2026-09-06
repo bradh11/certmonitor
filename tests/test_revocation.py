@@ -471,14 +471,54 @@ def test_unverifiable_ocsp_falls_through_to_the_verified_crl(pki, monkeypatch):
     )
 
 
-def test_revoked_via_ocsp_fails_even_unverified(pki):
+def test_verified_revoked_via_ocsp_fails(pki):
     server, options = monitor_for(pki, "revoked")
     with server, CertMonitor("localhost", server.port, **options) as monitor:
         result = monitor.validate({"revocation": {"methods": ["ocsp"]}})["revocation"]
     assert result["status"] == "fail"
     assert result["source"] == "ocsp"
+    assert result["signature_verified"] is True
     assert result["revocation_reason"] == "key_compromise"
     assert "OCSP" in result["reason"]
+
+
+def test_forged_revoked_is_discarded_not_acted_on(pki, monkeypatch):
+    # A tampered "revoked" must not fail the check nor bypass the CRL.
+    monkeypatch.setattr(http, "fetch", _flipping_fetch(pki, http.fetch))
+    server, options = monitor_for(pki, "revoked", chain=True)
+    with server, CertMonitor("localhost", server.port, **options) as monitor:
+        alone = monitor.validate({"revocation": {"methods": ["ocsp"]}})["revocation"]
+        accepted = monitor.validate(
+            {"revocation": {"methods": ["ocsp"], "accept_unverified": True}}
+        )["revocation"]
+        both = monitor.validate()["revocation"]
+    for result in (alone, accepted):
+        assert result["status"] == "error", result
+        assert result["error"] == "OCSPInvalidSignature"
+        assert result["revocation_status"] == "unknown"
+        assert result["methods"]["ocsp"]["status"] == "revoked"
+        assert result["methods"]["ocsp"]["verification"] == "failed"
+    # The verified CRL still knows the truth.
+    assert both["status"] == "fail" and both["source"] == "crl"
+    assert both["revocation_reason"] == "key_compromise"
+
+
+def test_unverifiable_revoked_is_an_error_unless_accepted(pki, monkeypatch):
+    monkeypatch.setattr(certinfo, "signature_hash", MagicMock(return_value=None))
+    server, options = monitor_for(pki, "revoked")
+    with server, CertMonitor("localhost", server.port, **options) as monitor:
+        held = monitor.validate({"revocation": {"methods": ["ocsp"]}})["revocation"]
+        accepted = monitor.validate(
+            {"revocation": {"methods": ["ocsp"], "accept_unverified": True}}
+        )["revocation"]
+        with_crl = monitor.validate()["revocation"]
+    assert held["status"] == "error", held
+    assert held["error"] == "OCSPUnverifiedRevocation"
+    assert "could not be verified" in held["reason"]
+    assert held["methods"]["ocsp"]["verification"] == "unsupported"
+    assert accepted["status"] == "fail" and accepted["source"] == "ocsp"
+    assert accepted["signature_verified"] is False
+    assert with_crl["status"] == "fail" and with_crl["source"] == "crl"
 
 
 def test_issuer_comes_from_the_served_chain_when_present(pki):

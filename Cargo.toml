@@ -1,6 +1,6 @@
 [package]
 name = "certinfo"
-version = "0.5.1"
+version = "0.5.2"
 edition = "2021"
 rust-version = "1.88"  # as_chunks and is_multiple_of
 build = "build.rs"

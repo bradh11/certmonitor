@@ -21,6 +21,44 @@ rename the headers to emoji form when cutting a release.
 ### Fixed
 - TBD
 
+## [0.5.2] - 2026-09-06
+
+# 📦 CertMonitor v0.5.2 – Signature First
+
+**Release Date:** September 6, 2026
+**Repository:** [bradh11/certmonitor](https://github.com/bradh11/certmonitor)
+
+---
+
+## 🚀 Overview
+
+One correction to the `revocation` validator: the OCSP signature is verified before the response is read, for `revoked` as much as for `good`. A response that fails verification is discarded whatever it claims, so a forged revocation can no longer fail a check or hide a CRL that holds the true answer, and a response that cannot be checked is reported rather than acted on.
+
+---
+
+## 🛠️ Fixed
+- `revocation`: an OCSP response whose signature fails verification is discarded before its content is read, so a forged `revoked` no longer fails the check or bypasses a valid CRL fallback (RFC 6960 §3.2). An unverifiable `revoked` (unsupported algorithm) is reported as `error: OCSPUnverifiedRevocation` rather than acted on, unless `accept_unverified=True`.
+
+---
+
+## 📚 Documentation
+
+Comprehensive documentation is available at [certmonitor.readthedocs.io](https://certmonitor.readthedocs.io/).
+
+---
+
+## 🐍 Python Compatibility
+
+Tested with Python 3.10 through 3.15 with 99% code coverage across all supported versions.
+
+---
+
+## 📝 License
+
+This project is licensed under the MIT License. See the [LICENSE](https://github.com/bradh11/certmonitor/blob/main/LICENSE) file for details.
+
+**Full Changelog**: https://github.com/bradh11/certmonitor/compare/v0.5.1...v0.5.2
+
 ## [0.5.1] - 2026-09-06
 
 # 📦 CertMonitor v0.5.1 – Dependable Verdicts
