@@ -9,7 +9,7 @@
 //
 // We only parse three extensions today: BasicConstraints, SKI, AKI.
 // Adding a new extension is a single accessor on `Extensions` plus a
-// matching parser function — no changes to the parent walker required.
+// matching parser function, no changes to the parent walker required.
 
 use crate::der::{oid, tag, DerReader, Oid};
 use crate::error::ParseError;
@@ -117,7 +117,7 @@ impl<'a> Iterator for ExtensionIter<'a> {
             Err(e) => return Some(Err(e)),
         };
 
-        // critical BOOLEAN DEFAULT FALSE — present iff the next tag is
+        // critical BOOLEAN DEFAULT FALSE, present iff the next tag is
         // 0x01 (BOOLEAN), otherwise absent and the default applies.
         let critical = match inner.peek_tag() {
             Some(tag::TAG_BOOLEAN) => {
@@ -190,10 +190,10 @@ fn parse_authority_key_identifier(value: &[u8]) -> Result<AuthorityKeyIdentifier
     while inner.peek_tag().is_some() {
         let tlv = inner.read_tlv()?;
         if tlv.tag == 0x80 {
-            // [0] IMPLICIT OCTET STRING — value is the raw key identifier.
+            // [0] IMPLICIT OCTET STRING, value is the raw key identifier.
             key_identifier = Some(tlv.value);
         }
-        // [1] and [2] are skipped — we don't surface them today.
+        // [1] and [2] are skipped, we don't surface them today.
     }
     r.end()?;
     Ok(AuthorityKeyIdentifier { key_identifier })

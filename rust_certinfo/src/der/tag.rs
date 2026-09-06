@@ -1,7 +1,7 @@
 // rust_certinfo/src/der/tag.rs
 //
 // DER tag constants and helpers. We deliberately operate on raw u8 tag
-// bytes rather than building a richer Tag struct — the X.509 structures
+// bytes rather than building a richer Tag struct, the X.509 structures
 // we parse only need universal types and a handful of context-specific
 // tags, so byte comparison is the simplest correct approach.
 

@@ -5,7 +5,7 @@
 // In practice the public web is dominated by UTF8String and PrintableString.
 // IA5String shows up for emailAddress (RFC 1779). TeletexString/T61String,
 // BMPString and UniversalString are legacy but still appear in older
-// certificates — we accept them rather than crash, but use a conservative
+// certificates, we accept them rather than crash, but use a conservative
 // decode that won't introduce its own parser bugs.
 
 use crate::der::tag;
@@ -31,8 +31,8 @@ fn parse_utf8(value: &[u8]) -> Result<String, ParseError> {
 }
 
 /// PrintableString: subset of ASCII (A-Z a-z 0-9 plus a small punctuation set).
-/// We do not strictly enforce the alphabet — real-world certs occasionally
-/// stretch the rules — but we do require valid 7-bit ASCII.
+/// We do not strictly enforce the alphabet, real-world certs occasionally
+/// stretch the rules, but we do require valid 7-bit ASCII.
 fn parse_printable(value: &[u8]) -> Result<String, ParseError> {
     parse_ascii(value)
 }

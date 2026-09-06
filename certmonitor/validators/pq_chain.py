@@ -22,7 +22,7 @@ _PQ_SIG_OIDS: frozenset[str] = frozenset(
 
 
 class PqChainResult(ValidationResult, total=False):
-    """Result shape for :class:`PqChainValidator` (envelope + data)."""
+    """Result shape for `PqChainValidator` (envelope + data)."""
 
     chain_length: int
     certs: list[dict[str, Any]]
@@ -33,29 +33,29 @@ class PqChainValidator(BaseCertValidator):
     """Report the post-quantum posture of every certificate in the chain.
 
     During the staged PQ migration, the leaf, intermediates, and root
-    rotate independently — a post-quantum leaf will routinely chain up to
+    rotate independently, a post-quantum leaf will routinely chain up to
     classical intermediates and roots for years. This validator walks the
     chain the server presented and reports, per certificate, whether the
     public key and the signature use post-quantum algorithms, plus a
     role-level summary.
 
     A certificate counts as PQ when **either** its key algorithm or its
-    signature algorithm is post-quantum (standalone or composite) — both
+    signature algorithm is post-quantum (standalone or composite), both
     are meaningful migration signals, and the signature is the issuing
     CA's choice rather than the operator's.
 
-    By default ``is_valid`` is ``True`` when the **leaf certificate's key
-    is post-quantum** — the part the operator controls. Pass
-    ``require_full_chain=True`` to demand that every certificate in the
+    By default `is_valid` is `True` when the **leaf certificate's key
+    is post-quantum**, the part the operator controls. Pass
+    `require_full_chain=True` to demand that every certificate in the
     chain is PQ.
 
     Note: chains that terminate at public trust anchors will report a
     classical root for the foreseeable future. **This is expected, not a
-    bug** — root CAs migrate last.
+    bug**, root CAs migrate last.
 
-    Opt-in: registered in ``VALIDATORS`` but not in
-    ``DEFAULT_VALIDATORS``. Chain retrieval requires Python 3.10+ (same
-    constraint as the ``chain`` validator); on older interpreters this
+    Opt-in: registered in `VALIDATORS` but not in
+    `DEFAULT_VALIDATORS`. Chain retrieval requires Python 3.10+ (same
+    constraint as the `chain` validator); on older interpreters this
     validator reports a structured error.
 
     Attributes:
@@ -76,20 +76,20 @@ class PqChainValidator(BaseCertValidator):
         """Walk the presented chain and report per-certificate PQ posture.
 
         Args:
-            cert: The cert data dict built by ``CertMonitor``; expected to
-                contain ``chain_analysis`` (and/or ``chain_error``).
+            cert: The cert data dict built by `CertMonitor`; expected to
+                contain `chain_analysis` (and/or `chain_error`).
             host: The hostname (unused; dispatcher compatibility).
             port: The port (unused; dispatcher compatibility).
-            require_full_chain: When ``True``, ``is_valid`` requires every
+            require_full_chain: When `True`, `is_valid` requires every
                 certificate in the chain to be post-quantum. Default
-                ``False``: the leaf's key decides.
+                `False`: the leaf's key decides.
 
         Returns:
-            dict: ``{chain_length, certs, summary, is_valid}`` where each
-            entry is ``{position, role, subject, key_algorithm, key_is_pq,
-            signature_algorithm_oid, signature_is_pq, is_pq}`` and the
-            summary is ``{leaf_pq, intermediate_pq, root_pq}``
-            (``None`` when the chain has no certificate in that role).
+            dict: `{chain_length, certs, summary, is_valid}` where each
+            entry is `{position, role, subject, key_algorithm, key_is_pq,
+            signature_algorithm_oid, signature_is_pq, is_pq}` and the
+            summary is `{leaf_pq, intermediate_pq, root_pq}`
+            (`None` when the chain has no certificate in that role).
 
         Examples:
             Example output (post-quantum leaf on a classical chain):
@@ -106,8 +106,8 @@ class PqChainValidator(BaseCertValidator):
                 }
                 ```
                 (Per-cert fields abbreviated; each entry also carries
-                ``subject``, ``signature_algorithm_oid``, and
-                ``signature_is_pq``.)
+                `subject`, `signature_algorithm_oid`, and
+                `signature_is_pq`.)
         """
         chain_error = cert.get("chain_error")
         if chain_error:
@@ -181,7 +181,7 @@ class PqChainValidator(BaseCertValidator):
 
     @staticmethod
     def _role_all_pq(certs: list[dict[str, Any]], role: str) -> bool | None:
-        """True/False when every cert of ``role`` is PQ; None when absent."""
+        """True/False when every cert of `role` is PQ; None when absent."""
         of_role = [entry for entry in certs if entry["role"] == role]
         if not of_role:
             return None

@@ -140,6 +140,13 @@ class SubjectAltNamesValidator(BaseCertValidator):
                 f"Certificate contains an unusually high number of SANs ({result['count']})"
             )
         if not alternate_names:
+            if not host:
+                result["status"] = "unsupported"
+                result["reason"] = (
+                    "No names to check: pass alternate_names, or load the certificate "
+                    "with a host."
+                )
+                return result
             result["is_valid"] = primary.is_valid
             if not primary.is_valid:
                 result["reason"] = (

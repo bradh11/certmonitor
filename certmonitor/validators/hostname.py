@@ -80,6 +80,19 @@ class HostnameValidator(BaseCertValidator):
                 }
         """
         host = expected_identity or host
+        if not host:
+            return {
+                "is_valid": False,
+                "status": "unsupported",
+                "reason": (
+                    "No identity to check: load the certificate with a host, or pass "
+                    "expected_identity."
+                ),
+                "alt_names": [],
+                "identity_source": "subjectAltName",
+                "common_name": None,
+                "common_name_matches": False,
+            }
         info = cert.get("cert_info", {})
         sans = normalize_sans(info.get("subjectAltName"))
         match = match_identity(host, sans)

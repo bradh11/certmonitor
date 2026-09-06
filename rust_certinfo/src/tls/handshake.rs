@@ -2,7 +2,7 @@
 //
 // TLS 1.3 handshake messages (RFC 8446 §4): a ClientHello byte builder
 // with a realistic extension set, and a ServerHello / HelloRetryRequest
-// parser that extracts exactly what the PQ probe needs — the negotiated
+// parser that extracts exactly what the PQ probe needs, the negotiated
 // (or requested) named group and the selected protocol version.
 //
 // No crypto: the probe never completes a handshake, derives keys, or
@@ -92,7 +92,7 @@ fn push_extension(out: &mut Vec<u8>, id: u16, body: &[u8]) {
 }
 
 /// Build a ClientHello handshake message (including the 4-byte
-/// handshake header, excluding record framing — see
+/// handshake header, excluding record framing, see
 /// [`crate::tls::records::write_record`]).
 pub fn build_client_hello(p: &ClientHelloParams<'_>) -> Vec<u8> {
     debug_assert!(p.session_id.len() <= 32);
@@ -312,7 +312,7 @@ pub fn parse_server_hello(msg: &[u8]) -> Result<ServerHelloSummary, TlsParseErro
                     key_share_group = Some(group);
                 }
                 _ => {
-                    // Unknown/unneeded extension — already consumed.
+                    // Unknown/unneeded extension, already consumed.
                 }
             }
         }
@@ -525,7 +525,7 @@ mod tests {
     #[test]
     fn tls12_server_hello_has_no_selected_version() {
         // A TLS 1.2 server echoes neither supported_versions nor
-        // key_share — the degradation signal the probe relies on.
+        // key_share, the degradation signal the probe relies on.
         let msg = build_server_hello(&[0x55; 32], None, None, None);
         let summary = parse_server_hello(&msg).unwrap();
         assert_eq!(summary.selected_version, None);

@@ -8,7 +8,7 @@ from .results import ValidationResult
 
 
 class ChainResult(ValidationResult, total=False):
-    """Result shape for :class:`ChainValidator` (envelope + data)."""
+    """Result shape for `ChainValidator` (envelope + data)."""
 
     structural_valid: bool
     trust_verified: bool
@@ -19,7 +19,7 @@ class ChainResult(ValidationResult, total=False):
 
 
 # Signature algorithm OIDs treated as weak by default. Override per-call via
-# the ``weak_signature_algorithms`` user arg.
+# the `weak_signature_algorithms` user arg.
 _DEFAULT_WEAK_SIG_OIDS: frozenset = frozenset(
     {
         "1.2.840.113549.1.1.5",  # sha1WithRSAEncryption
@@ -61,7 +61,7 @@ class ChainValidator(BaseCertValidator):
                     enabled_validators=["expiration", "hostname",
                                         "root_certificate", "chain"])
 
-    or by setting ``ENABLED_VALIDATORS`` in the environment.
+    or by setting `ENABLED_VALIDATORS` in the environment.
 
     Chain retrieval uses available socket APIs, with private fallbacks on
     older interpreters. If retrieval is unavailable, a structured error is returned.
@@ -88,21 +88,21 @@ class ChainValidator(BaseCertValidator):
         Validate the certificate chain fetched alongside the leaf cert.
 
         Args:
-            cert: The cert data dict built by ``CertMonitor._fetch_raw_cert``.
-                Expected to contain ``chain_analysis`` (populated by the Rust
-                ``certinfo.analyze_chain`` call) and/or ``chain_error``.
+            cert: The cert data dict built by `CertMonitor._fetch_raw_cert`.
+                Expected to contain `chain_analysis` (populated by the Rust
+                `certinfo.analyze_chain` call) and/or `chain_error`.
             host: The hostname (unused; accepted for dispatcher compatibility).
             port: The port (unused; accepted for dispatcher compatibility).
-            min_chain_length: Minimum acceptable chain length. Default ``2``
+            min_chain_length: Minimum acceptable chain length. Default `2`
                 rejects servers that only send the leaf.
-            require_root_in_chain: If ``True``, the chain must terminate in a
+            require_root_in_chain: If `True`, the chain must terminate in a
                 self-signed root. Most well-configured public TLS servers do
                 **not** include the root (browsers supply it from the trust
-                store), so this defaults to ``False`` and only emits a
+                store), so this defaults to `False` and only emits a
                 warning.
-            allow_self_signed_leaf: If ``True``, a self-signed leaf (chain
+            allow_self_signed_leaf: If `True`, a self-signed leaf (chain
                 length 1, subject == issuer) is accepted. Useful for internal
-                services; default ``False``.
+                services; default `False`.
             weak_signature_algorithms: Override the default set of weak
                 signature algorithm OIDs. Pass an empty list to disable the
                 weak-signature policy entirely.
@@ -113,7 +113,7 @@ class ChainValidator(BaseCertValidator):
         Returns:
             dict: A structured report with per-cert details and a summary.
                 The shape is stable and documented in
-                ``docs/validators/chain.md``.
+                `docs/validators/chain.md`.
         """
         warnings: list[str] = []
 
@@ -221,7 +221,7 @@ class ChainValidator(BaseCertValidator):
             # Servers often send a cross-signed version of a root (e.g.
             # SSL.com's ECC root cross-signed by Comodo's AAA root) as the
             # last cert in the chain. The last cert in those chains is
-            # structurally an intermediate, not a root — its trust anchor
+            # structurally an intermediate, not a root, its trust anchor
             # (the signer) lives in the client's trust store.
             if idx == 0:
                 role = "leaf"
@@ -292,8 +292,8 @@ class ChainValidator(BaseCertValidator):
             chain_warning = (
                 "Chain does not terminate in a self-signed root certificate. "
                 "The last cert is either a cross-signed intermediate (legitimate "
-                "— the real root lives in the client's trust store) or the "
-                "server is not sending the root at all (also common — browsers "
+                "- the real root lives in the client's trust store) or the "
+                "server is not sending the root at all (also common, browsers "
                 "supply the root from their trust store)."
             )
             if require_root_in_chain:
@@ -304,7 +304,7 @@ class ChainValidator(BaseCertValidator):
                 warnings.append(chain_warning)
 
         # Pass-through per-cert warnings at the top level so a single
-        # ``warnings`` list gives operators everything.
+        # `warnings` list gives operators everything.
         for cert_report in cert_reports:
             warnings.extend(cert_report["warnings"])
 

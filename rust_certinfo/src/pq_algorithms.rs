@@ -1,7 +1,7 @@
 // rust_certinfo/src/pq_algorithms.rs
 //
 // The post-quantum **certificate algorithm** registry. This file is
-// deliberately self-contained — pure data plus one lookup function —
+// deliberately self-contained, pure data plus one lookup function -
 // and kept apart from the DER / X.509 parser code so that tracking the
 // PQ ecosystem never means touching parser logic.
 //
@@ -11,14 +11,14 @@
 // (signature/key OIDs from NIST CSOR / IETF LAMPS). TLS *key-exchange
 // groups* (ML-KEM hybrids etc., 16-bit IANA codepoints seen in
 // handshakes) live in their own independent registry at
-// `rust_certinfo/src/tls/key_exchange_groups.rs` — different namespace, different
+// `rust_certinfo/src/tls/key_exchange_groups.rs`, different namespace, different
 // algorithm families, so adding an entry to one never requires
 // touching the other.
 //
 // ## Adding an algorithm
 //
 // Append one entry to `PQ_ALGORITHMS` with the two values the source
-// registry publishes — the dotted-decimal OID and the algorithm name:
+// registry publishes, the dotted-decimal OID and the algorithm name:
 //
 //     PqAlgorithm {
 //         dotted: "2.16.840.1.101.3.4.3.17",
@@ -33,14 +33,14 @@
 //
 // `composite` distinguishes the two kinds of PQ certificate-signature
 // OIDs in the wild: `false` for a standalone PQ algorithm (ML-DSA,
-// SLH-DSA), `true` for a "composite" — a single OID that stands for a
+// SLH-DSA), `true` for a "composite", a single OID that stands for a
 // PQ and a classical signature algorithm used together (e.g. ML-DSA-65
 // + ECDSA P-256), the transitional form CAs use while classical crypto
 // is still trusted.
 //
 // Terminology note: "composite" is the signature term (draft-ietf-lamps-
-// pq-composite-sigs). The TLS key-exchange side uses a DIFFERENT word —
-// "hybrid" — for the same belt-and-suspenders idea (e.g. X25519MLKEM768
+// pq-composite-sigs). The TLS key-exchange side uses a DIFFERENT word -
+// "hybrid", for the same belt-and-suspenders idea (e.g. X25519MLKEM768
 // in `tls/key_exchange_groups.rs`). Composite = signatures, hybrid =
 // key exchange; both mean classical + PQ combined.
 //
@@ -51,16 +51,16 @@
 //     https://csrc.nist.gov/projects/computer-security-objects-register/algorithm-registration
 //   - ML-DSA (FIPS 204, https://csrc.nist.gov/pubs/fips/204/final):
 //     X.509 algorithm identifiers per RFC 9881 §3
-//     (https://www.rfc-editor.org/rfc/rfc9881.html) — sigAlgs .17/.18/.19.
+//     (https://www.rfc-editor.org/rfc/rfc9881.html), sigAlgs .17/.18/.19.
 //   - SLH-DSA (FIPS 205, https://csrc.nist.gov/pubs/fips/205/final):
 //     X.509 algorithm identifiers per RFC 9909
-//     (https://www.rfc-editor.org/rfc/rfc9909.html) — sigAlgs .20–.31,
+//     (https://www.rfc-editor.org/rfc/rfc9909.html), sigAlgs .20–.31,
 //     ordered sha2-128s/f, 192s/f, 256s/f, then shake-128s/f, 192s/f, 256s/f.
 //   - Composite ML-DSA: draft-ietf-lamps-pq-composite-sigs-19
 //     (https://datatracker.ietf.org/doc/draft-ietf-lamps-pq-composite-sigs/19/),
 //     name→OID table maintained at
 //     https://github.com/lamps-wg/draft-composite-sigs/blob/main/src/algParams.md
-//     — IANA-assigned PKIX arc 1.3.6.1.5.5.7.6.37–.54. NOTE: drafts ≤ -12
+//    , IANA-assigned PKIX arc 1.3.6.1.5.5.7.6.37–.54. NOTE: drafts ≤ -12
 //     used Entrust's prototyping arc 2.16.840.1.114027.80.8.1; those
 //     codepoints were abandoned and are intentionally NOT listed. If the
 //     draft renumbers again before RFC, this file is the only place to
@@ -69,7 +69,7 @@
 //     June 2026. TODO: add once NIST CSOR assigns them.
 //
 // These OIDs identify both the SubjectPublicKeyInfo algorithm and the
-// certificate signatureAlgorithm — ML-DSA/SLH-DSA use the same OID for
+// certificate signatureAlgorithm, ML-DSA/SLH-DSA use the same OID for
 // the key and the signature, with absent parameters.
 //
 // ## How matching works
@@ -77,7 +77,7 @@
 // Certificates carry OIDs DER-encoded (X.690 §8.19), not as dotted
 // strings. `lookup` turns the wire bytes back into dotted-decimal using
 // the same `der::Oid` decoder the parser uses everywhere, then compares
-// against `dotted` — so this file only ever stores the human-readable
+// against `dotted`, so this file only ever stores the human-readable
 // form, and no contributor ever encodes anything by hand.
 
 use crate::der::Oid;
@@ -90,7 +90,7 @@ pub struct PqAlgorithm {
     pub dotted: &'static str,
     /// Python-facing lowercase name (the `algorithm` dict field).
     pub name: &'static str,
-    /// `true` for a composite signature — one OID standing for a PQ and
+    /// `true` for a composite signature, one OID standing for a PQ and
     /// a classical signature algorithm used together. `false` for a
     /// standalone PQ algorithm. (The key-exchange analogue is called a
     /// "hybrid" group; see `tls/key_exchange_groups.rs`.)
@@ -99,11 +99,11 @@ pub struct PqAlgorithm {
 
 #[rustfmt::skip]
 pub const PQ_ALGORITHMS: &[PqAlgorithm] = &[
-    // ML-DSA (FIPS 204) — RFC 9881 §3: https://www.rfc-editor.org/rfc/rfc9881.html
+    // ML-DSA (FIPS 204), RFC 9881 §3: https://www.rfc-editor.org/rfc/rfc9881.html
     PqAlgorithm { dotted: "2.16.840.1.101.3.4.3.17", name: "ml-dsa-44", composite: false },
     PqAlgorithm { dotted: "2.16.840.1.101.3.4.3.18", name: "ml-dsa-65", composite: false },
     PqAlgorithm { dotted: "2.16.840.1.101.3.4.3.19", name: "ml-dsa-87", composite: false },
-    // SLH-DSA (FIPS 205) — all twelve parameter sets, RFC 9909:
+    // SLH-DSA (FIPS 205), all twelve parameter sets, RFC 9909:
     // https://www.rfc-editor.org/rfc/rfc9909.html
     PqAlgorithm { dotted: "2.16.840.1.101.3.4.3.20", name: "slh-dsa-sha2-128s", composite: false },
     PqAlgorithm { dotted: "2.16.840.1.101.3.4.3.21", name: "slh-dsa-sha2-128f", composite: false },
@@ -117,7 +117,7 @@ pub const PQ_ALGORITHMS: &[PqAlgorithm] = &[
     PqAlgorithm { dotted: "2.16.840.1.101.3.4.3.29", name: "slh-dsa-shake-192f", composite: false },
     PqAlgorithm { dotted: "2.16.840.1.101.3.4.3.30", name: "slh-dsa-shake-256s", composite: false },
     PqAlgorithm { dotted: "2.16.840.1.101.3.4.3.31", name: "slh-dsa-shake-256f", composite: false },
-    // Composite ML-DSA (draft-ietf-lamps-pq-composite-sigs-19) — name→OID table:
+    // Composite ML-DSA (draft-ietf-lamps-pq-composite-sigs-19), name→OID table:
     // https://github.com/lamps-wg/draft-composite-sigs/blob/main/src/algParams.md
     PqAlgorithm { dotted: "1.3.6.1.5.5.7.6.37", name: "mldsa44-rsa2048-pss-sha256", composite: true },
     PqAlgorithm { dotted: "1.3.6.1.5.5.7.6.38", name: "mldsa44-rsa2048-pkcs15-sha256", composite: true },
