@@ -19,6 +19,7 @@
 
 #![forbid(unsafe_code)]
 
+mod crypto;
 mod der;
 mod error;
 mod pq_algorithms;
@@ -181,6 +182,44 @@ mod py {
         }
     }
 
+    /// The hash algorithm name (`sha1`, `sha256`, `sha384`, `sha512`) a
+    /// signature algorithm OID implies, or `None` if the algorithm is not
+    /// one CertMonitor can verify.
+    #[pyfunction]
+    pub(super) fn signature_hash(algorithm: &str) -> Option<&'static str> {
+        crate::x509::verify::signature_algorithm(algorithm).map(|(_, hash)| hash.name())
+    }
+
+    /// Verify `signature` over `digest` with the public key in `spki_der`.
+    /// Returns False for a signature that does not verify; raises
+    /// `ValueError` when the algorithm or key is unsupported or malformed.
+    #[pyfunction]
+    pub(super) fn verify_signature(
+        py: Python<'_>,
+        algorithm: &str,
+        digest: Vec<u8>,
+        signature: Vec<u8>,
+        spki_der: Vec<u8>,
+    ) -> PyResult<bool> {
+        py.detach(|| {
+            crate::x509::verify::verify_signature(algorithm, &digest, &signature, &spki_der)
+        })
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))
+    }
+
+    /// The pieces needed to verify a certificate's signature and to use it
+    /// as a signer: `tbs`, `signature`, `signature_algorithm`, `spki`,
+    /// `key_bits`, `subject`, `subject_der`, `issuer_der`, `not_before`,
+    /// `not_after`, and `extended_key_usage`.
+    #[pyfunction]
+    pub(super) fn certificate_signature_parts(
+        py: Python<'_>,
+        der_data: Vec<u8>,
+    ) -> PyResult<Py<PyAny>> {
+        let cert = Certificate::from_der(&der_data).map_err(to_py_err)?;
+        Ok(pyobj::certificate_signature_parts_dict(py, &cert)?.into())
+    }
+
     #[pymodule]
     fn certinfo(m: &Bound<'_, PyModule>) -> PyResult<()> {
         m.add_function(wrap_pyfunction!(parse_public_key_info, m)?)?;
@@ -193,6 +232,9 @@ mod py {
         m.add_function(wrap_pyfunction!(ocsp_cert_id_inputs, m)?)?;
         m.add_function(wrap_pyfunction!(crl_info, m)?)?;
         m.add_function(wrap_pyfunction!(crl_lookup, m)?)?;
+        m.add_function(wrap_pyfunction!(signature_hash, m)?)?;
+        m.add_function(wrap_pyfunction!(verify_signature, m)?)?;
+        m.add_function(wrap_pyfunction!(certificate_signature_parts, m)?)?;
         Ok(())
     }
 }

@@ -14,6 +14,9 @@
 use crate::der::{oid, tag, DerReader, Oid};
 use crate::error::ParseError;
 
+/// id-ce-extKeyUsage (2.5.29.37)
+const OID_EXT_EKU: &[u8] = &[0x55, 0x1d, 0x25];
+
 #[derive(Debug, Clone, Copy)]
 pub struct Extensions<'a> {
     body: &'a [u8],
@@ -83,6 +86,21 @@ impl<'a> Extensions<'a> {
         let value = r.expect(tag::TAG_OCTET_STRING)?;
         r.end()?;
         Ok(Some(value))
+    }
+
+    /// The OIDs of `ExtendedKeyUsage`, or an empty list when absent.
+    pub fn extended_key_usage(&self) -> Result<Vec<Oid<'a>>, ParseError> {
+        let Some(ext) = self.find(OID_EXT_EKU)? else {
+            return Ok(Vec::new());
+        };
+        let mut top = DerReader::new(ext.value);
+        let mut seq = top.expect_constructed(tag::TAG_SEQUENCE)?;
+        top.end()?;
+        let mut purposes = Vec::new();
+        while !seq.is_empty() {
+            purposes.push(Oid::from_bytes(seq.expect(tag::TAG_OBJECT_IDENTIFIER)?)?);
+        }
+        Ok(purposes)
     }
 
     pub fn authority_key_identifier(

@@ -172,7 +172,7 @@ Each validator reports its own `is_valid` flag plus the details behind its decis
 - 📮 **STARTTLS too:** mail, directory, and database ports (SMTP, IMAP, POP3, FTP, PostgreSQL, LDAP) are discovered on any port and get the right preamble before the handshake, so their certificates get the same checks; `starttls="smtp"` pins it when you already know. See [STARTTLS Services](usage/starttls.md).
 - 🔁 **Change detection:** `compare_snapshots()` and `certmonitor diff` tell a routine renewal from a removed SAN, a new issuer, a weaker key, or a check that started failing. See [Detect Changes Between Scans](usage/compare.md).
 - 🛡️ **Proxies:** `proxy="http://..."` or `"socks5://..."`, with authentication, routes every connection through an HTTP CONNECT or SOCKS5 tunnel. See [Proxies](usage/proxy.md).
-- 🚫 **Revocation:** the opt-in `revocation` validator asks the certificate's OCSP responder and CRL distribution points, with CRL answers verified by OpenSSL. See [Revocation](validators/revocation.md).
+- 🚫 **Revocation:** the opt-in `revocation` validator asks the certificate's OCSP responder and CRL distribution points and verifies both answers, OCSP with in-house RSA and ECDSA checks and CRLs through OpenSSL. See [Revocation](validators/revocation.md).
 - ⌨️ **Command line:** `certmonitor check example.com` runs the same validators from the shell, with `--json` output and exit codes for cron and CI. See [Command Line](usage/cli.md).
 - 🛡️ **Certificate Validators:** Modular checks for expiration, hostname, SANs, key strength, protocol, ciphers, and more.
 - ⚡ **Batch Monitoring:** overlap network waits with independent monitors and bounded workers.

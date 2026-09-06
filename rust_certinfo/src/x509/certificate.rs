@@ -46,6 +46,10 @@ pub struct Certificate<'a> {
     pub validity: Validity,
     pub spki: SubjectPublicKeyInfo<'a>,
     pub extensions: Extensions<'a>,
+    /// Raw DER of tbsCertificate, the bytes the issuer signed.
+    pub tbs_raw: &'a [u8],
+    /// signatureValue BIT STRING contents after the unused-bits byte.
+    pub signature_value: &'a [u8],
 }
 
 impl<'a> Certificate<'a> {
@@ -56,11 +60,22 @@ impl<'a> Certificate<'a> {
         top.end()?;
 
         // tbsCertificate
-        let mut tbs = cert_inner.expect_constructed(tag::TAG_SEQUENCE)?;
+        let tbs_tlv = cert_inner.read_tlv()?;
+        if tbs_tlv.tag != tag::TAG_SEQUENCE {
+            return Err(ParseError::UnexpectedTag {
+                expected: tag::TAG_SEQUENCE,
+                got: tbs_tlv.tag,
+            });
+        }
+        let mut tbs = DerReader::new(tbs_tlv.value);
         // signatureAlgorithm (outer)
         let signature_algorithm = AlgorithmIdentifier::parse(&mut cert_inner)?;
-        // signatureValue (we don't read the value, but we do skip it)
-        let _sig = cert_inner.read_tlv()?;
+        // signatureValue: a BIT STRING whose first byte counts unused bits.
+        let signature_bits = cert_inner.expect(tag::TAG_BIT_STRING)?;
+        let signature_value = match signature_bits.split_first() {
+            Some((0, rest)) => rest,
+            _ => return Err(ParseError::InvalidBitString),
+        };
         cert_inner.end()?;
 
         // Inside tbsCertificate
@@ -116,6 +131,8 @@ impl<'a> Certificate<'a> {
             validity,
             spki,
             extensions: Extensions::from_body(extensions_body),
+            tbs_raw: tbs_tlv.raw,
+            signature_value,
         })
     }
 }

@@ -318,14 +318,17 @@ pub fn ocsp_response_dict<'py>(
     match response.responder_id {
         Some(ResponderId::ByName(name)) => {
             d.set_item("responder_name", name_dict(py, &name)?)?;
+            d.set_item("responder_name_der", PyBytes::new(py, name.raw))?;
             d.set_item("responder_key_hash", py.None())?;
         }
         Some(ResponderId::ByKey(hash)) => {
             d.set_item("responder_name", py.None())?;
+            d.set_item("responder_name_der", py.None())?;
             d.set_item("responder_key_hash", hex_string(hash))?;
         }
         None => {
             d.set_item("responder_name", py.None())?;
+            d.set_item("responder_name_der", py.None())?;
             d.set_item("responder_key_hash", py.None())?;
         }
     }
@@ -417,5 +420,34 @@ pub fn cert_id_inputs_dict<'py>(
     d.set_item("serial_number", PyBytes::new(py, inputs.serial_raw))?;
     d.set_item("issuer_name", PyBytes::new(py, inputs.issuer_name_der))?;
     d.set_item("issuer_key", PyBytes::new(py, inputs.issuer_key_bits))?;
+    Ok(d)
+}
+
+/// The pieces needed to verify a certificate's own signature and to use it
+/// as a signer: signed bytes, signature, algorithm, key, names, validity,
+/// and extended key usage.
+pub fn certificate_signature_parts_dict<'py>(
+    py: Python<'py>,
+    cert: &Certificate<'_>,
+) -> PyResult<Bound<'py, PyDict>> {
+    let d = PyDict::new(py);
+    d.set_item("tbs", PyBytes::new(py, cert.tbs_raw))?;
+    d.set_item("signature", PyBytes::new(py, cert.signature_value))?;
+    d.set_item(
+        "signature_algorithm",
+        cert.signature_algorithm.algorithm.to_id_string(),
+    )?;
+    d.set_item("spki", PyBytes::new(py, cert.spki.raw))?;
+    d.set_item("key_bits", PyBytes::new(py, cert.spki.subject_public_key))?;
+    d.set_item("subject", name_dict(py, &cert.subject)?)?;
+    d.set_item("subject_der", PyBytes::new(py, cert.subject.raw))?;
+    d.set_item("issuer_der", PyBytes::new(py, cert.issuer.raw))?;
+    d.set_item("not_before", cert.validity.not_before_unix)?;
+    d.set_item("not_after", cert.validity.not_after_unix)?;
+    let purposes = PyList::empty(py);
+    for purpose in cert.extensions.extended_key_usage().map_err(to_py_err)? {
+        purposes.append(purpose.to_id_string())?;
+    }
+    d.set_item("extended_key_usage", purposes)?;
     Ok(d)
 }
