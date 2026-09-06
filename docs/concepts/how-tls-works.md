@@ -1,6 +1,6 @@
 # How TLS & HTTPS Work
 
-HTTPS is just HTTP carried over **TLS** (Transport Layer Security). When you connect over TLS, you get three things:
+HTTPS is just HTTP carried over **TLS** (Transport Layer Security). A correctly configured and authenticated TLS connection provides three things:
 
 * **Encryption.** Nobody between you and the server can read the traffic.
 * **Authentication.** You're really talking to the server you think you are. This is what certificates prove.
@@ -9,15 +9,15 @@ HTTPS is just HTTP carried over **TLS** (Transport Layer Security). When you con
 CertMonitor looks at the artifacts this process produces (the certificate, the chain, the TLS version, the cipher suite, and the key-exchange group) and tells you whether they're healthy. So before you use the validators, it helps to know what those artifacts are and where they come from.
 
 !!! note "Is it SSL or TLS?"
-    You'll see both words, often for the same thing. **SSL** (Secure Sockets Layer) is the original protocol from the 1990s. It was renamed **TLS** when it was standardized, and every SSL version is now obsolete and insecure. What actually runs today is TLS 1.2 and TLS 1.3. The old name simply stuck, which is why people still say "SSL certificate." CertMonitor speaks TLS in practice, and it can still *detect* legacy SSL so you can flag servers that haven't moved on.
+    You'll see both words, often for the same thing. **SSL** (Secure Sockets Layer) is the original protocol from the 1990s. It was renamed **TLS** when it was standardized, and every SSL version is now obsolete and insecure. What actually runs today is TLS 1.2 and TLS 1.3. The old name simply stuck, which is why people still say "SSL certificate." CertMonitor can attempt legacy TLS versions supported by the local OpenSSL build. It cannot guarantee a handshake with every obsolete SSL/TLS server.
 
 ## The TLS 1.3 handshake
 
-Before any of your application data is sent, the client and the server run a **handshake**. This is where they agree on keys and check identity. With TLS 1.3 (the modern default) it takes a single round trip.
+Before any of your application data is sent, the client and the server run a **handshake**. This is where they agree on keys and check identity. A full TLS 1.3 handshake normally takes one round trip after TCP setup; a retry adds another.
 
 ```mermaid
 sequenceDiagram
-    participant C as Client (browser / CertMonitor)
+    participant C as Client (certificate-authenticated TLS)
     participant S as Server
     C->>S: ClientHello<br/>(supported TLS versions, cipher suites,<br/>key-exchange groups, key_share)
     S->>C: ServerHello<br/>(chosen version, cipher suite, key-exchange group)
@@ -38,7 +38,7 @@ Here's what's happening, step by step:
 5. **Finished.** Both sides confirm nothing was tampered with, and then they switch to encrypted application data.
 
 !!! info "Where CertMonitor looks"
-    CertMonitor runs this handshake and then inspects each artifact. The **certificate** feeds [Expiration](../validators/expiration.md), [Hostname](../validators/hostname.md), [KeyInfo](../validators/key_info.md), and [Chain](../validators/chain.md). The **negotiated protocol** feeds [TLSVersion](../validators/tls_version.md). The **cipher suite** feeds [WeakCipher](../validators/weak_cipher.md). And the **key-exchange group** feeds [PqKeyExchange](../validators/pq_key_exchange.md).
+    CertMonitor collects permissively so broken certificates can be inspected, then performs a separate verified handshake for trust. The **certificate** feeds [Expiration](../validators/expiration.md), [Hostname](../validators/hostname.md), [KeyInfo](../validators/key_info.md), and [Chain](../validators/chain.md). The **negotiated protocol** feeds [TLSVersion](../validators/tls_version.md). The **cipher suite** feeds [WeakCipher](../validators/weak_cipher.md). For **PQ key-exchange capability**, [PqKeyExchange](../validators/pq_key_exchange.md) uses a separate, unauthenticated probe. It does not measure the primary session's protection.
 
 ## Two jobs: key exchange and signatures
 
@@ -46,16 +46,18 @@ Here's a detail that turns out to matter a lot. A TLS session uses cryptography 
 
 | Job | What it does | Examples |
 |---|---|---|
-| **Key exchange (KEM)** | Agrees on the symmetric session key | ECDH (`x25519`), or post-quantum `X25519MLKEM768` |
+| **Key agreement / encapsulation** | Agrees on the symmetric session key | ECDH (`x25519`), or post-quantum `X25519MLKEM768` |
 | **Signatures** | Authenticate the server (certificate + handshake) | RSA, ECDSA, or post-quantum ML-DSA |
 
-Why does the split matter? Because of post-quantum security. **Key exchange is the urgent problem.** An attacker can record your encrypted traffic today and decrypt it later, once a quantum computer exists. Signatures only need to be quantum-safe before such a computer actually arrives, since you can't forge a signature on a handshake that already happened. The [Post-Quantum Cryptography](post-quantum.md) page digs into this.
+Why does the split matter? Because of post-quantum security. **Key exchange is the urgent problem.** An attacker can record your encrypted traffic today and decrypt it later, once a quantum computer exists. Signature migration addresses future forgery and also needs advance planning, particularly for long-lived trust anchors and signed artifacts. The [Post-Quantum Cryptography](post-quantum.md) page digs into this.
 
 ## Why TLS 1.3 over older versions
 
-TLS 1.0 and 1.1 are deprecated. They allow weak ciphers and have known weaknesses, so you don't want them. TLS 1.2 is still fine when it's configured well. TLS 1.3 went further: it removed the legacy footguns, made forward secrecy mandatory, and trimmed the handshake to one round trip. By default, CertMonitor's [TLSVersion](../validators/tls_version.md) validator flags anything below TLS 1.2.
+TLS 1.0 and 1.1 are deprecated. They allow weak ciphers and have known weaknesses, so you don't want them. TLS 1.2 is still fine when it's configured well. TLS 1.3 went further: it removed the legacy footguns, provides forward secrecy for ordinary certificate-based handshakes, and trimmed the handshake to one round trip. By default, CertMonitor's [TLSVersion](../validators/tls_version.md) validator flags anything below TLS 1.2.
 
 ## Next steps
 
 * [Certificates & PKI](certificates-and-pki.md), to see what the server's certificate actually proves and how trust is established.
 * [Post-Quantum Cryptography](post-quantum.md), for the coming change to TLS key exchange and signatures.
+
+For the protocol details, see [TLS 1.3 (RFC 8446)](https://www.rfc-editor.org/rfc/rfc8446.html).

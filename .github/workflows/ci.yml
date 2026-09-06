@@ -4,8 +4,7 @@ name: CI/CD
 on:
   push:
     branches: [main, develop]  # Only comprehensive tests on main branches
-  pull_request:
-    branches: [main, develop]  # Comprehensive tests on PRs to main branches
+  pull_request:  # Every PR, including stacked PRs whose base is another feature branch
   release:
     types: [published]
   schedule:
@@ -24,20 +23,21 @@ jobs:
     
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         
       - name: Set up Python 3.11
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.11"
           
       - name: Set up uv
-        uses: astral-sh/setup-uv@v1
+        uses: astral-sh/setup-uv@v8.2.0
         with:
-          version: "0.6.17"
+          version: "0.12.9"
+          enable-cache: true
           
       - name: Install dependencies
-        run: uv sync --group dev
+        run: uv sync --locked --group dev
         
       - name: Check formatting
         run: uv run ruff format --check .
@@ -60,24 +60,26 @@ jobs:
     if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop' || github.event_name == 'release'
     strategy:
       matrix:
-        python-version: ["3.8", "3.9", "3.10", "3.11", "3.12", "3.13"]  # Full Python matrix
+        python-version: ["3.10", "3.11", "3.12", "3.13", "3.14", "3.15"]  # Full Python matrix
     
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         
       - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python-version }}
+          allow-prereleases: true
           
       - name: Set up uv
-        uses: astral-sh/setup-uv@v1
+        uses: astral-sh/setup-uv@v8.2.0
         with:
-          version: "0.6.17"
+          version: "0.12.9"
+          enable-cache: true
           
       - name: Install dependencies
-        run: uv sync --group dev
+        run: uv sync --locked --group dev
         
       - name: Install Rust extension
         run: make develop
@@ -89,11 +91,12 @@ jobs:
             
       - name: Upload coverage (Python 3.11 only)
         if: matrix.python-version == '3.11'
-        uses: codecov/codecov-action@v3
+        uses: codecov/codecov-action@v5
         with:
-          file: ./coverage.xml
+          files: ./coverage.xml
           flags: unittests
           name: certmonitor-coverage
+          token: ${{ secrets.CODECOV_TOKEN }}
       
       - name: Build verification (Python 3.11 only)
         if: matrix.python-version == '3.11'
@@ -110,32 +113,39 @@ jobs:
     
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         
       - name: Set up Python 3.11
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.11"
           
       - name: Set up uv
-        uses: astral-sh/setup-uv@v1
+        uses: astral-sh/setup-uv@v8.2.0
         with:
-          version: "0.6.17"
+          version: "0.12.9"
+          enable-cache: true
           
       - name: Install dependencies
-        run: uv sync --group dev
+        run: uv sync --locked --group dev
         
       - name: Install Rust extension
         run: make develop
         
       - name: Run type checking with mypy
         run: |
-          uv run pip install mypy types-requests
           uv run mypy certmonitor/ --ignore-missing-imports --show-error-codes
-          
+
+      # FUTURE: consider running astral's `ty` type checker here once it
+      # stabilizes (currently a 0.0.x preview). It is stricter than mypy
+      # (e.g. on the validator override signatures), so it is not wired into
+      # CI yet. Run it locally with `make typecheck-ty` to see its output.
+      # - name: Type checking with ty (advisory, non-blocking)
+      #   continue-on-error: true
+      #   run: uvx ty check certmonitor/
+
       - name: Check code complexity
         run: |
-          uv run pip install radon
           uv run radon cc certmonitor/ --min B
           uv run radon mi certmonitor/ --min B
 
@@ -146,14 +156,14 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest]  # Only Linux for regular checks
-        rust: [stable]
+        rust: ["1.98.1"]  # keep in sync with rust-toolchain.toml
         include:
           # Cross-platform only on PRs and releases
           - os: macos-latest
-            rust: stable
+            rust: "1.98.1"
             if: github.event_name == 'pull_request' || github.event_name == 'release'
           - os: windows-latest
-            rust: stable  
+            rust: "1.98.1"
             if: github.event_name == 'pull_request' || github.event_name == 'release'
         
     # Run if Rust files changed OR it's a PR/main branch push OR it's a release
@@ -168,10 +178,10 @@ jobs:
     
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@master
+        uses: dtolnay/rust-toolchain@d1031067263f94b142dd6c0ce24c5eb9d02d52a0  # master, 2026-09
         with:
           toolchain: ${{ matrix.rust }}
           components: rustfmt, clippy
@@ -185,15 +195,15 @@ jobs:
         run: cargo fmt --all -- --check
         
       - name: Run Clippy
-        run: cargo clippy --all-targets --all-features -- -D warnings
+        run: cargo clippy --locked --all-targets --all-features -- -D warnings
         
       - name: Run Rust tests
-        run: cargo test --verbose
+        run: cargo test --locked --verbose
         
       - name: Check security advisories
         if: matrix.rust == 'stable' && matrix.os == 'ubuntu-latest'
         run: |
-          cargo install cargo-audit
+          cargo install cargo-audit --locked --version 0.22.2
           cargo audit
 
   # Security scanning (weekly + on security-related changes)
@@ -214,25 +224,25 @@ jobs:
     
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         
       - name: Set up Python 3.11
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.11"
           
       - name: Set up uv
-        uses: astral-sh/setup-uv@v1
+        uses: astral-sh/setup-uv@v8.2.0
         with:
-          version: "0.6.17"
+          version: "0.12.9"
+          enable-cache: true
           
       - name: Install dependencies
-        run: uv sync --group dev
+        run: uv sync --locked --group dev
         
 
       - name: Run bandit security linter
         run: |
-          uv run pip install bandit
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             # Fail on PRs to catch issues early (using bandit config for exceptions)
             uv run bandit -r certmonitor/ -f json -o bandit-report.json -c .bandit
@@ -262,61 +272,91 @@ jobs:
     
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         
       - name: Set up Python 3.11
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.11"
           
       - name: Set up uv
-        uses: astral-sh/setup-uv@v1
+        uses: astral-sh/setup-uv@v8.2.0
         with:
-          version: "0.6.17"
+          version: "0.12.9"
+          enable-cache: true
           
       - name: Install dependencies
-        run: uv sync --group docs
+        run: uv sync --locked --group docs
         
       - name: Build docs
         run: |
           uv run mkdocs build --strict
 
-  publish:
-    if: github.event_name == 'release' && github.event.action == 'published'
+  wheels:
     needs: [test, quality, rust, security, docs]
-    # build one wheel per OS
-    runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-
-    permissions:             
-      id-token: write
-      contents: read
-
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+          - os: macos-latest
+            target: aarch64-apple-darwin
+          - os: macos-latest
+            target: x86_64-apple-darwin
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+    runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - name: Set up Python 3.11
-        uses: actions/setup-python@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
-      - name: Set up uv
-        uses: astral-sh/setup-uv@v1
+      - name: Build portable abi3 wheel
+        uses: PyO3/maturin-action@v1
         with:
-          version: "0.6.17"
-      - name: Create venv
-        run: |
-          uv venv .venv
-      - name: Add venv to PATH
-        run: |
-          echo ".venv/bin" >> $GITHUB_PATH
-      - name: Install build dependencies
-        run: |
-          uv sync --group dev
-      - name: Build the Hybrid Python Rust Package - abi3 wheels
-        run: |
-          make build
-          ls -l dist
-      - name: Publish to PyPI
-        run: |
-          uv publish
+          rust-toolchain: "1.98.1"  # keep in sync with rust-toolchain.toml
+          maturin-version: "1.8.6"  # matches uv.lock
+          command: build
+          args: --release --out dist
+          target: ${{ matrix.target }}
+          manylinux: "2_28"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheels-${{ matrix.target }}
+          path: dist/*.whl
+
+  sdist:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: PyO3/maturin-action@v1
+        with:
+          rust-toolchain: "1.98.1"
+          maturin-version: "1.8.6"
+          command: sdist
+          args: --out dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: source-distribution
+          path: dist/*.tar.gz
+
+  publish:
+    if: github.event_name == 'release' && github.event.action == 'published'
+    needs: [wheels, sdist]
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - uses: astral-sh/setup-uv@v8.2.0
+        with:
+          version: "0.12.9"
+      - name: Publish tested distributions to PyPI
+        run: uv publish dist/*

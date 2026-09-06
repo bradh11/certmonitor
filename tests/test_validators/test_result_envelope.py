@@ -157,4 +157,4 @@ class TestValidationResultSchema:
         required = set(ValidationResult.__required_keys__)
         optional = set(ValidationResult.__optional_keys__)
         assert required == {"is_valid"}
-        assert optional == {"reason", "warnings", "error", "message"}
+        assert optional == {"reason", "warnings", "error", "message", "status", "code"}

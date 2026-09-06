@@ -19,9 +19,11 @@ In other words: *registered* is the menu of everything available, and *enabled* 
 
 You have two ways to control which validators run.
 
-The first is per call, by passing `enabled_validators` when you create the monitor:
+The first is per instance, by passing `enabled_validators` when you create the monitor:
 
 ```python
+from certmonitor import CertMonitor
+
 with CertMonitor("example.com", enabled_validators=["expiration", "hostname"]) as monitor:
     print(monitor.validate())
 ```
@@ -29,13 +31,13 @@ with CertMonitor("example.com", enabled_validators=["expiration", "hostname"]) a
 The second is with the `ENABLED_VALIDATORS` environment variable, which is handy when you want to configure a CI job, container, or cron monitor without touching code. Set it to a comma-separated list:
 
 ```sh
-export ENABLED_VALIDATORS="expiration,hostname,subject_alt_names,tls_version,weak_cipher"
+export ENABLED_VALIDATORS="expiration,hostname,root_certificate,tls_version,weak_cipher"
 ```
 
 The enabled set is resolved in this order:
 
 1. The `enabled_validators=[...]` argument, if you pass one.
-2. Otherwise the `ENABLED_VALIDATORS` environment variable, if it's set.
+2. Otherwise the `ENABLED_VALIDATORS` environment variable, if it was non-empty when CertMonitor's configuration module was imported.
 3. Otherwise the built-in defaults: `expiration`, `hostname`, `root_certificate`.
 
 So the argument always wins over the environment variable, which in turn wins over the defaults.
@@ -125,7 +127,7 @@ print(monitor.get_enabled_validators())
 
 ## Registering Custom Validators
 
-To add your own validator, create a class that inherits from `BaseValidator`, then register it:
+To add your own validator, create a class that inherits from `BaseCertValidator` or `BaseCipherValidator`, then register it:
 
 ```python
 from certmonitor.validators import register_validator, list_validators
@@ -178,17 +180,18 @@ print(f"Monitor 3 enabled: {monitor3.get_enabled_validators()}")
 
 ### Dynamically Enabling All Available Validators
 
+Before running everything, decide what each result means for your monitoring policy. A classical certificate can fail a PQ readiness check while passing your current trust policy. The SAN check also needs your alternate names.
+
 ```python
 from certmonitor import CertMonitor
+from certmonitor.validators import list_validators
 
-# Enable all available validators for maximum coverage
-monitor = CertMonitor("example.com")
-all_validators = monitor.list_validators()
-monitor_with_all = CertMonitor("example.com", enabled_validators=all_validators)
-
-print(f"Running {len(monitor_with_all.get_enabled_validators())} validators:")
-results = monitor_with_all.validate()
-for validator_name, result in results.items():
-    status = "✓" if result.get("is_valid") else "✗"
-    print(f"  {status} {validator_name}")
+with CertMonitor("example.com", enabled_validators=list_validators()) as monitor:
+    results = monitor.validate(
+        validator_args={"subject_alt_names": {"alternate_names": ["www.example.com"]}}
+    )
+    for name, result in results.items():
+        print(name, result["status"], result.get("reason", ""))
 ```
+
+Custom validators you have registered are included too. For a repeatable production policy, prefer an explicit list of names and arguments.

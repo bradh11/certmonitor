@@ -1,6 +1,6 @@
 # validators/key_info.py
 
-from typing import Any, Dict, FrozenSet, Optional
+from typing import Any
 
 from certmonitor import certinfo
 
@@ -9,18 +9,18 @@ from .results import ValidationResult
 
 
 class KeyInfoResult(ValidationResult, total=False):
-    """Result shape for :class:`KeyInfoValidator` (envelope + data)."""
+    """Result shape for `KeyInfoValidator` (envelope + data)."""
 
     key_type: str
-    key_size: Optional[int]
+    key_size: int | None
     curve: str
 
 
 # Post-quantum algorithm names, sourced from the Rust registry
 # (rust_certinfo/src/pq_algorithms.rs) via certinfo.pq_algorithms() so
-# Python never carries its own copy of the table — a new algorithm added
+# Python never carries its own copy of the table, a new algorithm added
 # there is recognized here automatically.
-_PQ_ALGORITHM_NAMES: FrozenSet[str] = frozenset(
+_PQ_ALGORITHM_NAMES: frozenset[str] = frozenset(
     alg["name"]
     for alg in certinfo.pq_algorithms()  # type: ignore[attr-defined]
 )
@@ -37,14 +37,14 @@ class KeyInfoValidator(BaseCertValidator):
       (the parser reports the curve by short name; unrecognized curves
       come through as an OID dotted string and are treated as not strong).
     - **Post-quantum** (ML-DSA, SLH-DSA, and hybrid composite ML-DSA):
-      always strong — PQ strength is judged by algorithm identity, since
+      always strong, PQ strength is judged by algorithm identity, since
       the FIPS 204/205 parameter sets have no weak sizes or curves. The
       recognized set comes from the Rust registry exposed via
-      ``certinfo.pq_algorithms()``.
+      `certinfo.pq_algorithms()`.
 
-    Per the result envelope, ``is_valid`` is always a strict ``bool``. When
+    Per the result envelope, `is_valid` is always a strict `bool`. When
     strength cannot be determined (unrecognized algorithm, or a missing
-    size/curve) the key fails closed — ``is_valid: False`` with a ``reason``
+    size/curve) the key fails closed, `is_valid: False` with a `reason`
     that distinguishes "cannot determine" from "recognized but weak".
 
     Attributes:
@@ -53,7 +53,7 @@ class KeyInfoValidator(BaseCertValidator):
 
     name: str = "key_info"
 
-    def validate(self, cert: Dict[str, Any], host: str, port: int) -> KeyInfoResult:
+    def validate(self, cert: dict[str, Any], host: str, port: int) -> KeyInfoResult:
         """
         Validates the key information of the provided SSL certificate.
 
@@ -83,7 +83,7 @@ class KeyInfoValidator(BaseCertValidator):
 
             Example output (post-quantum key):
                 This example shows a certificate with an ML-DSA-65 (FIPS 204) key. Post-quantum
-                keys are valid by algorithm identity; ``key_size`` reports the subjectPublicKey
+                keys are valid by algorithm identity; `key_size` reports the subjectPublicKey
                 bit length and is informational only.
 
                 ```json
@@ -119,11 +119,11 @@ class KeyInfoValidator(BaseCertValidator):
         key_size = public_key_info.get("size")
         curve = public_key_info.get("curve")
 
-        # ``_is_key_strong_enough`` returns ``None`` when strength cannot be
+        # `_is_key_strong_enough` returns `None` when strength cannot be
         # determined (unknown algorithm, or required size/curve missing). The
-        # result envelope requires a strict bool, so map ``None`` to ``False``
-        # — "we could not verify this key is strong" fails closed — and carry
-        # the distinction in ``reason``.
+        # result envelope requires a strict bool, so map `None` to `False`
+        # so "we could not verify this key is strong" fails closed, and carry
+        # the distinction in `reason`.
         strength = self._is_key_strong_enough(key_type, key_size, curve)
         is_valid = bool(strength)
 
@@ -145,14 +145,14 @@ class KeyInfoValidator(BaseCertValidator):
     @staticmethod
     def _weak_key_reason(
         key_type: str,
-        key_size: Optional[int],
-        curve: Optional[str],
-        strength: Optional[bool],
+        key_size: int | None,
+        curve: str | None,
+        strength: bool | None,
     ) -> str:
         """Explain why a key did not validate as strong.
 
-        ``strength is None`` means the strength could not be determined;
-        ``strength is False`` means a recognized-but-weak key.
+        `strength is None` means the strength could not be determined;
+        `strength is False` means a recognized-but-weak key.
         """
         if strength is None:
             return f"Cannot determine key strength for algorithm {key_type!r}."
@@ -166,18 +166,18 @@ class KeyInfoValidator(BaseCertValidator):
         return f"Key algorithm {key_type!r} did not meet strength requirements."
 
     def _is_key_strong_enough(
-        self, key_type: str, key_size: Optional[int], curve: Optional[str]
-    ) -> Optional[bool]:
+        self, key_type: str, key_size: int | None, curve: str | None
+    ) -> bool | None:
         """
         Checks if the key is strong enough based on its type, size, and curve.
 
         Post-quantum algorithms (any name in the Rust registry exposed by
-        ``certinfo.pq_algorithms()``) are always strong; RSA requires a
+        `certinfo.pq_algorithms()`) are always strong; RSA requires a
         modulus of at least 2048 bits; EC requires a strong named curve.
 
         Args:
-            key_type (str): The key algorithm name (e.g. ``"rsaEncryption"``,
-                ``"ecPublicKey"``, ``"ml-dsa-65"``).
+            key_type (str): The key algorithm name (e.g. `"rsaEncryption"`,
+                `"ecPublicKey"`, `"ml-dsa-65"`).
             key_size (int): The size of the key. Ignored for PQ algorithms.
             curve (str): The curve of the key (EC only).
 

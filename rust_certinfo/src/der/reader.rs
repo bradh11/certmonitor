@@ -81,7 +81,7 @@ impl<'a> DerReader<'a> {
     }
 
     /// Like `expect`, but also returns a sub-reader scoped to the value
-    /// bytes — convenient for parsing the contents of a SEQUENCE/SET.
+    /// bytes, convenient for parsing the contents of a SEQUENCE/SET.
     pub fn expect_constructed(&mut self, expected: u8) -> Result<DerReader<'a>, ParseError> {
         let value = self.expect(expected)?;
         Ok(DerReader::new(value))
@@ -100,7 +100,7 @@ impl<'a> DerReader<'a> {
     /// Long form: first byte 0x80 | N where N is the number of length
     ///   bytes that follow; 0x80 alone is indefinite-length and forbidden
     ///   in DER. The length value itself must use the minimum number of
-    ///   bytes — both `read_length` and the call sites enforce this.
+    ///   bytes, both `read_length` and the call sites enforce this.
     fn read_length(&mut self) -> Result<usize, ParseError> {
         let first = self.read_byte()?;
         if first < 0x80 {
@@ -169,7 +169,7 @@ mod tests {
 
     #[test]
     fn long_form_with_value_under_128_rejected() {
-        // 0x81 0x42 says "1-byte length, value 0x42" — but 0x42 < 128 so
+        // 0x81 0x42 says "1-byte length, value 0x42", but 0x42 < 128 so
         // short form was required.
         let bytes = [0x04, 0x81, 0x42];
         let mut r = DerReader::new(&bytes);
@@ -178,7 +178,7 @@ mod tests {
 
     #[test]
     fn long_form_with_leading_zero_rejected() {
-        // 0x82 0x00 0x80 says "2-byte length, value 0x0080" — leading
+        // 0x82 0x00 0x80 says "2-byte length, value 0x0080", leading
         // zero is forbidden in DER long form.
         let bytes = [0x04, 0x82, 0x00, 0x80];
         let mut r = DerReader::new(&bytes);

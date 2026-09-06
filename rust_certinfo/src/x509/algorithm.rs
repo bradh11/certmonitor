@@ -8,7 +8,7 @@
 // We expose `parameters` as the raw TLV slice (tag + length + value) so the
 // caller can re-parse it for whatever type the algorithm uses. For EC keys
 // the parameters are an ECParameters CHOICE which in practice is always a
-// named-curve OID — `x509::spki` re-parses that OID itself.
+// named-curve OID, `x509::spki` re-parses that OID itself.
 
 use crate::der::{tag, DerReader, Oid, Tlv};
 use crate::error::ParseError;
@@ -40,7 +40,7 @@ impl<'a> AlgorithmIdentifier<'a> {
             None
         } else {
             let Tlv { raw, tag: t, .. } = inner.read_tlv()?;
-            // Treat explicit NULL the same as absent — callers don't care.
+            // Treat explicit NULL the same as absent, callers don't care.
             if t == tag::TAG_NULL {
                 None
             } else {

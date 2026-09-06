@@ -2,21 +2,22 @@
 
 """Base classes for certmonitor validators.
 
-Contributors writing a new validator should subclass :class:`BaseCertValidator`
-(for validators that inspect certificate data) or :class:`BaseCipherValidator`
-(for validators that inspect cipher suite data) and implement ``validate``.
+Contributors writing a new validator should subclass `BaseCertValidator`
+(for validators that inspect certificate data) or `BaseCipherValidator`
+(for validators that inspect cipher suite data) and implement `validate`.
 
-The first three positional parameters of ``validate`` are supplied by the
-dispatcher — the parsed cert or cipher data, the host, and the port. Any
+The first three positional parameters of `validate` are supplied by the
+dispatcher, the parsed cert or cipher data, the host, and the port. Any
 additional user-configurable arguments must be declared as **keyword-only**
 parameters, each with a **type annotation** and a **default value**. The
-class-level ``__init_subclass__`` hook enforces this at import time, caches the
+class-level `__init_subclass__` hook enforces this at import time, caches the
 discovered user parameters, and exposes them for dispatch and introspection.
 """
 
 import inspect
 from abc import ABC, abstractmethod
-from typing import Any, ClassVar, Dict, FrozenSet, Mapping, Tuple
+from typing import Any, ClassVar
+from collections.abc import Mapping
 
 
 class BaseValidator(ABC):
@@ -31,10 +32,10 @@ class BaseValidator(ABC):
     def validate(self, *args: Any, **kwargs: Any) -> Mapping[str, Any]:
         """Run the validator and return a result dict.
 
-        The result must conform to the standard envelope — see
-        :class:`certmonitor.validators.results.ValidationResult`. The
-        return type is ``Mapping`` (not ``Dict``) so overrides may
-        annotate a precise ``TypedDict``; at runtime every result is a
+        The result must conform to the standard envelope, see
+        `certmonitor.validators.results.ValidationResult`. The
+        return type is `Mapping` (not `Dict`) so overrides may
+        annotate a precise `TypedDict`; at runtime every result is a
         plain dict.
         """
 
@@ -42,40 +43,40 @@ class BaseValidator(ABC):
 class _ValidatorBase(BaseValidator):
     """Internal base that handles user-arg discovery for concrete validators.
 
-    Subclasses declare ``requires`` — an ordered tuple of the named data
-    sources the dispatcher must fetch and inject (e.g. ``("cert_data",)``
-    or ``("cipher_info", "tls_probe")``). The dispatcher supplies those
-    sources as the leading positional parameters of ``validate``, in
-    declaration order, followed by ``host`` and ``port``; the framework
-    arity is therefore ``len(requires) + 2`` and is derived automatically.
+    Subclasses declare `requires`, an ordered tuple of the named data
+    sources the dispatcher must fetch and inject (e.g. `("cert_data",)`
+    or `("cipher_info", "tls_probe")`). The dispatcher supplies those
+    sources as the leading positional parameters of `validate`, in
+    declaration order, followed by `host` and `port`; the framework
+    arity is therefore `len(requires) + 2` and is derived automatically.
     Everything keyword-only after those positional parameters is treated
     as a user-configurable argument and must be annotated and defaulted.
     """
 
     # Ordered data sources the dispatcher injects (see the class docstring).
-    requires: ClassVar[Tuple[str, ...]] = ()
+    requires: ClassVar[tuple[str, ...]] = ()
     _framework_arity: ClassVar[int] = 0
     _user_params: ClassVar[Mapping[str, inspect.Parameter]] = {}
-    _user_param_names: ClassVar[FrozenSet[str]] = frozenset()
+    _user_param_names: ClassVar[frozenset[str]] = frozenset()
 
     def __init_subclass__(cls, **kwargs: Any) -> None:
         super().__init_subclass__(**kwargs)
 
-        # Only inspect ``validate`` if this class actually defines one. The
-        # intermediate ``BaseCertValidator`` / ``BaseCipherValidator`` bases
+        # Only inspect `validate` if this class actually defines one. The
+        # intermediate `BaseCertValidator` / `BaseCipherValidator` bases
         # define stubs and run through here; concrete subclasses also do.
         if "validate" not in cls.__dict__:
             return
 
         sig = inspect.signature(cls.validate)
 
-        # Framework params are the leading positional parameters — one per
-        # declared data source, plus host and port — regardless of name.
-        # Derive the arity from ``requires`` so a validator only declares
+        # Framework params are the leading positional parameters, one per
+        # declared data source, plus host and port, regardless of name.
+        # Derive the arity from `requires` so a validator only declares
         # its sources, never a separate count.
         arity = len(cls.requires) + 2
         cls._framework_arity = arity
-        user_params: Dict[str, inspect.Parameter] = {}
+        user_params: dict[str, inspect.Parameter] = {}
         problems = []
         positional_seen = 0
 
@@ -108,7 +109,7 @@ class _ValidatorBase(BaseValidator):
                     "declare each argument explicitly"
                 )
                 continue
-            # Keyword-only parameter — a user arg.
+            # Keyword-only parameter, a user arg.
             if param.annotation is inspect.Parameter.empty:
                 problems.append(f"{param_name!r}: missing type annotation")
             if param.default is inspect.Parameter.empty:
@@ -133,12 +134,12 @@ class BaseCertValidator(_ValidatorBase):
     """Base class for validators that inspect parsed certificate data."""
 
     validator_type: str = "cert"
-    requires: ClassVar[Tuple[str, ...]] = ("cert_data",)
+    requires: ClassVar[tuple[str, ...]] = ("cert_data",)
 
     def validate(
-        self, cert_info: Dict[str, Any], host: str, port: int
+        self, cert_info: dict[str, Any], host: str, port: int
     ) -> Mapping[str, Any]:
-        # Default implementation — subclasses override.
+        # Default implementation, subclasses override.
         return None  # type: ignore[return-value]
 
 
@@ -146,10 +147,10 @@ class BaseCipherValidator(_ValidatorBase):
     """Base class for validators that inspect negotiated cipher suite data."""
 
     validator_type: str = "cipher"
-    requires: ClassVar[Tuple[str, ...]] = ("cipher_info",)
+    requires: ClassVar[tuple[str, ...]] = ("cipher_info",)
 
     def validate(
-        self, cipher_info: Dict[str, Any], host: str, port: int
+        self, cipher_info: dict[str, Any], host: str, port: int
     ) -> Mapping[str, Any]:
-        # Default implementation — subclasses override.
+        # Default implementation, subclasses override.
         return None  # type: ignore[return-value]

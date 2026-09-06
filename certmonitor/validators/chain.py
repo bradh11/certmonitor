@@ -1,23 +1,25 @@
 # validators/chain.py
 
 import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from .base import BaseCertValidator
 from .results import ValidationResult
 
 
 class ChainResult(ValidationResult, total=False):
-    """Result shape for :class:`ChainValidator` (envelope + data)."""
+    """Result shape for `ChainValidator` (envelope + data)."""
 
+    structural_valid: bool
+    trust_verified: bool
     chain_length: int
     chain_ordered: bool
     terminates_in_self_signed: bool
-    certs: List[Dict[str, Any]]
+    certs: list[dict[str, Any]]
 
 
 # Signature algorithm OIDs treated as weak by default. Override per-call via
-# the ``weak_signature_algorithms`` user arg.
+# the `weak_signature_algorithms` user arg.
 _DEFAULT_WEAK_SIG_OIDS: frozenset = frozenset(
     {
         "1.2.840.113549.1.1.5",  # sha1WithRSAEncryption
@@ -29,7 +31,7 @@ _DEFAULT_WEAK_SIG_OIDS: frozenset = frozenset(
 )
 
 
-def _format_dn(fields: Dict[str, Any]) -> str:
+def _format_dn(fields: dict[str, Any]) -> str:
     cn = fields.get("commonName")
     o = fields.get("organizationName")
     if cn and o:
@@ -49,9 +51,9 @@ class ChainValidator(BaseCertValidator):
     handshake (leaf through root) and checks for the problems operators
     actually hit in production: missing intermediates, out-of-order chains,
     expired members, weak signature algorithms, and non-CA intermediates.
-    It does **not** perform cryptographic signature verification — that is
-    intentionally left to Phase 2 to keep the Rust dependency footprint at
-    ``pyo3 + x509-parser``.
+    It does **not** perform cryptographic signature verification; that is
+    performed separately by the root_certificate trust check using Python's
+    standard-library `ssl` module.
 
     The validator ships **disabled by default**. Opt in via:
 
@@ -59,10 +61,10 @@ class ChainValidator(BaseCertValidator):
                     enabled_validators=["expiration", "hostname",
                                         "root_certificate", "chain"])
 
-    or by setting ``ENABLED_VALIDATORS`` in the environment.
+    or by setting `ENABLED_VALIDATORS` in the environment.
 
-    Chain retrieval requires Python 3.10 or newer. On 3.8/3.9 this validator
-    reports a clear error rather than silently degrading.
+    Chain retrieval uses available socket APIs, with private fallbacks on
+    older interpreters. If retrieval is unavailable, a structured error is returned.
 
     Attributes:
         name (str): The name of the validator.
@@ -72,49 +74,56 @@ class ChainValidator(BaseCertValidator):
 
     def validate(
         self,
-        cert: Dict[str, Any],
+        cert: dict[str, Any],
         host: str,
         port: int,
         *,
         min_chain_length: int = 2,
         require_root_in_chain: bool = False,
         allow_self_signed_leaf: bool = False,
-        weak_signature_algorithms: Optional[List[str]] = None,
+        weak_signature_algorithms: list[str] | None = None,
+        reject_weak_signatures: bool = True,
     ) -> ChainResult:
         """
         Validate the certificate chain fetched alongside the leaf cert.
 
         Args:
-            cert: The cert data dict built by ``CertMonitor._fetch_raw_cert``.
-                Expected to contain ``chain_analysis`` (populated by the Rust
-                ``certinfo.analyze_chain`` call) and/or ``chain_error``.
+            cert: The cert data dict built by `CertMonitor._fetch_raw_cert`.
+                Expected to contain `chain_analysis` (populated by the Rust
+                `certinfo.analyze_chain` call) and/or `chain_error`.
             host: The hostname (unused; accepted for dispatcher compatibility).
             port: The port (unused; accepted for dispatcher compatibility).
-            min_chain_length: Minimum acceptable chain length. Default ``2``
+            min_chain_length: Minimum acceptable chain length. Default `2`
                 rejects servers that only send the leaf.
-            require_root_in_chain: If ``True``, the chain must terminate in a
+            require_root_in_chain: If `True`, the chain must terminate in a
                 self-signed root. Most well-configured public TLS servers do
                 **not** include the root (browsers supply it from the trust
-                store), so this defaults to ``False`` and only emits a
+                store), so this defaults to `False` and only emits a
                 warning.
-            allow_self_signed_leaf: If ``True``, a self-signed leaf (chain
+            allow_self_signed_leaf: If `True`, a self-signed leaf (chain
                 length 1, subject == issuer) is accepted. Useful for internal
-                services; default ``False``.
+                services; default `False`.
             weak_signature_algorithms: Override the default set of weak
                 signature algorithm OIDs. Pass an empty list to disable the
-                weak-signature warning entirely.
+                weak-signature policy entirely.
+
+            reject_weak_signatures: Reject weak signatures by default. False
+                retains warnings while allowing structural policy to pass.
 
         Returns:
             dict: A structured report with per-cert details and a summary.
                 The shape is stable and documented in
-                ``docs/validators/chain.md``.
+                `docs/validators/chain.md`.
         """
-        warnings: List[str] = []
+        warnings: list[str] = []
 
         chain_error = cert.get("chain_error")
         if chain_error:
             return {
                 "is_valid": False,
+                "status": "error",
+                "structural_valid": False,
+                "trust_verified": False,
                 "reason": chain_error,
                 "chain_length": 0,
                 "chain_ordered": False,
@@ -127,11 +136,13 @@ class ChainValidator(BaseCertValidator):
         if analysis is None:
             reason = (
                 "Certificate chain was not fetched. This typically means the "
-                "Python interpreter is older than 3.10 or the SSL handler did "
-                "not populate the chain."
+                "SSL handler did not populate the chain."
             )
             return {
                 "is_valid": False,
+                "status": "error",
+                "structural_valid": False,
+                "trust_verified": False,
                 "reason": reason,
                 "chain_length": 0,
                 "chain_ordered": False,
@@ -143,6 +154,9 @@ class ChainValidator(BaseCertValidator):
         if isinstance(analysis, dict) and "error" in analysis:
             return {
                 "is_valid": False,
+                "status": "error",
+                "structural_valid": False,
+                "trust_verified": False,
                 "reason": analysis["error"],
                 "chain_length": 0,
                 "chain_ordered": False,
@@ -160,15 +174,17 @@ class ChainValidator(BaseCertValidator):
         chain_length: int = analysis["chain_length"]
         chain_ordered: bool = analysis["ordered"]
         terminates_in_self_signed: bool = analysis["terminates_in_self_signed"]
-        raw_certs: List[Dict[str, Any]] = list(analysis.get("certs", []))
+        raw_certs: list[dict[str, Any]] = list(analysis.get("certs", []))
 
         now = datetime.datetime.now(datetime.timezone.utc)
+        invalid_ca = False
+        weak_signature = False
         any_expired = False
         any_not_yet_valid = False
 
-        cert_reports: List[Dict[str, Any]] = []
+        cert_reports: list[dict[str, Any]] = []
         for idx, raw in enumerate(raw_certs):
-            cert_warnings: List[str] = []
+            cert_warnings: list[str] = []
 
             not_before_ts = raw["not_before_unix"]
             not_after_ts = raw["not_after_unix"]
@@ -180,7 +196,7 @@ class ChainValidator(BaseCertValidator):
             )
             days_to_expiry = (not_after - now).days
 
-            if now > not_after:
+            if now >= not_after:
                 any_expired = True
                 cert_warnings.append(
                     f"Certificate at position {idx} is expired "
@@ -195,6 +211,7 @@ class ChainValidator(BaseCertValidator):
 
             sig_oid = raw.get("signature_algorithm_oid", "")
             if sig_oid in weak_oids:
+                weak_signature = True
                 cert_warnings.append(
                     f"Certificate at position {idx} uses a weak signature "
                     f"algorithm ({sig_oid})."
@@ -204,7 +221,7 @@ class ChainValidator(BaseCertValidator):
             # Servers often send a cross-signed version of a root (e.g.
             # SSL.com's ECC root cross-signed by Comodo's AAA root) as the
             # last cert in the chain. The last cert in those chains is
-            # structurally an intermediate, not a root — its trust anchor
+            # structurally an intermediate, not a root, its trust anchor
             # (the signer) lives in the client's trust store.
             if idx == 0:
                 role = "leaf"
@@ -214,6 +231,7 @@ class ChainValidator(BaseCertValidator):
                 role = "intermediate"
 
             if role in ("intermediate", "root") and not raw.get("is_ca"):
+                invalid_ca = True
                 cert_warnings.append(
                     f"Certificate at position {idx} ({role}) is not marked "
                     "as a CA (BasicConstraints.cA is false)."
@@ -274,8 +292,8 @@ class ChainValidator(BaseCertValidator):
             chain_warning = (
                 "Chain does not terminate in a self-signed root certificate. "
                 "The last cert is either a cross-signed intermediate (legitimate "
-                "— the real root lives in the client's trust store) or the "
-                "server is not sending the root at all (also common — browsers "
+                "- the real root lives in the client's trust store) or the "
+                "server is not sending the root at all (also common, browsers "
                 "supply the root from their trust store)."
             )
             if require_root_in_chain:
@@ -286,12 +304,15 @@ class ChainValidator(BaseCertValidator):
                 warnings.append(chain_warning)
 
         # Pass-through per-cert warnings at the top level so a single
-        # ``warnings`` list gives operators everything.
+        # `warnings` list gives operators everything.
         for cert_report in cert_reports:
             warnings.extend(cert_report["warnings"])
 
         is_valid = (
             chain_length >= min_chain_length
+            and chain_length == len(raw_certs)
+            and not invalid_ca
+            and not (weak_signature and reject_weak_signatures)
             and chain_ordered
             and not any_expired
             and not any_not_yet_valid
@@ -300,7 +321,9 @@ class ChainValidator(BaseCertValidator):
         )
 
         result: ChainResult = {
-            "is_valid": is_valid,
+            "is_valid": bool(is_valid),
+            "structural_valid": bool(is_valid),
+            "trust_verified": False,
             "chain_length": chain_length,
             "chain_ordered": chain_ordered,
             "terminates_in_self_signed": terminates_in_self_signed,

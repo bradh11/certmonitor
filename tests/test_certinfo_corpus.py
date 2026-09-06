@@ -244,3 +244,27 @@ class TestCorpusValidityTimestamps:
                 p["name"],
                 subj,
             )
+
+
+def _corpus_id(path):
+    return path.stem
+
+
+@pytest.mark.parametrize("path", _corpus(), ids=_corpus_id)
+def test_parser_matches_openssl_identity_and_validity(path, tmp_path):
+    """Compare interpreted fields against CPython's OpenSSL decoder."""
+    import ssl
+
+    der = path.read_bytes()
+    pem = tmp_path / "certificate.pem"
+    pem.write_text(ssl.DER_cert_to_PEM_cert(der))
+    reference = ssl._ssl._test_decode_cert(str(pem))
+    parsed = certinfo.analyze_chain([der])["certs"][0]
+    assert int(parsed["serial_number"], 16) == int(reference["serialNumber"], 16)
+    assert parsed["not_before_unix"] == ssl.cert_time_to_seconds(reference["notBefore"])
+    assert parsed["not_after_unix"] == ssl.cert_time_to_seconds(reference["notAfter"])
+    for field in ("subject", "issuer"):
+        expected = dict(pair for rdn in reference[field] for pair in rdn)
+        for key, value in expected.items():
+            if key in parsed[field]:
+                assert parsed[field][key] == value, (field, key)

@@ -1,6 +1,5 @@
 # tests/test_protocol_handlers/test_ssl_handler.py
 
-import socket
 import ssl
 from unittest.mock import MagicMock, patch
 
@@ -32,96 +31,104 @@ class TestSSLHandler:
         assert ssl_handler.tls_version is None
         assert isinstance(ssl_handler.error_handler, ErrorHandler)
 
-    def test_get_supported_protocols(self, ssl_handler):
-        """Test get_supported_protocols returns available protocols."""
-        protocols = ssl_handler.get_supported_protocols()
+    def test_context_is_permissive_and_warning_free(self, ssl_handler):
+        """The collection context opens the version range without deprecated constants."""
+        import warnings
 
-        # Should return a list of supported protocols
-        assert isinstance(protocols, list)
-        # At least TLS_CLIENT should be supported in modern Python
-        assert ssl.PROTOCOL_TLS_CLIENT in protocols
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            context = ssl_handler._build_context()
+        assert context.check_hostname is False
+        assert context.verify_mode == ssl.CERT_NONE
+        assert context.minimum_version == ssl.TLSVersion.MINIMUM_SUPPORTED
+        assert context.maximum_version == ssl.TLSVersion.MAXIMUM_SUPPORTED
+        capped = ssl_handler._build_context(maximum_version=ssl.TLSVersion.TLSv1_2)
+        assert capped.maximum_version == ssl.TLSVersion.TLSv1_2
+
+    def test_collector_does_not_touch_global_warning_filters(self):
+        """Regression guard for #67: concurrent scans must not mutate warnings state."""
+        import inspect
+
+        import certmonitor.protocol_handlers.ssl_handler as module
+
+        assert "catch_warnings" not in inspect.getsource(module)
 
     @patch("socket.create_connection")
     @patch("ssl.SSLContext")
     def test_connect_success(
         self, mock_ssl_context, mock_create_connection, ssl_handler
     ):
-        """Test successful SSL connection."""
-        # Mock socket connection
+        """A successful handshake stores the sockets and negotiated version."""
         mock_socket = MagicMock()
         mock_create_connection.return_value = mock_socket
-
-        # Mock SSL context and secure socket
         mock_context = MagicMock()
         mock_ssl_context.return_value = mock_context
         mock_secure_socket = MagicMock()
         mock_context.wrap_socket.return_value = mock_secure_socket
         mock_secure_socket.version.return_value = "TLSv1.3"
 
-        # Mock get_supported_protocols to return a test protocol
-        with patch.object(
-            ssl_handler,
-            "get_supported_protocols",
-            return_value=[ssl.PROTOCOL_TLS_CLIENT],
-        ):
-            result = ssl_handler.connect()
-
-        # Should return None on success
-        assert result is None
+        assert ssl_handler.connect() is None
         assert ssl_handler.socket == mock_socket
         assert ssl_handler.secure_socket == mock_secure_socket
         assert ssl_handler.tls_version == "TLSv1.3"
+        mock_create_connection.assert_called_once_with(
+            ("test.example.com", 443), timeout=10.0
+        )
 
     @patch("socket.create_connection")
     def test_connect_socket_error(self, mock_create_connection, ssl_handler):
-        """Test connection failure due to socket error."""
-        mock_create_connection.side_effect = socket.error("Connection refused")
-
-        with patch.object(
-            ssl_handler,
-            "get_supported_protocols",
-            return_value=[ssl.PROTOCOL_TLS_CLIENT],
-        ):
-            result = ssl_handler.connect()
-
-        # Should return error dictionary
+        """Connection refused on every attempt yields the SSLError dict."""
+        mock_create_connection.side_effect = OSError("Connection refused")
+        result = ssl_handler.connect()
         assert isinstance(result, dict)
         assert result["error"] == "SSLError"
         assert "Failed to establish SSL connection" in result["message"]
+        assert mock_create_connection.call_count == 2  # full range, then TLS 1.2 cap
 
     @patch("socket.create_connection")
     @patch("ssl.SSLContext")
-    def test_connect_ssl_error_with_renegotiation_retry(
+    def test_connect_retries_with_legacy_server_connect(
         self, mock_ssl_context, mock_create_connection, ssl_handler
     ):
-        """Test SSL connection with renegotiation error and successful retry."""
-        # Mock socket connection
-        mock_socket = MagicMock()
-        mock_create_connection.return_value = mock_socket
-
-        # Mock SSL context
+        """A legacy-renegotiation refusal is retried once with the legacy option."""
+        mock_create_connection.return_value = MagicMock()
         mock_context = MagicMock()
         mock_ssl_context.return_value = mock_context
-
-        # First call raises renegotiation error, second succeeds
         mock_secure_socket = MagicMock()
         mock_secure_socket.version.return_value = "TLSv1.2"
         mock_context.wrap_socket.side_effect = [
             ssl.SSLError("UNSAFE_LEGACY_RENEGOTIATION_DISABLED"),
             mock_secure_socket,
         ]
-
         with patch.object(
-            ssl_handler,
-            "get_supported_protocols",
-            return_value=[ssl.PROTOCOL_TLS_CLIENT],
-        ):
-            result = ssl_handler.connect()
-
-        # Should succeed on retry
-        assert result is None
-        assert ssl_handler.secure_socket == mock_secure_socket
+            ssl_handler, "_build_context", wraps=ssl_handler._build_context
+        ) as build:
+            assert ssl_handler.connect() is None
         assert ssl_handler.tls_version == "TLSv1.2"
+        assert build.call_args_list[1].kwargs["legacy_server_connect"] is True
+
+    @patch("socket.create_connection")
+    @patch("ssl.SSLContext")
+    def test_connect_caps_at_tls12_when_full_range_fails(
+        self, mock_ssl_context, mock_create_connection, ssl_handler
+    ):
+        """A server that rejects the full-range hello is retried with a TLS 1.2 cap."""
+        mock_create_connection.return_value = MagicMock()
+        mock_context = MagicMock()
+        mock_ssl_context.return_value = mock_context
+        mock_secure_socket = MagicMock()
+        mock_secure_socket.version.return_value = "TLSv1.2"
+        mock_context.wrap_socket.side_effect = [
+            ssl.SSLError("wrong version number"),
+            mock_secure_socket,
+        ]
+        with patch.object(
+            ssl_handler, "_build_context", wraps=ssl_handler._build_context
+        ) as build:
+            assert ssl_handler.connect() is None
+        assert build.call_args_list[1].kwargs == {
+            "maximum_version": ssl.TLSVersion.TLSv1_2
+        }
 
     def test_fetch_raw_cert_no_connection(self, ssl_handler):
         """Test fetch_raw_cert when no secure socket is established."""
@@ -221,16 +228,22 @@ class TestSSLHandler:
             fake_cert_b,
         ]
 
-        with patch("ssl.DER_cert_to_PEM_cert", return_value="pem"), patch(
-            "ssl.PEM_cert_to_DER_cert", side_effect=[b"DER_A", b"DER_B"]
+        with (
+            patch("ssl.DER_cert_to_PEM_cert", return_value="pem"),
+            patch("ssl.PEM_cert_to_DER_cert", side_effect=[b"DER_A", b"DER_B"]),
         ):
             result = ssl_handler.fetch_raw_cert()
 
         assert result["chain_der"] == [b"DER_A", b"DER_B"]
         assert result["chain_error"] is None
 
-    def test_fetch_raw_cert_chain_unavailable_on_old_python(self, ssl_handler):
-        """3.8/3.9 path: neither public API nor _sslobj.get_unverified_chain."""
+    def test_fetch_raw_cert_chain_unavailable(self, ssl_handler):
+        """Defensive path: neither public API nor _sslobj.get_unverified_chain.
+
+        Every supported interpreter (3.10+) exposes at least one of these, so
+        this branch is not reachable in practice, but the handler degrades
+        gracefully to the leaf cert with an informative error if it ever is.
+        """
         mock_secure_socket = MagicMock(spec=["getpeercert"])
         ssl_handler.secure_socket = mock_secure_socket
 
@@ -244,7 +257,7 @@ class TestSSLHandler:
             result = ssl_handler.fetch_raw_cert()
 
         assert result["chain_der"] is None
-        assert "Python 3.10" in result["chain_error"]
+        assert "not available on this interpreter" in result["chain_error"]
 
     def test_fetch_raw_cert_chain_public_api_exception(self, ssl_handler):
         mock_secure_socket = MagicMock(spec=["getpeercert", "get_verified_chain"])
@@ -409,231 +422,39 @@ class TestSSLHandler:
         result = ssl_handler.get_protocol_version()
         assert result == "Unknown"
 
-    @patch("warnings.catch_warnings")
-    def test_get_supported_protocols_with_deprecation_warnings(
-        self, mock_warnings, ssl_handler
-    ):
-        """Test that get_supported_protocols properly handles deprecation warnings."""
-        with patch("ssl.SSLContext") as mock_ssl_context:
-            # Some protocols should create contexts successfully
-            mock_ssl_context.return_value = MagicMock()
-
-            protocols = ssl_handler.get_supported_protocols()
-
-            # Should have called warnings context manager
-            assert mock_warnings.called
-            assert isinstance(protocols, list)
-
-    def test_get_supported_protocols_with_attribute_error(self, ssl_handler):
-        """Test get_supported_protocols handles AttributeError for unsupported protocols."""
-        # Get the actual list length to provide enough side effects
-        actual_protocols = [
-            ssl.PROTOCOL_TLS_CLIENT,
-            ssl.PROTOCOL_TLSv1_2,
-            ssl.PROTOCOL_TLSv1_1,
-            ssl.PROTOCOL_TLSv1,
-            ssl.PROTOCOL_SSLv23,
-        ]
-
-        with patch("ssl.SSLContext") as mock_ssl_context:
-            # Create side effects that match the number of protocols
-            side_effects = []
-            for i, protocol in enumerate(actual_protocols):
-                if i == 1:  # Second protocol fails
-                    side_effects.append(AttributeError("Protocol not supported"))
-                else:
-                    side_effects.append(MagicMock())
-
-            mock_ssl_context.side_effect = side_effects
-
-            protocols = ssl_handler.get_supported_protocols()
-
-            # Should only include protocols that didn't raise AttributeError
-            assert (
-                len(protocols) == len(actual_protocols) - 1
-            )  # One less due to AttributeError
-
-    @patch("socket.create_connection")
-    @patch("ssl.SSLContext")
-    def test_connect_multiple_protocol_attempts(
-        self, mock_ssl_context, mock_create_connection, ssl_handler
-    ):
-        """Test connect trying multiple protocols when first ones fail."""
-        # Mock socket connection
-        mock_socket = MagicMock()
-        mock_create_connection.return_value = mock_socket
-
-        # Mock SSL context
-        mock_context = MagicMock()
-        mock_ssl_context.return_value = mock_context
-
-        # First protocol fails, second succeeds
-        mock_secure_socket = MagicMock()
-        mock_secure_socket.version.return_value = "TLSv1.2"
-        mock_context.wrap_socket.side_effect = [
-            ssl.SSLError("Protocol not supported"),
-            mock_secure_socket,
-        ]
-
-        # Mock multiple protocols available
-        test_protocols = [ssl.PROTOCOL_TLS_CLIENT, ssl.PROTOCOL_TLSv1_2]
-        with patch.object(
-            ssl_handler, "get_supported_protocols", return_value=test_protocols
-        ):
-            result = ssl_handler.connect()
-
-        # Should succeed with second protocol
-        assert result is None
-        assert ssl_handler.secure_socket == mock_secure_socket
-
-    def test_connect_all_protocols_fail(self, ssl_handler):
-        """Test connect when all protocols fail."""
-        with patch.object(
-            ssl_handler,
-            "get_supported_protocols",
-            return_value=[ssl.PROTOCOL_TLS_CLIENT],
-        ):
-            with patch(
-                "socket.create_connection", side_effect=Exception("Connection failed")
-            ):
-                result = ssl_handler.connect()
-
-        assert isinstance(result, dict)
-        assert result["error"] == "SSLError"
-        assert "Failed to establish SSL connection" in result["message"]
-
     @patch("socket.create_connection")
     @patch("ssl.SSLContext")
     def test_connect_socket_cleanup_on_failure(
         self, mock_ssl_context, mock_create_connection, ssl_handler
     ):
-        """Test that socket is properly cleaned up when SSL connection fails."""
-        # Mock socket connection
+        """Every failed attempt closes its socket."""
         mock_socket = MagicMock()
         mock_create_connection.return_value = mock_socket
-
-        # Mock SSL context that fails
         mock_context = MagicMock()
         mock_ssl_context.return_value = mock_context
         mock_context.wrap_socket.side_effect = Exception("SSL handshake failed")
 
-        with patch.object(
-            ssl_handler,
-            "get_supported_protocols",
-            return_value=[ssl.PROTOCOL_TLS_CLIENT],
-        ):
-            result = ssl_handler.connect()
-
-        # Should have attempted to close the socket
-        mock_socket.close.assert_called()
+        result = ssl_handler.connect()
+        assert mock_socket.close.call_count == 2
+        assert ssl_handler.socket is None
         assert isinstance(result, dict)
         assert result["error"] == "SSLError"
 
-    def test_ssl_handler_unsafe_legacy_renegotiation_error(self):
-        """Test SSL handler handles unsafe legacy renegotiation error."""
-        from unittest.mock import MagicMock
-
-        # Create a mock error handler
-        mock_error_handler = MagicMock()
-        mock_error_handler.handle_error.return_value = {"error": "SSL Error"}
-
-        handler = SSLHandler("example.com", 443, mock_error_handler)
-
-        # Mock socket and SSL context to simulate unsafe legacy renegotiation
-        with patch("socket.socket") as mock_socket_class:
-            mock_socket = MagicMock()
-            mock_socket_class.return_value = mock_socket
-
-            # Create an SSL error that contains the unsafe legacy renegotiation message
-            ssl_error = ssl.SSLError("unsafe legacy renegotiation disabled")
-            mock_socket.connect.side_effect = ssl_error
-
-            with patch("ssl.create_default_context") as mock_context:
-                mock_ssl_context = MagicMock()
-                mock_context.return_value = mock_ssl_context
-
-                result = handler.connect()
-
-                # Verify error handler was called
-                mock_error_handler.handle_error.assert_called()
-                assert result == {"error": "SSL Error"}
-
-    def test_ssl_handler_unsafe_legacy_renegotiation_retry_error(self):
-        """Test SSL handler when retry with unsafe legacy renegotiation also fails."""
-        handler = SSLHandler("example.com", 443, ErrorHandler())
-
-        mock_socket = MagicMock()
+    @patch("socket.create_connection")
+    @patch("ssl.SSLContext")
+    def test_legacy_retry_failure_falls_through(
+        self, mock_ssl_context, mock_create_connection, ssl_handler
+    ):
+        """If the legacy retry also fails, the TLS 1.2 attempt still runs, then the error dict."""
+        mock_create_connection.return_value = MagicMock()
         mock_context = MagicMock()
-
-        # First attempt raises unsafe legacy renegotiation error
-        # Second attempt (retry) also raises an error
+        mock_ssl_context.return_value = mock_context
         mock_context.wrap_socket.side_effect = [
             ssl.SSLError("unsafe legacy renegotiation disabled"),
-            Exception("Retry failed"),  # Different error on retry
+            ssl.SSLError("still refused"),
+            ssl.SSLError("wrong version number"),
         ]
-
-        with patch(
-            "certmonitor.protocol_handlers.ssl_handler.socket.create_connection",
-            return_value=mock_socket,
-        ):
-            with patch(
-                "certmonitor.protocol_handlers.ssl_handler.ssl.create_default_context",
-                return_value=mock_context,
-            ):
-                with patch.object(
-                    handler,
-                    "get_supported_protocols",
-                    return_value=["TLSv1_2", "TLSv1_3"],
-                ):
-                    result = handler.connect()
-
-                    # Should get an SSL error since all protocols failed
-                    assert isinstance(result, dict)
-                    assert result["error"] == "SSLError"
-                    assert (
-                        "Failed to establish SSL connection with any protocol"
-                        in result["message"]
-                    )
-
-    def test_ssl_handler_unsafe_legacy_renegotiation_retry_exception(self):
-        """Test SSL handler handles exceptions during unsafe legacy renegotiation retry."""
-
-        # Create error handler mock that returns a dict
-        mock_error_handler = MagicMock()
-        mock_error_handler.handle_error.return_value = {
-            "error": "SSLError",
-            "message": "Failed to establish SSL connection with any protocol",
-            "host": "test.example.com",
-            "port": 443,
-        }
-
-        handler = SSLHandler("test.example.com", 443, error_handler=mock_error_handler)
-
-        # Mock socket creation
-        mock_socket = MagicMock()
-
-        # Create a side effect that raises UNSAFE_LEGACY_RENEGOTIATION_DISABLED first,
-        # then an exception during the retry attempt
-        def mock_wrap_socket(*args, **kwargs):
-            if not hasattr(mock_wrap_socket, "called"):
-                mock_wrap_socket.called = True
-                # First call raises the unsafe legacy error
-                raise ssl.SSLError("UNSAFE_LEGACY_RENEGOTIATION_DISABLED")
-            else:
-                # Second call (retry) raises a different exception
-                raise ssl.SSLError("Some other SSL error during retry")
-
-        with patch("socket.socket", return_value=mock_socket), patch(
-            "ssl.SSLContext"
-        ) as mock_context_class, patch.object(
-            handler, "get_supported_protocols", return_value=["TLSv1_2"]
-        ):
-            mock_context = MagicMock()
-            mock_context_class.return_value = mock_context
-            mock_context.wrap_socket.side_effect = mock_wrap_socket
-
-            # This should trigger lines 72-80 - the exception handling during retry
-            result = handler.connect()
-
-            # Basic verification - the test succeeded if we got a result
-            assert result is not None
+        result = ssl_handler.connect()
+        assert isinstance(result, dict)
+        assert result["error"] == "SSLError"
+        assert mock_context.wrap_socket.call_count == 3

@@ -25,7 +25,7 @@ pub const MAX_RECORD_PAYLOAD: usize = 16384;
 pub const RECORD_HEADER_LEN: usize = 5;
 
 /// `legacy_record_version` value real clients send for the initial
-/// ClientHello (TLS 1.0, for middlebox compatibility — RFC 8446 §5.1).
+/// ClientHello (TLS 1.0, for middlebox compatibility, RFC 8446 §5.1).
 pub const LEGACY_RECORD_VERSION: u16 = 0x0301;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -123,7 +123,7 @@ mod tests {
 
     #[test]
     fn oversized_record_rejected() {
-        // Header claims 0x4001 = 16385 bytes — one past the cap.
+        // Header claims 0x4001 = 16385 bytes, one past the cap.
         let bytes = [CONTENT_TYPE_HANDSHAKE, 0x03, 0x01, 0x40, 0x01];
         assert_eq!(
             parse_record_header(&bytes),

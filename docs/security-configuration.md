@@ -1,70 +1,41 @@
 # Security Configuration for CertMonitor
 
-## Overview
+CertMonitor needs to inspect the certificates that normal clients reject: expired certificates, untrusted issuers, and legacy endpoints. That means collection and verification have different jobs. Understanding the boundary helps you interpret the results correctly.
 
-CertMonitor is a **security assessment tool** designed to analyze and monitor SSL/TLS certificates, including legacy and weak configurations. This creates legitimate security exceptions that need to be documented.
+## Why collection is permissive
 
-## Intentional Security Exceptions
+The SSL/TLS handler disables certificate verification for the collection connection. Otherwise, an expired certificate could prevent you from collecting the very evidence you need for an alert. The collection context offers every protocol version the local Python build supports, so legacy TLS 1.0 and 1.1 servers can still be inspected where the build allows them.
 
-### 1. Weak SSL/TLS Protocols
-**Files**: `certmonitor/protocol_handlers/ssl_handler.py`
+Which old versions can actually connect depends on the local Python build and its TLS library configuration. CertMonitor cannot promise support for every obsolete protocol or certificate encoding.
 
-**Why**: The tool needs to detect and analyze legacy TLS configurations in production systems. This includes:
-- TLS 1.0 and 1.1 (deprecated but still in use)
-- SSL 2.3 (legacy systems)
-- Weak cipher suites
+!!! warning "Collected does not mean trusted"
+    A successful `get_cert_info()` call means you retrieved certificate data. Read `hostname`, `expiration`, and `root_certificate` before deciding whether the endpoint meets those checks. The collection socket is not a verified connection for your application traffic.
 
-**Mitigation**: These protocols are only used for **assessment**, not for production connections.
+## Where verification happens
 
-### 2. Subprocess Shell Usage
-**Files**: `scripts/generate_report.py`
+| Check | Evidence and boundary |
+|---|---|
+| `hostname` | Matches the expected DNS/IP identity against SANs. CN is informational. |
+| `root_certificate` | Uses a separate verified handshake through Python's standard-library `ssl` module against the system or configured CA store, requiring the same leaf as the collected snapshot. |
+| `chain` | Inspects the presented chain's structure and configured policy; does not verify signatures. |
+| `pq_key_exchange` | Observes a group in a separate, unauthenticated probe; does not complete a TLS session. |
 
-**Why**: Internal development script that runs controlled commands for report generation.
+Revocation is not checked. CA issuer, OCSP, and CRL URLs in a certificate are reported as metadata rather than fetched. Configure private trust with `cafile` or `capath`; see [RootCertificate](validators/root_certificate.md).
 
-**Mitigation**: 
-- No user input processed
-- Commands are hardcoded and controlled
-- Only used in development environment
+## Keep the scanning policy explicit
 
-### 3. Certificate Validation Bypassing
-**Files**: `certmonitor/validators/`
+Choose validators and their arguments for the environment you're monitoring. A PQ readiness failure and an expired certificate represent different findings. Keep `status`, `reason`, and `snapshot_at` in stored results so operational failures and stale observations remain visible.
 
-**Why**: Tool needs to analyze invalid/expired certificates for security assessment.
+Protocol detection, collection retries, trust verification, and the optional PQ probe can create additional connections. Set a suitable timeout and concurrency limit for your endpoints. See [Performance Tips](usage/performance.md) for a bounded scan example.
 
-**Mitigation**: Used only for analysis, never for establishing secure connections.
+## Review security-tool exceptions
 
-## Security Scanning Configuration
+The repository configures Bandit in `.bandit` for intentional assessment behavior and uses `cargo audit` for Rust dependency advisories. The development report script also runs fixed shell commands. These exceptions need focused review when their code changes; they are not blanket permission to disable checks elsewhere.
 
-### Primary Security Tools
-1. **Bandit**: Python-specific security linter with configured exceptions for legitimate security tool patterns
-2. **Cargo Audit**: Rust dependency vulnerability scanning
+```sh
+make security
+```
 
-### Tool-Specific Configuration
+This runs both configured scanners. Review the findings alongside tests and code changes. The native parser uses Rust safety restrictions, corpus comparisons, and fuzzing, but those measures do not establish universal compatibility or prove the absence of bugs.
 
-#### Bandit Configuration (`.bandit`)
-- Skips SSL/TLS checks that are intentional for this security tool
-- Excludes test files that need to use insecure configurations
-- Allows subprocess usage in controlled internal scripts
-- Excludes test files and controlled security assessment code
-- Configured exceptions for legitimate certificate monitoring patterns
-
-### Manual Review Required
-Security findings should be manually reviewed to ensure they are legitimate exceptions for this security tool's purpose.
-
-## Best Practices
-
-1. **Never use weak TLS in production** - Only for assessment
-2. **Isolate assessment code** - Keep detection logic separate from connection logic
-3. **Document exceptions** - All security exceptions must be documented
-4. **Regular review** - Security configuration should be reviewed regularly
-
-## Certificate Standards Compliance
-
-This tool must maintain compatibility with:
-- All certificate types and formats
-- All certificate encodings
-- All certificate authorities
-- All certificate security standards
-- All crypto standards and best practices
-
-The security exceptions are necessary to fulfill these comprehensive compatibility requirements.
+For contribution checks and the manual fuzzing workflow, see [Development](development.md) and the repository's [fuzzing guide](https://github.com/bradh11/certmonitor/blob/main/fuzz/README.md).

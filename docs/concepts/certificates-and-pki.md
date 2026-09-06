@@ -10,14 +10,14 @@ The fields CertMonitor surfaces from a certificate:
 
 | Field | What it is | Validator |
 |---|---|---|
-| **Subject** | Who the cert is for (the hostname/org) | [Hostname](../validators/hostname.md) |
-| **Subject Alternative Names** | All hostnames/IPs the cert is valid for | [SubjectAltNames](../validators/subject_alt_names.md) |
-| **Issuer** | The CA that signed it | [RootCertificate](../validators/root_certificate.md) |
+| **Subject** | Descriptive identity fields, including an informational Common Name | [Hostname](../validators/hostname.md) reports CN separately |
+| **Subject Alternative Names** | DNS/IP identities asserted by the certificate | [Hostname](../validators/hostname.md) for the primary name; [SubjectAltNames](../validators/subject_alt_names.md) for alternates |
+| **Issuer** | The claimed signer; the name alone is not proof of trust | [RootCertificate](../validators/root_certificate.md) verifies trust |
 | **Validity period** | `notBefore` / `notAfter` dates | [Expiration](../validators/expiration.md) |
 | **Public key** | The key being vouched for (RSA, EC, or PQ) | [KeyInfo](../validators/key_info.md) |
-| **Signature** | The CA's cryptographic signature over all of the above | [Chain](../validators/chain.md), [PqSignature](../validators/pq_signature.md) |
+| **Signature** | The CA's cryptographic signature over all of the above | [RootCertificate](../validators/root_certificate.md) verifies trust; [PqSignature](../validators/pq_signature.md) classifies algorithms |
 
-Crucially, the certificate carries only the **public** key. The matching **private** key never leaves the server, and `CertificateVerify` in the handshake is the server proving it holds that private key.
+Crucially, the certificate carries only the **public** key. The matching **private** key must stay secret. In a certificate-authenticated TLS 1.3 handshake, `CertificateVerify` proves the server holds it.
 
 ## The chain of trust
 
@@ -33,11 +33,11 @@ flowchart TD
     L -.->|presented during handshake| B["Client validates:<br/>each cert signed by the next,<br/>names link up, none expired"]
 ```
 
-- The **root CA** is self-signed and ships pre-installed in your operating system or browser **trust store**. You trust it implicitly.
-- The root signs one or more **intermediate CAs** (kept offline for safety; the intermediates do the day-to-day issuing).
+- A **root CA** becomes trusted because your client or administrator includes it in a **trust store**. A self-signature by itself does not make a certificate trustworthy.
+- The root signs one or more **intermediate CAs**. Root private keys are commonly kept offline; intermediates handle day-to-day issuance.
 - An intermediate signs the **leaf**, the certificate your server presents.
 
-To trust the leaf, the client verifies an unbroken chain: each certificate is validly signed by the next one up, the names link correctly (each issuer matches the parent's subject), and nothing in the chain is expired or revoked. CertMonitor's [Chain](../validators/chain.md) validator inspects exactly this structure.
+To trust the leaf, a client builds and verifies a path to a configured trust anchor, checking signatures, validity periods, and certificate constraints. Hostname matching and revocation policy are additional parts of validating a connection. CertMonitor's [RootCertificate](../validators/root_certificate.md) checks trust using OpenSSL, [Hostname](../validators/hostname.md) checks identity, and [Chain](../validators/chain.md) inspects the presented structure. CertMonitor does not check revocation.
 
 !!! tip "Servers usually don't send the root"
     A well-configured server sends the leaf **and** intermediates, but not the root. The client already has the root in its trust store, so a chain that "doesn't include the root" is normal, not broken. CertMonitor's chain validator accounts for this.
@@ -59,7 +59,7 @@ The operator generates a key pair, sends the public half plus the desired hostna
 
 ## Trust is a moving target
 
-PKI assumes the signature algorithms protecting these certificates are unbreakable. That assumption is what a quantum computer threatens, which is why the migration to post-quantum certificate keys and signatures is now underway. See [Post-Quantum Cryptography](post-quantum.md).
+PKI depends on signature algorithms remaining hard to forge. That assumption is what a quantum computer threatens, which is why the migration to post-quantum certificate keys and signatures is now underway. See [Post-Quantum Cryptography](post-quantum.md).
 
 ## Next steps
 

@@ -208,7 +208,6 @@ class TestUserArgEnforcement:
 
     def test_validator_with_well_formed_user_arg_is_allowed(self):
         """A keyword-only, annotated, defaulted user arg is accepted."""
-        from typing import Optional, List
 
         class WellFormedValidator(BaseCertValidator):
             @property
@@ -221,7 +220,7 @@ class TestUserArgEnforcement:
                 host,
                 port,
                 *,
-                names: Optional[List[str]] = None,
+                names: list[str] | None = None,
             ):
                 return {"is_valid": True, "names": names}
 
@@ -255,7 +254,6 @@ class TestUserArgEnforcement:
 
     def test_validator_with_no_default_user_arg_is_rejected(self):
         """A keyword-only annotated user arg without a default fails."""
-        from typing import List
 
         with pytest.raises(TypeError, match="missing default value"):
 
@@ -264,7 +262,7 @@ class TestUserArgEnforcement:
                 def name(self):
                     return "bad_no_default"
 
-                def validate(self, cert_info, host, port, *, names: List[str]):
+                def validate(self, cert_info, host, port, *, names: list[str]):
                     return {"is_valid": True}
 
     def test_validator_with_var_positional_is_rejected(self):

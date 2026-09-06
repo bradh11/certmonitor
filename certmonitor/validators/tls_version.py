@@ -1,19 +1,19 @@
 # validators/tls_version.py
 
-from typing import Any, Dict, FrozenSet, List, Optional
+from typing import Any
 
 from .base import BaseCipherValidator
 from .results import ValidationResult
 
 # Default acceptable TLS versions. TLS 1.1 and older are deprecated.
-# Override per call with the ``allowed_tls_versions`` user arg.
-_DEFAULT_ALLOWED_TLS_VERSIONS: FrozenSet[str] = frozenset({"TLSv1.2", "TLSv1.3"})
+# Override per call with the `allowed_tls_versions` user arg.
+_DEFAULT_ALLOWED_TLS_VERSIONS: frozenset[str] = frozenset({"TLSv1.2", "TLSv1.3"})
 
 
 class TLSVersionResult(ValidationResult, total=False):
-    """Result shape for :class:`TLSVersionValidator` (envelope + data)."""
+    """Result shape for `TLSVersionValidator` (envelope + data)."""
 
-    protocol_version: Optional[str]
+    protocol_version: str | None
 
 
 class TLSVersionValidator(BaseCipherValidator):
@@ -21,18 +21,18 @@ class TLSVersionValidator(BaseCipherValidator):
     Checks if the negotiated TLS version is in the allowed list.
 
     The default allowed set is TLS 1.2 and TLS 1.3. Override it per call
-    with the ``allowed_tls_versions`` argument.
+    with the `allowed_tls_versions` argument.
     """
 
     name: str = "tls_version"
 
     def validate(
         self,
-        cipher_info: Dict[str, Any],
+        cipher_info: dict[str, Any],
         host: str,
         port: int,
         *,
-        allowed_tls_versions: Optional[List[str]] = None,
+        allowed_tls_versions: list[str] | None = None,
     ) -> TLSVersionResult:
         """
         Validates the TLS protocol version used by the connection.
@@ -42,12 +42,12 @@ class TLSVersionValidator(BaseCipherValidator):
             host (str): The hostname.
             port (int): The port number.
             allowed_tls_versions (list, optional): Override the default
-                acceptable TLS versions. When ``None`` (the default),
-                ``{"TLSv1.2", "TLSv1.3"}`` is used.
+                acceptable TLS versions. When `None` (the default),
+                `{"TLSv1.2", "TLSv1.3"}` is used.
 
         Returns:
             dict: A dictionary containing the validation result and the
-                  negotiated protocol version. A ``reason`` is added when
+                  negotiated protocol version. A `reason` is added when
                   the version is not allowed.
 
         Examples:
@@ -72,7 +72,7 @@ class TLSVersionValidator(BaseCipherValidator):
                 }
                 ```
         """
-        allowed: FrozenSet[str] = (
+        allowed: frozenset[str] = (
             frozenset(allowed_tls_versions)
             if allowed_tls_versions is not None
             else _DEFAULT_ALLOWED_TLS_VERSIONS

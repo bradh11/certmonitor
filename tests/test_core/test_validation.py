@@ -81,13 +81,18 @@ class TestCertValidators:
         mock_validator.name = "hostname"
         mock_validator.validator_type = "cert"
 
-        with patch.object(monitor, "validators", {"hostname": mock_validator}):
+        with (
+            patch.object(monitor, "validators", {"hostname": mock_validator}),
+            patch.object(
+                monitor, "get_cert_info", return_value={"error": "CertificateError"}
+            ),
+        ):
             # No cert_data attribute
             result = monitor.validate()
 
             assert "hostname" in result
             assert result["hostname"]["is_valid"] is False
-            assert "Certificate data is missing" in result["hostname"]["reason"]
+            assert "CertificateError" in result["hostname"]["reason"]
 
     def test_validate_cert_validators_cert_data_error(self):
         """Test validate() handles cert data with errors."""
@@ -414,7 +419,7 @@ class TestRequiresModel:
                     monitor, "_fetch_source", wraps=monitor._fetch_source
                 ) as fetch:
                     # Route tls_probe through the cache without a real socket.
-                    def fake_fetch(name):
+                    def fake_fetch(name, resolve=None):
                         if name == "tls_probe":
                             return probe
                         return monitor.get_cipher_info()

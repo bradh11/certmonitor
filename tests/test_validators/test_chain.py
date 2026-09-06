@@ -1,7 +1,7 @@
 # tests/test_validators/test_chain.py
 
 import datetime
-from typing import Any, Dict
+from typing import Any
 
 import pytest
 
@@ -14,7 +14,7 @@ def validator():
     return ChainValidator()
 
 
-def _wrap(analysis: Dict[str, Any], chain_error=None) -> Dict[str, Any]:
+def _wrap(analysis: dict[str, Any], chain_error=None) -> dict[str, Any]:
     return {
         "cert_info": {},
         "chain_analysis": analysis,
@@ -42,6 +42,7 @@ class TestRegistrationAndIntrospection:
                 "require_root_in_chain",
                 "allow_self_signed_leaf",
                 "weak_signature_algorithms",
+                "reject_weak_signatures",
             }
         )
 
@@ -229,7 +230,7 @@ class TestExpiration:
 
 
 class TestSignatureAlgorithm:
-    def test_sha1_warns_but_valid(
+    def test_sha1_rejected_by_default(
         self, validator, synthetic_cert, build_chain_analysis
     ):
         now = int(datetime.datetime.now(datetime.timezone.utc).timestamp())
@@ -252,7 +253,7 @@ class TestSignatureAlgorithm:
         )
         analysis = build_chain_analysis([leaf, ca])
         result = validator.validate(_wrap(analysis), "host", 443)
-        assert result["is_valid"] is True
+        assert result["is_valid"] is False
         assert any("weak signature algorithm" in w for w in result["warnings"])
 
     def test_override_weak_set_to_flag_sha256(
@@ -283,7 +284,7 @@ class TestSignatureAlgorithm:
             443,
             weak_signature_algorithms=["1.2.840.113549.1.1.11"],
         )
-        assert result["is_valid"] is True
+        assert result["is_valid"] is False
         assert any("weak signature algorithm" in w for w in result["warnings"])
 
     def test_empty_weak_set_disables_check(

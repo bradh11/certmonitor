@@ -1,6 +1,6 @@
 # validators/pq_signature.py
 
-from typing import Any, ClassVar, Dict, FrozenSet, Optional
+from typing import Any, ClassVar
 
 from certmonitor import certinfo
 
@@ -12,20 +12,20 @@ from .results import ValidationResult
 # copy of the table. Keys (SPKI) are matched by name; certificate
 # signature algorithms are matched by dotted OID. Composite entries are
 # tracked separately so the validator can report hybrid composites.
-_PQ_KEY_NAMES: FrozenSet[str] = frozenset(
+_PQ_KEY_NAMES: frozenset[str] = frozenset(
     alg["name"]
     for alg in certinfo.pq_algorithms()  # type: ignore[attr-defined]
 )
-_PQ_SIG_OIDS: FrozenSet[str] = frozenset(
+_PQ_SIG_OIDS: frozenset[str] = frozenset(
     alg["dotted"]
     for alg in certinfo.pq_algorithms()  # type: ignore[attr-defined]
 )
-_COMPOSITE_KEY_NAMES: FrozenSet[str] = frozenset(
+_COMPOSITE_KEY_NAMES: frozenset[str] = frozenset(
     alg["name"]
     for alg in certinfo.pq_algorithms()  # type: ignore[attr-defined]
     if alg["composite"]
 )
-_COMPOSITE_SIG_OIDS: FrozenSet[str] = frozenset(
+_COMPOSITE_SIG_OIDS: frozenset[str] = frozenset(
     alg["dotted"]
     for alg in certinfo.pq_algorithms()  # type: ignore[attr-defined]
     if alg["composite"]
@@ -33,7 +33,7 @@ _COMPOSITE_SIG_OIDS: FrozenSet[str] = frozenset(
 
 
 class PqSignatureResult(ValidationResult, total=False):
-    """Result shape for :class:`PqSignatureValidator` (envelope + data)."""
+    """Result shape for `PqSignatureValidator` (envelope + data)."""
 
     key_algorithm: str
     key_is_pq: bool
@@ -49,22 +49,23 @@ class PqSignatureValidator(BaseCertValidator):
     Judges the certificate the server presented for itself: whether its
     public key algorithm and its signature algorithm are post-quantum
     (standalone ML-DSA/SLH-DSA or a hybrid composite). The key and the
-    signature are reported separately because they migrate separately —
+    signature are reported separately because they migrate separately -
     the key is the operator's choice, while the signature is applied by
     the issuing CA.
 
-    By default ``is_valid`` is ``True`` when the **leaf key is
-    post-quantum** — the part the operator controls — matching the
-    ``pq_chain`` default so a PQ-keyed, classically-signed certificate
-    (the realistic migration shape) gets one consistent verdict. Pass
-    ``require_pq_signature=True`` to additionally demand a post-quantum
+    By default `is_valid` is `True` when the **leaf key is
+    post-quantum**, the part the operator controls, matching the
+    `pq_chain` default so a PQ-keyed, classically-signed certificate
+    (one possible migration shape) gets one consistent verdict. Pass
+    `require_pq_signature=True` to additionally demand a post-quantum
     signature from the CA.
 
-    Works on every supported interpreter: the leaf data comes from the
-    chain analysis when available, with a leaf-only fallback otherwise.
+    The leaf data comes from chain analysis when available, with a leaf-only
+    fallback otherwise. Collection or parsing failures produce a failed result.
+    Algorithm recognition does not verify cryptographic signatures.
 
-    Opt-in: registered in ``VALIDATORS`` but not in
-    ``DEFAULT_VALIDATORS``.
+    Opt-in: registered in `VALIDATORS` but not in
+    `DEFAULT_VALIDATORS`.
 
     Attributes:
         name (str): The name of the validator.
@@ -75,7 +76,7 @@ class PqSignatureValidator(BaseCertValidator):
 
     def validate(
         self,
-        cert: Dict[str, Any],
+        cert: dict[str, Any],
         host: str,
         port: int,
         *,
@@ -84,25 +85,25 @@ class PqSignatureValidator(BaseCertValidator):
         """Judge the leaf certificate's post-quantum posture.
 
         Args:
-            cert: The cert data dict built by ``CertMonitor``; the leaf is
-                read from ``chain_analysis`` or the ``leaf_analysis``
+            cert: The cert data dict built by `CertMonitor`; the leaf is
+                read from `chain_analysis` or the `leaf_analysis`
                 fallback.
             host: The hostname (unused; dispatcher compatibility).
             port: The port (unused; dispatcher compatibility).
-            require_pq_signature: When ``True``, ``is_valid`` additionally
+            require_pq_signature: When `True`, `is_valid` additionally
                 requires the CA's signature algorithm to be post-quantum.
-                Default ``False``: the leaf key decides.
+                Default `False`: the leaf key decides.
 
         Returns:
-            dict: ``{key_algorithm, key_is_pq, signature_algorithm_oid,
-            signature_is_pq, is_hybrid_composite, is_pq, is_valid}`` —
-            per-cert field names match ``pq_chain``. ``is_pq`` is true
+            dict: `{key_algorithm, key_is_pq, signature_algorithm_oid,
+            signature_is_pq, is_hybrid_composite, is_pq, is_valid}` -
+            per-cert field names match `pq_chain`. `is_pq` is true
             when either the key or the signature is post-quantum;
-            ``is_hybrid_composite`` is true when either uses a composite
+            `is_hybrid_composite` is true when either uses a composite
             (PQ + classical) algorithm.
 
         Examples:
-            Example output (post-quantum leaf, classically signed — the
+            Example output (post-quantum leaf, classically signed, the
             realistic migration shape):
                 ```json
                 {
@@ -172,7 +173,7 @@ class PqSignatureValidator(BaseCertValidator):
         return result
 
     @staticmethod
-    def _leaf(cert: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    def _leaf(cert: dict[str, Any]) -> dict[str, Any] | None:
         """The leaf cert dict from chain_analysis, else leaf_analysis."""
         for source in ("chain_analysis", "leaf_analysis"):
             analysis = cert.get(source)

@@ -1,99 +1,72 @@
 # Performance Tips
 
-CertMonitor is built to stay out of your way when you're checking a lot of hosts. The good news up front: the dominant cost of a check is network I/O, not parsing. The actual certificate parsing happens in Rust, and CertMonitor releases the GIL while that work runs, so it plays nicely with async code and threads. That means the biggest wins come from overlapping the network waits, not from optimizing the parsing.
+CertMonitor is built to stay out of your way when you're checking a lot of hosts. A check often spends much of its time waiting on DNS, TCP, and TLS. The biggest win is usually letting a few independent checks overlap.
 
-A couple of habits go a long way:
+Start with a small concurrency limit, measure your own endpoints, and increase it if your network and servers can handle the load. Each worker needs its own monitor: a `CertMonitor` keeps mutable connection and snapshot state and should not be shared between concurrent tasks.
 
-- Use the context manager so connections are opened and closed promptly.
-- For batch testing, lean on Python's `asyncio` and `asyncio.to_thread` to run checks in parallel (see `test.py` for an example).
+## Scan a batch
 
-## Asynchronous Usage for Performance
+For a synchronous script, `scan_hosts()` handles the workers and connection cleanup for you:
 
-So why does async help so much here? Because each check spends most of its time waiting on the network. While one host is mid-handshake, your program could be talking to another. CertMonitor's context manager is thread-safe, and it releases the GIL during the Rust calls, so you can fan many checks out at once and let them overlap.
+```python
+from certmonitor import scan_hosts
 
-Here's a real-world example using `asyncio` and `asyncio.to_thread`:
+hosts = ["example.com", "www.python.org", "pypi.org"]
+for scan in scan_hosts(hosts, max_workers=4, timeout=5):  # entries may be (host, port) pairs
+    print(scan["host"], scan["snapshot_at"])
+    for name, result in scan["results"].items():
+        print(" ", name, result["status"], result.get("reason", ""))
+```
+
+Results arrive in completion order, so a slow host doesn't hold up completed results. Each result includes the host, port, observation timestamp, and the usual validator results. At most `max_workers` endpoints are in flight; the input can be an iterator instead of a list.
+
+The default validators run unless you supply `enabled_validators`, and `validator_args` applies the same per-validator options to every host. `cafile`, `capath`, `client_cert`, and `client_key` apply to every endpoint too, which covers a private PKI or a mutual-TLS fleet in one call. An endpoint that needs its own settings can be a dict: `{"host": "api.example.com", "connection_host": "192.0.2.10", "server_hostname": "api.example.com"}` targets one backend behind a load balancer, and `port`, `timeout`, and the CA and client-certificate options can be set the same way. If you need per-host validator arguments, create your own `CertMonitor` inside each worker.
+
+## Use it from async code
+
+CertMonitor's API is synchronous. In an async application, move the blocking work to a thread so it doesn't block the event loop:
 
 ```python
 import asyncio
-import json
-import time
 from certmonitor import CertMonitor
 
-start_time = time.time()
-total_time = 0
-num_tests = 0
-print_lock = asyncio.Lock()
 
-async def test_certinfo_async(hostname, port: int = 443):
-    global total_time, num_tests
-    start = time.time()
-    validators = [
-        "subject_alt_names",
-        "weak_cipher",
-        "tls_version",
-    ]
-    def run_certmonitor():
-        lines = []
-        with CertMonitor(host=hostname, port=port, enabled_validators=validators) as monitor:
-            lines.append(f"Testing {hostname}:{port}")
-            cert_details = monitor.get_cert_info()
-            lines.append(json.dumps(cert_details, indent=2))
-            verification_results = monitor.validate(
-                validator_args={
-                    "subject_alt_names": {
-                        "alternate_names": [
-                            "www.example.com",
-                            "cisco.com",
-                            "test.google.com",
-                            "8.8.4.4",
-                            "test.badssl.com",
-                        ]
-                    }
-                }
-            )
-            lines.append(json.dumps(verification_results, indent=2))
-            cipher_info = monitor.get_cipher_info()
-            lines.append(json.dumps(cipher_info, indent=2))
-        return "\n".join(lines)
-    output = await asyncio.to_thread(run_certmonitor)
-    end = time.time()
-    elapsed = end - start
-    total_time += elapsed
-    num_tests += 1
-    chunk = "\n" + "=" * 50 + "\n" + f"{output}\n" + f"Test completed in {elapsed:.2f} seconds\n" + "=" * 50 + "\n"
-    async with print_lock:
-        print(chunk)
-    return elapsed
+def check_host(host: str):
+    with CertMonitor(host, timeout=5) as monitor:
+        return host, monitor.validate()
+
 
 async def main():
-    hosts = [
-        ("expired.badssl.com", 443),
-        ("8.8.8.8", 443),
-        ("example.com", 443),
-        ("tls-v1-0.badssl.com", 1010),
-        ("tls-v1-1.badssl.com", 1011),
-        ("tls-v1-2.badssl.com", 1012),
-    ]
-    tasks = [test_certinfo_async(host, port) for (host, port) in hosts]
+    limit = asyncio.Semaphore(4)
+
+    async def check_limited(host):
+        async with limit:
+            return await asyncio.to_thread(check_host, host)
+
+    hosts = ["example.com", "www.python.org", "pypi.org"]
+    tasks = [asyncio.create_task(check_limited(host)) for host in hosts]
     for task in asyncio.as_completed(tasks):
-        try:
-            await task
-        except Exception as e:
-            async with print_lock:
-                print("\n" + "=" * 50 + "\n")
-                print(f"Test raised an exception: {e}")
-                print("=" * 50 + "\n")
+        host, results = await task
+        print(host, results)
+
 
 if __name__ == "__main__":
     asyncio.run(main())
-    end_time = time.time()
-    elapsed_time = end_time - start_time
-    average_time = total_time / num_tests if num_tests else 0
-    print(f"Elapsed time: {elapsed_time:.2f} seconds")
-    print(f"Average time per test: {average_time:.2f} seconds")
 ```
 
-Notice the pattern: each host runs inside `asyncio.to_thread`, and `asyncio.as_completed` lets you process results as soon as they finish rather than waiting for the slowest host. That's what lets you test many hosts in parallel, maximizing throughput and minimizing total runtime.
+The semaphore limits active scans to four. This example still creates one task per host, so use a bounded producer/worker queue for a very large inventory. The synchronous `scan_hosts()` helper already limits pending work.
 
-!!! tip "Start with the network in mind"
-    Since the network is the bottleneck, the lever that matters most is concurrency. Adding more parallel checks usually helps far more than anything you could tune in the parsing path.
+## Understand the limits
+
+`timeout` bounds each network operation, including each connection attempt made while collecting a certificate. It is not a deadline for an entire scan; collection makes at most two attempts (a full-range offer, then one capped at TLS 1.2), so a host that silently drops handshakes can take up to twice `timeout` to give up. Platform DNS resolution is not interruptible, and cancelling an `asyncio.to_thread()` await does not stop a scan already running in the worker.
+
+The Rust TLS probe releases the GIL during its network work. The certificate parser does not make that same guarantee; don't assume all Rust calls run concurrently just because they're written in Rust.
+
+!!! tip "Count connections as well as hosts"
+    Protocol detection, collection, verified trust, and an enabled PQ probe each make their own connection, once per observation. Account for those when choosing a rate limit, especially against a small appliance or a shared service.
+
+## Reuse a snapshot deliberately
+
+Calls on a monitor reuse collected certificate data. For a new observation, call `refresh()` and then validate again. Keep `snapshot_at` with your results so a dashboard can distinguish the time you observed a certificate from the time it displayed the result.
+
+See [Context Manager vs Manual Close](context_manager.md) for the connection lifecycle and [the API reference](../reference/certmonitor.md) for `scan_hosts()`.

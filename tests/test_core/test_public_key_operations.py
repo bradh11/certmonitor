@@ -10,6 +10,7 @@ class TestPublicKeyExtraction:
         """Test successful get_public_key_der operation."""
         mock_der = b"mock public key der data"
         cert_monitor.public_key_der = mock_der
+        cert_monitor.connected = True
 
         result = cert_monitor.get_public_key_der()
         assert result == mock_der
@@ -65,6 +66,7 @@ class TestPublicKeyExtraction:
         """Test successful get_public_key_pem operation."""
         mock_pem = "-----BEGIN PUBLIC KEY-----\nmock key data\n-----END PUBLIC KEY-----"
         cert_monitor.public_key_pem = mock_pem
+        cert_monitor.connected = True
 
         result = cert_monitor.get_public_key_pem()
         assert result == mock_pem

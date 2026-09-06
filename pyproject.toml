@@ -1,19 +1,24 @@
 [project]
 name = "certmonitor"
-version = "0.4.0"
-description = "Zero-dependency TLS/SSL certificate monitoring and validation, including post-quantum (ML-KEM / ML-DSA) readiness checks."
+version = "0.5.0"
+description = "Zero-dependency Python SSL/TLS certificate monitoring and validation: expiration checks, hostname/SAN matching, X.509 chain analysis, and post-quantum readiness."
 authors = [
     { name = "Brad Haas", email = "bradh11@gmail.com" }
 ]
 license = "MIT"
 readme = "README.md"
-requires-python = ">=3.8,<3.14"
+requires-python = ">=3.10,<3.16"
 keywords = [
     "tls",
     "ssl",
     "certificate",
     "x509",
     "certificate-monitoring",
+    "ssl-certificate",
+    "certificate-expiration",
+    "certificate-expiry",
+    "ssl-checker",
+    "pki",
     "certificate-validation",
     "security",
     "cryptography",
@@ -36,12 +41,11 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.8",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Programming Language :: Rust",
     "Topic :: Security",
     "Topic :: Security :: Cryptography",
@@ -51,7 +55,17 @@ classifiers = [
 ]
 
 dependencies = []
-# No runtime dependencies; standard library only
+# Zero runtime dependencies; the Rust extension is compiled into the wheel
+
+[project.urls]
+Homepage = "https://github.com/bradh11/certmonitor"
+Documentation = "https://certmonitor.readthedocs.io/en/latest/"
+Repository = "https://github.com/bradh11/certmonitor"
+Issues = "https://github.com/bradh11/certmonitor/issues"
+Changelog = "https://github.com/bradh11/certmonitor/blob/main/CHANGELOG.md"
+
+[project.scripts]
+certmonitor = "certmonitor.cli:main"
 
 [dependency-groups]
 dev = [
@@ -62,6 +76,7 @@ dev = [
     "maturin>=1.8.4",
     "mypy>=1.0.0",
     "bandit>=1.7.10",
+    "radon>=6.0,<7",
 ]
 
 docs = [
@@ -78,9 +93,21 @@ module-name = "certmonitor.certinfo"
 # python-source = "certmonitor"
 features = ["pyo3/extension-module"]
 
+[tool.ruff]
+target-version = "py310"
+
+[tool.ruff.lint]
+# Keep ruff's default rules (E4/E7/E9, F) and add pyupgrade (UP) so the
+# codebase stays modern for the Python 3.10+ floor (builtin generics,
+# `X | None` unions). extend-select avoids enabling E501 and friends.
+extend-select = ["UP"]
+# UP038 rewrites isinstance(x, (A, B)) to isinstance(x, A | B), which is
+# measurably slower at runtime; keep the tuple form.
+ignore = ["UP038"]
+
 [tool.mypy]
 # MyPy configuration for CertMonitor
-python_version = "3.8"
+python_version = "3.10"
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = true

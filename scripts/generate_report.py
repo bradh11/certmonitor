@@ -7,14 +7,15 @@ and code quality metrics to ensure the codebase remains modular and maintainable
 """
 
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
-from typing import Dict, Tuple, Any
+from typing import Any
 import ast
 
 
-def run_command(cmd: str) -> Tuple[str, int]:
+def run_command(cmd: str) -> tuple[str, int]:
     """Run a shell command and return output and exit code.
 
     Note: This is an internal development script with controlled commands.
@@ -30,10 +31,10 @@ def run_command(cmd: str) -> Tuple[str, int]:
         return f"Error running command: {e}", 1
 
 
-def get_file_stats(file_path: Path) -> Dict[str, Any]:
+def get_file_stats(file_path: Path) -> dict[str, Any]:
     """Get statistics for a Python file."""
     try:
-        with open(file_path, "r", encoding="utf-8") as f:
+        with open(file_path, encoding="utf-8") as f:
             content = f.read()
 
         lines = content.split("\n")
@@ -73,7 +74,7 @@ def get_file_stats(file_path: Path) -> Dict[str, Any]:
         }
 
 
-def analyze_test_modularization() -> Dict[str, Any]:
+def analyze_test_modularization() -> dict[str, Any]:
     """Analyze the test file organization and modularization."""
     test_core_dir = Path("tests/test_core")
     main_test_file = Path("tests/test_core.py")
@@ -107,7 +108,7 @@ def analyze_test_modularization() -> Dict[str, Any]:
     return results
 
 
-def get_test_coverage() -> Dict[str, Any]:
+def get_test_coverage() -> dict[str, Any]:
     """Get test coverage information."""
     # Run pytest with coverage
     coverage_cmd = (
@@ -121,7 +122,7 @@ def get_test_coverage() -> Dict[str, Any]:
     coverage_file = Path("coverage.json")
     if coverage_file.exists():
         try:
-            with open(coverage_file, "r") as f:
+            with open(coverage_file) as f:
                 coverage_json = json.load(f)
 
             coverage_data = {
@@ -154,7 +155,7 @@ def get_test_coverage() -> Dict[str, Any]:
     return coverage_data
 
 
-def analyze_type_hints() -> Dict[str, Any]:
+def analyze_type_hints() -> dict[str, Any]:
     """Analyze type hint coverage across the codebase."""
     certmonitor_dir = Path("certmonitor")
     results = {
@@ -172,7 +173,7 @@ def analyze_type_hints() -> Dict[str, Any]:
             continue
 
         try:
-            with open(py_file, "r", encoding="utf-8") as f:
+            with open(py_file, encoding="utf-8") as f:
                 content = f.read()
 
             # Check for type hints
@@ -206,7 +207,7 @@ def analyze_type_hints() -> Dict[str, Any]:
     return results
 
 
-def get_code_quality_metrics() -> Dict[str, Any]:
+def get_code_quality_metrics() -> dict[str, Any]:
     """Get code quality metrics from ruff and other tools."""
     results = {}
 
@@ -236,7 +237,7 @@ def get_code_quality_metrics() -> Dict[str, Any]:
     return results
 
 
-def get_security_metrics() -> Dict[str, Any]:
+def get_security_metrics() -> dict[str, Any]:
     """Get security-related metrics and scan results."""
     results = {
         "cargo_audit_available": False,
@@ -266,7 +267,7 @@ def get_security_metrics() -> Dict[str, Any]:
         bandit_report_path = Path("bandit-report.json")
         if bandit_report_path.exists():
             try:
-                with open(bandit_report_path, "r", encoding="utf-8") as f:
+                with open(bandit_report_path, encoding="utf-8") as f:
                     bandit_data = json.load(f)
 
                 results["bandit_issues_found"] = len(bandit_data.get("results", []))
@@ -316,7 +317,7 @@ def get_security_metrics() -> Dict[str, Any]:
     try:
         cargo_toml = Path("Cargo.toml")
         if cargo_toml.exists():
-            with open(cargo_toml, "r") as f:
+            with open(cargo_toml) as f:
                 content = f.read()
                 for line in content.split("\n"):
                     if "pyo3" in line and "version" in line:
@@ -331,7 +332,7 @@ def get_security_metrics() -> Dict[str, Any]:
     return results
 
 
-def get_makefile_metrics() -> Dict[str, Any]:
+def get_makefile_metrics() -> dict[str, Any]:
     """Analyze Makefile commands and development workflow capabilities."""
     results = {
         "makefile_exists": False,
@@ -350,7 +351,7 @@ def get_makefile_metrics() -> Dict[str, Any]:
     results["makefile_exists"] = True
 
     try:
-        with open(makefile_path, "r") as f:
+        with open(makefile_path) as f:
             content = f.read()
 
         # Count command targets (lines that start with word and colon, not indented)
@@ -387,20 +388,18 @@ def get_makefile_metrics() -> Dict[str, Any]:
             elif any(pattern in cmd for pattern in security_patterns):
                 results["security_commands"].append(cmd)
 
-        # Count test steps by looking for numbered steps in test target
+        # Count test steps by looking for numbered "N/M" step markers in the
+        # test target. The denominator is the advertised step count, so this
+        # stays correct no matter how many steps the target grows to.
         if "test:" in content:
-            test_section = (
-                content.split("test:")[1].split("\n\n")[0] if "test:" in content else ""
-            )
-            step_count = (
-                test_section.count("/9")
-                + test_section.count("/8")
-                + test_section.count("/7")
-            )
-            if step_count > 0:
-                results["test_steps"] = (
-                    9 if "/9" in test_section else (8 if "/8" in test_section else 7)
-                )
+            test_section = content.split("test:")[1].split("\n\n")[0]
+            denominators = [int(d) for d in re.findall(r"\b\d+/(\d+)\b", test_section)]
+            if denominators:
+                results["test_steps"] = max(denominators)
+                results["ci_equivalent"] = True
+            elif "CI equivalent" in test_section:
+                # Fallback: the target advertises itself as CI-equivalent even
+                # if the step markers ever change format.
                 results["ci_equivalent"] = True
 
     except Exception:
@@ -579,11 +578,11 @@ def generate_report() -> str:
 ### CI-Equivalent Testing
 """
 
-    report += f"- **Test workflow steps:** {makefile_metrics['test_steps']}/9\n"
+    report += f"- **Test workflow steps:** {makefile_metrics['test_steps']}\n"
     report += f"- **CI-equivalent testing:** {'✅ Yes' if makefile_metrics['ci_equivalent'] else '❌ No'}\n"
 
     if makefile_metrics["ci_equivalent"]:
-        report += "- **Workflow status:** 🚀 Full 9-step testing process available\n"
+        report += f"- **Workflow status:** 🚀 Full {makefile_metrics['test_steps']}-step testing process available\n"
     else:
         report += "- **Workflow status:** ⚠️ Basic testing only\n"
 
@@ -673,7 +672,7 @@ make report
     if makefile_metrics["makefile_exists"] and makefile_metrics["ci_equivalent"]:
         report += """```bash
 # 🚀 Recommended CI-equivalent workflow
-make test          # Full 9-step test suite (format, lint, typecheck, test, build)
+make test          # Full CI-equivalent test suite (format, lint, typecheck, test, build)
 make check         # Quick quality checks (format + lint)
 make develop       # Install for development
 

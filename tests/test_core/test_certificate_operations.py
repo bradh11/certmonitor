@@ -91,7 +91,10 @@ class TestCertificateRetrieval:
             "port": 443,
         }
 
-        with patch.object(cert_monitor, "_fetch_raw_cert", return_value=error_response):
+        with (
+            patch.object(cert_monitor, "_fetch_raw_cert", return_value=error_response),
+            patch.object(cert_monitor, "_ensure_connection", return_value=None),
+        ):
             result = cert_monitor.get_cert_info()
 
         # Should return the error response instead of raising an exception
@@ -140,9 +143,15 @@ class TestRawCertificateData:
             "-----BEGIN CERTIFICATE-----\nfetched pem data\n-----END CERTIFICATE-----\n"
         )
         cert_monitor.pem = None
-        cert_monitor.handler.fetch_raw_cert.return_value = {"pem": mock_pem}
 
-        with patch.object(cert_monitor, "_ensure_connection", return_value=None):
+        def fetch():
+            cert_monitor.pem = mock_pem
+            return {"pem": mock_pem, "cert_info": {}}
+
+        with (
+            patch.object(cert_monitor, "_ensure_connection", return_value=None),
+            patch.object(cert_monitor, "_fetch_raw_cert", side_effect=fetch),
+        ):
             result = cert_monitor.get_raw_pem()
             assert result == mock_pem
             assert cert_monitor.pem == mock_pem
@@ -151,6 +160,7 @@ class TestRawCertificateData:
         """Test get_raw_der returns protocol error for non-SSL protocols."""
         monitor = CertMonitor("www.example.com")
         monitor.protocol = "ssh"
+        monitor.connected, monitor.handler = True, MagicMock()
 
         result = monitor.get_raw_der()
 
@@ -165,6 +175,7 @@ class TestRawCertificateData:
         """Test get_raw_pem returns protocol error for non-SSL protocols."""
         monitor = CertMonitor("www.example.com")
         monitor.protocol = "ssh"
+        monitor.connected, monitor.handler = True, MagicMock()
 
         result = monitor.get_raw_pem()
 
@@ -291,8 +302,9 @@ class TestCertificateFetching:
             "ordered": True,
             "terminates_in_self_signed": False,
         }
-        with patch("certmonitor.core.certinfo") as mock_certinfo, patch.object(
-            monitor, "_ensure_connection", return_value=None
+        with (
+            patch("certmonitor.core.certinfo") as mock_certinfo,
+            patch.object(monitor, "_ensure_connection", return_value=None),
         ):
             mock_certinfo.parse_public_key_info.return_value = {
                 "algorithm": "rsaEncryption",
@@ -323,8 +335,9 @@ class TestCertificateFetching:
         monitor.handler = mock_handler
         monitor.connected = True
 
-        with patch("certmonitor.core.certinfo") as mock_certinfo, patch.object(
-            monitor, "_ensure_connection", return_value=None
+        with (
+            patch("certmonitor.core.certinfo") as mock_certinfo,
+            patch.object(monitor, "_ensure_connection", return_value=None),
         ):
             mock_certinfo.parse_public_key_info.return_value = {
                 "algorithm": "rsaEncryption",
@@ -355,8 +368,9 @@ class TestCertificateFetching:
         monitor.handler = mock_handler
         monitor.connected = True
 
-        with patch("certmonitor.core.certinfo") as mock_certinfo, patch.object(
-            monitor, "_ensure_connection", return_value=None
+        with (
+            patch("certmonitor.core.certinfo") as mock_certinfo,
+            patch.object(monitor, "_ensure_connection", return_value=None),
         ):
             mock_certinfo.parse_public_key_info.return_value = {
                 "algorithm": "rsaEncryption",
@@ -490,6 +504,7 @@ class TestDataTransformation:
         }
 
         monitor.handler = mock_handler
+        monitor.connected = True
 
         # Mock certinfo.parse_public_key_info to return public key data
         with patch("certmonitor.core.certinfo") as mock_certinfo:

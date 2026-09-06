@@ -5,7 +5,7 @@ Checks that the connection negotiated a TLS version you consider acceptable. By 
 !!! note "Opt-in"
     Enable via `enabled_validators=["tls_version", ...]` or `ENABLED_VALIDATORS`.
 
-## Example
+## Try it
 
 ```python
 from certmonitor import CertMonitor
@@ -16,6 +16,8 @@ with CertMonitor("example.com", enabled_validators=["tls_version"]) as monitor:
 ```
 
 A modern endpoint passes:
+
+These examples show selected fields from illustrative scans. `validate()` also adds `status` and `code`, described in the [result contract](index.md#the-result-contract).
 
 ```json
 {
@@ -29,8 +31,8 @@ A legacy endpoint fails with a `reason`:
 ```json
 {
   "is_valid": false,
-  "protocol_version": "TLSv1.0",
-  "reason": "TLS version TLSv1.0 is not allowed. Update your allowed TLS versions or negotiate a supported version."
+  "protocol_version": "TLSv1",
+  "reason": "TLS version TLSv1 is not allowed. Update your allowed TLS versions or negotiate a supported version."
 }
 ```
 
@@ -50,8 +52,13 @@ with CertMonitor("example.com", enabled_validators=["tls_version"]) as monitor:
 ```
 
 !!! tip "Pairs with WeakCipher"
-    `tls_version` checks the protocol; [WeakCipher](weak_cipher.md) checks the negotiated cipher suite. Enable both for a complete transport-security picture, and see [Post-Quantum Cryptography](../concepts/post-quantum.md) for why even TLS 1.3 isn't the whole story.
+    `tls_version` checks the protocol; [WeakCipher](weak_cipher.md) checks the negotiated cipher suite. Enable both to inspect the protocol and suite used by this connection, and see [Post-Quantum Cryptography](../concepts/post-quantum.md) for why even TLS 1.3 isn't the whole story.
 
-## API
+
+
+
+This checks the connection CertMonitor negotiated. It does not enumerate every protocol or cipher the server would accept from a different client.
+
+## Reference
 
 ::: certmonitor.validators.tls_version.TLSVersionValidator

@@ -3,8 +3,7 @@
 import logging
 import socket
 import ssl
-import warnings
-from typing import Any, Dict, List, Optional, Tuple, Union, cast
+from typing import Any, cast
 
 from .base import BaseProtocolHandler
 
@@ -12,86 +11,87 @@ from .base import BaseProtocolHandler
 class SSLHandler(BaseProtocolHandler):
     def __init__(self, host: str, port: int, error_handler: Any) -> None:
         super().__init__(host, port, error_handler)
-        self.socket: Optional[socket.socket] = None
-        self.secure_socket: Optional[ssl.SSLSocket] = None
-        self.tls_version: Optional[str] = None
+        self.socket: socket.socket | None = None
+        self.secure_socket: ssl.SSLSocket | None = None
+        self.server_hostname = host
+        self.timeout = 10.0
+        self.client_cert: str | None = None
+        self.client_key: str | None = None
+        self.tls_version: str | None = None
 
-    def get_supported_protocols(self) -> List[int]:
-        supported_protocols: List[int] = []
-        # NOTE: Legacy TLS/SSL versions are intentionally included for security assessment
-        # This tool needs to detect and analyze weak configurations in legacy systems
-        for protocol in [
-            ssl.PROTOCOL_TLS_CLIENT,
-            ssl.PROTOCOL_TLSv1_2,
-            ssl.PROTOCOL_TLSv1_1,  # Intentionally weak - for legacy detection
-            ssl.PROTOCOL_TLSv1,  # Intentionally weak - for legacy detection
-            ssl.PROTOCOL_SSLv23,  # Intentionally weak - for legacy detection
-        ]:
-            try:
-                with warnings.catch_warnings():
-                    warnings.simplefilter("ignore", category=DeprecationWarning)
-                    ssl.SSLContext(protocol)
-                supported_protocols.append(protocol)
-            except AttributeError:
-                pass
-        return supported_protocols
+    def _build_context(
+        self,
+        *,
+        maximum_version: ssl.TLSVersion | None = None,
+        legacy_server_connect: bool = False,
+    ) -> ssl.SSLContext:
+        """Build the permissive collection context.
 
-    def connect(self) -> Optional[Dict[str, Any]]:
-        protocols = self.get_supported_protocols()
-        for protocol in protocols:
-            try:
-                with warnings.catch_warnings():
-                    warnings.simplefilter("ignore", category=DeprecationWarning)
-                    context = ssl.SSLContext(protocol)
-                    context.set_ciphers("ALL:@SECLEVEL=0")
-                    context.check_hostname = False
-                    context.verify_mode = ssl.CERT_NONE
-                    context.options &= ~ssl.OP_NO_RENEGOTIATION
+        One `PROTOCOL_TLS_CLIENT` context with the version range opened all the
+        way down lets OpenSSL negotiate anything the server supports, including
+        TLS 1.0 and 1.1 where the local build allows them, without touching the
+        deprecated per-protocol constants. Verification is off on purpose: this
+        connection collects evidence, and trust is checked separately.
+        """
+        context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        context.check_hostname = False
+        context.verify_mode = ssl.CERT_NONE
+        context.minimum_version = ssl.TLSVersion.MINIMUM_SUPPORTED
+        context.maximum_version = maximum_version or ssl.TLSVersion.MAXIMUM_SUPPORTED
+        context.set_ciphers("ALL:@SECLEVEL=0")
+        context.options &= ~ssl.OP_NO_RENEGOTIATION
+        if legacy_server_connect:
+            context.options |= getattr(ssl, "OP_LEGACY_SERVER_CONNECT", 0x4)
+        if self.client_cert:
+            context.load_cert_chain(self.client_cert, self.client_key)
+        return context
 
-                self.socket = socket.create_connection(
-                    (self.host, self.port), timeout=10
-                )
-                self.secure_socket = context.wrap_socket(
-                    self.socket, server_hostname=self.host
-                )
-                self.tls_version = self.secure_socket.version()
-                return None  # Explicitly return None on success
-            except ssl.SSLError as ssl_e:
-                if "UNSAFE_LEGACY_RENEGOTIATION_DISABLED" in str(ssl_e):
-                    # Retry with unsafe legacy renegotiation enabled
-                    try:
-                        context.options &= ~ssl.OP_NO_RENEGOTIATION
-                        self.socket = socket.create_connection(
-                            (self.host, self.port), timeout=10
-                        )
-                        self.secure_socket = context.wrap_socket(
-                            self.socket, server_hostname=self.host
-                        )
-                        self.tls_version = self.secure_socket.version()
-                        return None
-                    except Exception as retry_e:
-                        logging.error(
-                            f"Error connecting with unsafe legacy renegotiation: {retry_e}"
-                        )
-                        # Continue to next protocol instead of returning error
-                        if self.socket:
-                            self.socket.close()
-                            self.socket = None
-                        continue
-                # Continue to next protocol for other SSL errors
-                if self.socket:
-                    self.socket.close()
-                    self.socket = None
-                continue
-            except Exception:
-                if self.socket:
-                    self.socket.close()
-                    self.socket = None
-                # Continue to next protocol
+    def _discard_socket(self) -> None:
+        if self.socket:
+            self.socket.close()
+            self.socket = None
 
-        # If all protocols fail
+    def _attempt(self, **options: Any) -> str | None:
+        """Open one collection connection; return the error text on failure."""
+        try:
+            context = self._build_context(**options)
+            self.socket = socket.create_connection(
+                (self.host, self.port), timeout=self.timeout
+            )
+            self.secure_socket = context.wrap_socket(
+                self.socket, server_hostname=self.server_hostname
+            )
+            self.tls_version = self.secure_socket.version()
+            return None
+        except Exception as exc:  # noqa: BLE001
+            logging.debug("TLS collection attempt failed for %s: %s", self.host, exc)
+            self._discard_socket()
+            return str(exc)
+
+    def connect(self) -> dict[str, Any] | None:
+        """Negotiate a permissive TLS session for certificate collection.
+
+        The first attempt offers every protocol version the local build
+        supports. If that fails, a second attempt caps the offer at TLS 1.2 for
+        servers that mishandle a TLS 1.3 ClientHello. A server that demands
+        legacy renegotiation gets one retry with that option enabled. Every
+        attempt gets its own `timeout`.
+        """
+        attempts: list[dict[str, Any]] = [
+            {},
+            {"maximum_version": ssl.TLSVersion.TLSv1_2},
+        ]
+        for options in attempts:
+            error = self._attempt(**options)
+            if error is None:
+                return None
+            if "UNSAFE_LEGACY_RENEGOTIATION_DISABLED" in error.upper().replace(
+                " ", "_"
+            ):
+                if self._attempt(**options, legacy_server_connect=True) is None:
+                    return None
         return cast(
-            Dict[str, Any],
+            dict[str, Any],
             self.error_handler.handle_error(
                 "SSLError",
                 "Failed to establish SSL connection with any protocol",
@@ -100,10 +100,10 @@ class SSLHandler(BaseProtocolHandler):
             ),
         )
 
-    def fetch_raw_cert(self) -> Dict[str, Any]:
+    def fetch_raw_cert(self) -> dict[str, Any]:
         if not self.secure_socket:
             return cast(
-                Dict[str, Any],
+                dict[str, Any],
                 self.error_handler.handle_error(
                     "ConnectionError",
                     "SSL connection not established",
@@ -115,7 +115,7 @@ class SSLHandler(BaseProtocolHandler):
             cert = self.secure_socket.getpeercert(binary_form=True)
             if cert is None:
                 return cast(
-                    Dict[str, Any],
+                    dict[str, Any],
                     self.error_handler.handle_error(
                         "CertificateError",
                         "No certificate available",
@@ -133,22 +133,21 @@ class SSLHandler(BaseProtocolHandler):
             }
         except Exception as e:
             return cast(
-                Dict[str, Any],
+                dict[str, Any],
                 self.error_handler.handle_error(
                     "CertificateError", str(e), self.host, self.port
                 ),
             )
 
-    def _fetch_chain_der(self) -> Tuple[Optional[List[bytes]], Optional[str]]:
+    def _fetch_chain_der(self) -> tuple[list[bytes] | None, str | None]:
         """Retrieve the peer certificate chain as a list of DER byte strings.
 
-        Python 3.13 exposes ``SSLSocket.get_verified_chain()``, which returns
-        DER bytes directly. Python 3.10–3.12 only exposes the chain through
-        the private ``_sslobj`` attribute as ``_ssl.Certificate`` instances,
+        Python 3.13 exposes `SSLSocket.get_verified_chain()`, which returns
+        DER bytes directly. Python 3.10 to 3.12 only exposes the chain through
+        the private `_sslobj` attribute as `_ssl.Certificate` instances,
         so we pull those, ask each for its PEM, and convert back to DER using
-        the public ``ssl.PEM_cert_to_DER_cert`` helper. On 3.8/3.9 there is
-        no stdlib-only way to obtain the chain and we return an informative
-        error instead.
+        the public `ssl.PEM_cert_to_DER_cert` helper. If neither API is
+        available, an informative error is returned.
         """
         if not self.secure_socket:
             return None, "SSL connection not established"
@@ -169,14 +168,14 @@ class SSLHandler(BaseProtocolHandler):
                 return None, f"Failed to retrieve certificate chain: {exc}"
 
         return None, (
-            "Certificate chain retrieval requires Python 3.10 or newer; "
-            "on this interpreter only the leaf certificate is available."
+            "Certificate chain retrieval is not available on this interpreter; "
+            "only the leaf certificate could be obtained."
         )
 
-    def fetch_raw_cipher(self) -> Union[Tuple[str, str, Optional[int]], Dict[str, Any]]:
+    def fetch_raw_cipher(self) -> tuple[str, str, int | None] | dict[str, Any]:
         if not self.secure_socket:
             return cast(
-                Dict[str, Any],
+                dict[str, Any],
                 self.error_handler.handle_error(
                     "ConnectionError",
                     "SSL connection not established",
@@ -187,7 +186,7 @@ class SSLHandler(BaseProtocolHandler):
         cipher_info = self.secure_socket.cipher()
         if cipher_info is None:
             return cast(
-                Dict[str, Any],
+                dict[str, Any],
                 self.error_handler.handle_error(
                     "CipherError",
                     "No cipher information available",
@@ -200,7 +199,7 @@ class SSLHandler(BaseProtocolHandler):
             return cipher_info
         # This should not happen in practice, but we handle it defensively
         return cast(  # type: ignore[unreachable]
-            Dict[str, Any],
+            dict[str, Any],
             self.error_handler.handle_error(
                 "CipherError", "Cipher information is not a tuple", self.host, self.port
             ),

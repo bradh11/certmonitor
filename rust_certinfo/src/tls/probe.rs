@@ -4,7 +4,7 @@
 // send one ClientHello that offers a real X25519MLKEM768 key_share,
 // read the server's first flight, extract the negotiated (or
 // HRR-requested) group, and hang up. No crypto, no key derivation, no
-// decryption, no certificate validation — this learns only which group
+// decryption, no certificate validation, this learns only which group
 // the server picks.
 //
 // Reachability decisions baked in (see issue #28 amendment and the
@@ -12,7 +12,7 @@
 //   - Real precomputed ML-KEM-768 key_share (mlkem_kat.rs): a classical
 //     or empty share makes PQ-capable CDNs answer classical or alert.
 //   - Per-call ClientHello random (no fixed fingerprint), no CSPRNG dep.
-//   - Bounded read (<= READ_CAP) with a read timeout — never block
+//   - Bounded read (<= READ_CAP) with a read timeout, never block
 //     forever, never allocate unboundedly.
 //   - Returns a result in EVERY terminal state (success / n/a / error);
 //     the only `Err` paths are internal bugs, so the Python layer never
@@ -57,7 +57,7 @@ pub enum ProbeResult {
         via_hello_retry_request: bool,
     },
     /// Reached a TLS server, but PQ key exchange does not apply (TLS 1.2
-    /// or older, or the server sent an alert).
+    /// or older). Alerts are inconclusive errors.
     NotApplicable { reason: String, protocol: String },
     /// Could not get a usable TLS response (connect failure, non-TLS
     /// peer, truncated/garbled response).
@@ -73,7 +73,7 @@ static RANDOM_COUNTER: AtomicU64 = AtomicU64::new(0);
 /// Fill 32 bytes of ClientHello random without a CSPRNG dependency.
 /// A fixed value would make every probe trivially fingerprintable
 /// (the WAF-evasion concern in #28); this only needs to vary per call,
-/// which the counter guarantees — the bytes are never used
+/// which the counter guarantees, the bytes are never used
 /// cryptographically.
 fn client_random() -> [u8; 32] {
     let nanos = SystemTime::now()
@@ -121,10 +121,12 @@ fn sni_for(host: &str) -> Option<&str> {
     }
 }
 
-/// Run the probe against `host:port`. `timeout` bounds the whole probe
-/// (connect + write + read), enforced as a deadline. Never panics.
-pub fn probe(host: &str, port: u16, timeout: Duration) -> ProbeResult {
-    let deadline = SystemTime::now() + timeout;
+/// Run the probe against `host:port`. `server_name` is the SNI to offer;
+/// `None` derives it from `host` (omitted for IP literals either way).
+/// `timeout` bounds the whole probe (connect + write + read), enforced as
+/// a deadline. Never panics.
+pub fn probe(host: &str, port: u16, server_name: Option<&str>, timeout: Duration) -> ProbeResult {
+    let deadline = std::time::Instant::now() + timeout;
 
     // Resolve and connect to the first address that answers.
     let addrs = match (host, port).to_socket_addrs() {
@@ -167,13 +169,26 @@ pub fn probe(host: &str, port: u16, timeout: Duration) -> ProbeResult {
     let client_hello = build_client_hello(&ClientHelloParams {
         random: client_random(),
         session_id: &random_session_id(),
-        sni: sni_for(host),
+        sni: sni_for(server_name.unwrap_or(host)),
         offered_groups: &[GROUP_X25519MLKEM768, GROUP_X25519, GROUP_SECP256R1],
         key_shares: &key_shares,
         alpn: &[b"h2", b"http/1.1"],
     });
     let record = records::write_record(records::CONTENT_TYPE_HANDSHAKE, &client_hello);
 
+    let write_budget = remaining(deadline);
+    if write_budget.is_zero() {
+        return ProbeResult::Error {
+            kind: "TimeoutError".into(),
+            message: "deadline elapsed before ClientHello".into(),
+        };
+    }
+    if let Err(e) = stream.set_write_timeout(Some(write_budget)) {
+        return ProbeResult::Error {
+            kind: "WriteError".into(),
+            message: format!("set_write_timeout failed: {e}"),
+        };
+    }
     if let Err(e) = stream.write_all(&record) {
         return ProbeResult::Error {
             kind: "WriteError".into(),
@@ -240,10 +255,8 @@ fn random_session_id() -> [u8; 32] {
     client_random()
 }
 
-fn remaining(deadline: SystemTime) -> Duration {
-    deadline
-        .duration_since(SystemTime::now())
-        .unwrap_or(Duration::ZERO)
+fn remaining(deadline: std::time::Instant) -> Duration {
+    deadline.saturating_duration_since(std::time::Instant::now())
 }
 
 /// Turn the first record of the server's flight into a `ProbeResult`.
@@ -251,9 +264,9 @@ fn interpret(header: records::RecordHeader, payload: &[u8]) -> ProbeResult {
     match header.content_type {
         records::CONTENT_TYPE_ALERT => {
             let code = payload.get(1).copied().unwrap_or(0);
-            ProbeResult::NotApplicable {
-                reason: format!("server alert: {code}"),
-                protocol: "unknown".into(),
+            ProbeResult::Error {
+                kind: "TLSAlert".into(),
+                message: format!("server alert: {code}; capability is unknown"),
             }
         }
         records::CONTENT_TYPE_HANDSHAKE => interpret_handshake(payload),
@@ -303,7 +316,7 @@ fn summarize(summary: ServerHelloSummary) -> ProbeResult {
     let is_tls13 = summary.selected_version == Some(handshake::TLS13);
     if !is_tls13 {
         return ProbeResult::NotApplicable {
-            reason: "server negotiated TLS 1.2 or older — no PQ KEMs defined".into(),
+            reason: "server negotiated TLS 1.2 or older, no PQ KEMs defined".into(),
             protocol: "tls1.2_or_older".into(),
         };
     }
@@ -458,11 +471,14 @@ mod tests {
     }
 
     #[test]
-    fn alert_is_not_applicable() {
+    fn alert_is_inconclusive() {
         let rec = record(records::CONTENT_TYPE_ALERT, &[2, 40]); // handshake_failure
         match parse_first(&rec) {
-            ProbeResult::NotApplicable { reason, .. } => assert!(reason.contains("40")),
-            other => panic!("expected NotApplicable, got {other:?}"),
+            ProbeResult::Error { kind, message } => {
+                assert_eq!(kind, "TLSAlert");
+                assert!(message.contains("40"));
+            }
+            other => panic!("expected Error, got {other:?}"),
         }
     }
 
@@ -478,7 +494,7 @@ mod tests {
     #[test]
     fn connect_failure_is_error_not_panic() {
         // Port 1 on localhost: nothing listening, fast refusal.
-        let result = probe("127.0.0.1", 1, Duration::from_millis(500));
+        let result = probe("127.0.0.1", 1, None, Duration::from_millis(500));
         match result {
             ProbeResult::Error { kind, .. } => {
                 assert!(

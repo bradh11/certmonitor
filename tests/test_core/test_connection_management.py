@@ -1,6 +1,5 @@
 """Tests for CertMonitor connection management functionality."""
 
-import socket
 from unittest.mock import MagicMock, patch
 
 from certmonitor import CertMonitor
@@ -191,7 +190,7 @@ class TestProtocolDetection:
         monitor = CertMonitor("www.example.com")
 
         mock_socket = MagicMock()
-        mock_socket.recv.side_effect = socket.error("No data")
+        mock_socket.recv.side_effect = OSError("No data")
 
         with patch("certmonitor.core.socket.create_connection") as mock_create:
             mock_create.return_value.__enter__.return_value = mock_socket

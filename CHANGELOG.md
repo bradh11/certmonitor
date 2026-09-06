@@ -21,6 +21,124 @@ rename the headers to emoji form when cutting a release.
 ### Fixed
 - TBD
 
+## [0.5.0] - 2026-09-05
+
+# 📦 CertMonitor v0.5.0 – Verified Trust, a CLI, and Offline Checks
+
+**Release Date:** September 5, 2026
+**Repository:** [bradh11/certmonitor](https://github.com/bradh11/certmonitor)
+
+---
+
+## 🚀 Overview
+
+CertMonitor v0.5.0 makes every verdict earn its name. Trust is established by a real verified TLS handshake instead of issuer-name heuristics, hostname identity follows the Subject Alternative Names the way browsers do, the chain validator fails on structural problems by default, and every result carries a stable `status` and `code`. The release also adds a standard-library `certmonitor` command, offline validation of PEM and DER files, a bounded fleet scanner with full endpoint configuration, SHA-256 fingerprints, and a lifetime policy that tracks the CA/Browser Forum schedule automatically. Python 3.8 and 3.9 are dropped; 3.10 through 3.15 are supported, and wheels now ship for Linux x64/ARM64, macOS Intel/ARM64, and Windows x64. Read the Upgrading section before adopting.
+
+---
+
+## ⬆️ Upgrading from 0.4.0
+
+This release corrects cases where validation could report a misleading pass, and it changes the SAN validator to check only requested alternate names. It is not a behavior-identical replacement for 0.4.0; review these differences before upgrading.
+
+What stays compatible:
+
+- `CertMonitor(host, port, enabled_validators)` keeps its positional arguments.
+  New connection options are keyword-only.
+- Defaults remain `expiration`, `hostname`, and `root_certificate`.
+- Calling `get_cert_info()` before `validate()` still works. Validation can now
+  collect certificate data automatically.
+- Results remain dictionaries with boolean `is_valid`. Validator registration
+  and the legacy alternate-name list argument remain supported; the latter
+  retains its existing deprecation warning.
+- `close()` resets connection state and retains the last snapshot for inspection
+  after context exit. Only `refresh()` discards it; reconnecting to read
+  cipher details after `close()` keeps the collected certificate.
+- Trust results retain `issuer` and `warnings`; wildcard hostname matches retain
+  the pattern in `matched_name`. Collection preserves email and URI SAN entries.
+- Custom validator mappings are copied before the dispatcher adds metadata,
+  so shared and read-only mappings are supported.
+
+Intentional changes:
+
+| Area | Change | Migration |
+|---|---|---|
+| Hostname | SAN matching determines validity; CN is informational. | Certificates need matching DNS/IP SANs. Inspect `common_name_matches` separately. |
+| SAN representation | Singleton values are lists. | Read `subjectAltName["DNS"]` as a list, even for one name. |
+| Alternate names | With `alternate_names`, only the requested alternates decide `is_valid` and every one must match; `contains_host` is still reported. Without them the validator checks the primary host, as before. | Pass `alternate_names` for the names you require; `hostname` remains the primary identity check. |
+| Root trust | A separate verified handshake replaces metadata heuristics. Direct metadata-only validator calls return `TrustNotVerified`. Hosts that only negotiate with legacy protocol or cipher settings are verified with matching settings and carry a warning. | Use `CertMonitor.validate()`. Configure `cafile` or `capath` for private PKI and allow the extra handshake. |
+| Rotation | A different leaf on the verification connection returns `SnapshotMismatch`. | Refresh and retry; use `connection_host` to target individual backend nodes. |
+| Expiration | notBefore and sub-day urgency are checked. The total lifetime is compared with the public TLS limit in force on the issue date (825, 398, 200, 100, or 47 days) and warns rather than fails. | Pass a number as `max_lifetime_days` for a private PKI policy, or `None` to disable it. Read `lifetime_days` and `lifetime_limit_days` from the result. |
+| Chain policy | Non-CA issuers and weak signatures fail by default. | Read structural validity separately from verified trust. Explicit `reject_weak_signatures=False` preserves warning-only weak-signature policy. |
+| PQ probe | Results describe unauthenticated capability observations; TLS alerts are errors. The probe honors `connection_host` and `server_hostname`. | Do not infer protection of application traffic from capability results. |
+| Result metadata | `status`, `code`, and observation fields are added. Argument mistakes in `validator_args` report `status: error` with `InvalidValidatorArgs` or `UnknownValidatorArgs`. | Permit additive keys in result schemas. Use status/error fields rather than parsing human-readable messages. |
+| Timeouts | `timeout` bounds each network operation, including each connection attempt during collection (at most two). | Budget up to twice `timeout` for hosts that silently drop handshakes. |
+
+Collection remains permissive. Revocation checking is not implemented; successful
+trust verification reports `revocation_status: not_checked`.
+
+---
+
+## ✨ Added
+- Release CI builds Linux x64/ARM64 (glibc 2.28+), macOS Intel/ARM64, and Windows x64 wheels plus a source distribution, and publishes to PyPI only after every distribution has been built.
+- Project URLs and additional keywords in the package metadata. The documentation site gains a Read the Docs canonical URL, a light/dark toggle, and copy buttons on code blocks.
+- Keyword-only `CertMonitor` options: `connection_host` and `server_hostname` to connect to one address or SNI name while `host` stays the identity being checked; `timeout`; `cafile` and `capath` for a private CA; and `client_cert` / `client_key` for mutual TLS.
+- `refresh()` collects a new snapshot, and `snapshot_at` records when a certificate was collected.
+- Every `validate()` result carries `status` (`pass`, `warn`, `fail`, `error`, `unsupported`) and a stable `<validator>.<status>` code. Mistakes in `validator_args` report `status: error` with `InvalidValidatorArgs` or `UnknownValidatorArgs`.
+- The `expiration` result includes `lifetime_days`.
+- Every collected certificate reports its SHA-256 fingerprint: `CertMonitor.fingerprint_sha256`, `get_cert_info()["fingerprint_sha256"]`, and the `fingerprint_sha256` field in `scan_hosts()` results and `certmonitor check --json`.
+- A Monitoring Integrations guide with a Prometheus textfile exporter, a GitHub Actions job, a cron recipe, and a health-check one-liner, all standard library only.
+- A `certmonitor` command: `check` validates hosts and certificate files with human-readable or `--json` output and CI-friendly exit codes, `info` prints a parsed certificate or its PEM, and `validators` lists validators and their arguments. Standard library only (#82).
+- `CertMonitor.from_file()` and `CertMonitor.from_bytes()` run the certificate checks on a PEM or DER file (or in-memory data) without a connection. Connection-only checks report `status: unsupported`, and `cert_data["source"]` records where a certificate came from (#78).
+- `scan_hosts()` scans many hosts with a bounded worker pool and yields one result per host, including hosts whose scan raised. Entries may be `(host, port)` pairs or dicts carrying per-endpoint connection settings (`connection_host`, `server_hostname`, `timeout`, CA store, client certificate); `validator_args`, `cafile`, `capath`, `client_cert`, and `client_key` apply to every host.
+- Python 3.14 support, now part of the CI test matrix.
+- Python 3.15 pre-release support: CI exercises 3.15 betas via `allow-prereleases` so the package is ready ahead of the final release.
+
+---
+
+## 🔄 Changed
+- The `root_certificate` verdict is bound to the collected leaf and reused by later `validate()` calls on the same snapshot; `refresh()` collects and verifies again. Verifying contexts are built once per monitor (#69).
+- Reviewed the tutorials and reference documentation for current behavior, preserved API docstrings, and improved navigation, code examples, and light/dark reading styles.
+- **Breaking:** `root_certificate` establishes trust with a separate verified TLS handshake against the system or configured CA store instead of issuer metadata heuristics. The verified leaf must match the collected snapshot (`SnapshotMismatch` otherwise). Hosts that only negotiate with legacy protocol or cipher settings are verified with matching settings and carry a warning. Revocation is reported as `not_checked`.
+- `hostname` accepts an `expected_identity` argument (via `validator_args`) to check a different name than the one the monitor connected with.
+- **Breaking:** `hostname` validates identity with DNS and IP Address SANs only. The Common Name is reported in `common_name` and `common_name_matches` but never decides `is_valid`. `matched_name` is the SAN entry that matched. Singleton SAN values are normalized to lists.
+- `subject_alt_names` fails if any requested `alternate_names` entry (list or tuple) is missing, and falls back to checking the primary host when none are requested. `contains_host` is always reported.
+- `expiration` checks `notBefore` and sub-day urgency, accepts fractional thresholds, and warns when the total lifetime exceeds `max_lifetime_days`. The default `"public"` applies the CA/Browser Forum limit in force on the certificate's issue date (825, 398, 200, 100, or 47 days); a number sets a private policy and `None` disables the check. The limit used is reported as `lifetime_limit_days`.
+- **Breaking:** `chain` fails on non-CA issuers and weak signatures by default; `reject_weak_signatures=False` restores warning-only handling. Structural validity is reported separately from cryptographic trust.
+- `pq_key_exchange` results carry observation evidence (`endpoint`, `observed_at`, `offered_groups`, `handshake_completed`, `authenticated`). TLS alerts are reported as inconclusive errors, the native probe bounds its write timeout, and it honors `connection_host` and `server_hostname` separately.
+- `validate()` collects the certificate automatically. `close()` resets connection state but retains the last snapshot; only `refresh()` discards it. `timeout` bounds each network operation, including each connection attempt made while collecting.
+- **Breaking:** Dropped support for Python 3.8 and 3.9 (both end-of-life). The new minimum is Python 3.10 (`requires-python = ">=3.10,<3.16"`), with socket chain APIs and private fallbacks used when available.
+- Modernized the codebase to Python 3.10+ idioms: built-in generics (`list`/`dict`), `X | None` unions, and a full ruff `pyupgrade` (UP) sweep, with `target-version = "py310"` enforcing it going forward. No runtime behavior change.
+- Raised the Rust extension's abi3 floor to `abi3-py310` to match the new Python minimum.
+- CI: the test matrix is now Python 3.10 through 3.15, and the GitHub Actions were refreshed (checkout v6, setup-python v6, setup-uv v8.2.0, codecov v5 with token upload, action-gh-release v2).
+- `make test` now runs the Rust unit tests (`cargo test`) as part of the local CI-equivalent suite; previously they ran only in CI.
+- Added a `make typecheck-ty` command to run astral's `ty` type checker on demand (a 0.0.x preview, advisory only). mypy remains the enforced gate; ty is kept out of `make test` and is commented out in CI with a note to revisit once it stabilizes.
+
+---
+
+## 🛠️ Fixed
+- The TLS collector negotiates with a single version-ranged context instead of retrying deprecated per-protocol constants under `warnings.catch_warnings()`, which is not thread-safe under concurrent scans. Legacy TLS 1.0 and 1.1 servers remain reachable where the local build allows them, and collecting a certificate now costs one connection instead of up to five (#67).
+- The README logo now uses an absolute CDN URL so it renders on the PyPI project page (relative paths only resolve on GitHub).
+
+---
+
+## 📚 Documentation
+
+Comprehensive documentation is available at [certmonitor.readthedocs.io](https://certmonitor.readthedocs.io/).
+
+---
+
+## 🐍 Python Compatibility
+
+Tested with Python 3.10 through 3.15 with 99% code coverage across all supported versions.
+
+---
+
+## 📝 License
+
+This project is licensed under the MIT License. See the [LICENSE](https://github.com/bradh11/certmonitor/blob/main/LICENSE) file for details.
+
+**Full Changelog**: https://github.com/bradh11/certmonitor/compare/v0.4.0...v0.5.0
+
 ## [0.4.0] - 2026-06-14
 
 # 📦 CertMonitor v0.4.0 – Post-Quantum Readiness
