@@ -46,6 +46,7 @@ nav:
       - WeakCipher: validators/weak_cipher.md
       - SensitiveDate: validators/sensitive_date.md
       - Chain: validators/chain.md
+      - Revocation: validators/revocation.md
       - PqKeyExchange: validators/pq_key_exchange.md
       - PqChain: validators/pq_chain.md
       - PqSignature: validators/pq_signature.md

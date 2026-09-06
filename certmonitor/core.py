@@ -23,9 +23,14 @@ from certmonitor.protocol_handlers import starttls as starttls_negotiation
 from certmonitor.protocol_handlers.base import BaseProtocolHandler
 from certmonitor.protocol_handlers.connection import open_stream, open_tls_stream
 from certmonitor.protocol_handlers.proxy import ProxyConfig, parse_proxy
+from certmonitor.revocation import RevocationEvidence
 from certmonitor.protocol_handlers.ssh_handler import SSHHandler
 from certmonitor.protocol_handlers.ssl_handler import SSLHandler
 from certmonitor.validators import VALIDATORS
+
+
+# OpenSSL's X509_V_ERR_CERT_REVOKED, reported by a handshake with a CRL loaded.
+_X509_V_ERR_CERT_REVOKED = 23
 
 
 class CertMonitor:
@@ -1012,6 +1017,13 @@ class CertMonitor:
             return self.get_cipher_info()
         if source_name == "tls_probe":
             return self._fetch_tls_probe()
+        if source_name == "revocation":
+            cert_data = resolve("cert_data")
+            collection_error = self._source_error("cert_data", cert_data)
+            if collection_error is not None:
+                collection_error.setdefault("error", "MissingCertificate")
+                return collection_error
+            return self._fetch_revocation(cert_data)
         return {
             "error": "UnknownSource",
             "message": f"No fetcher registered for data source {source_name!r}.",
@@ -1136,6 +1148,87 @@ class CertMonitor:
             "error": type(last_error).__name__,
             "reason": str(last_error),
         }
+
+    def _fetch_revocation(self, cert_data: dict[str, Any]) -> RevocationEvidence:
+        """Build the lazy OCSP and CRL evidence the `revocation` validator reads."""
+        assert self.der is not None
+        return RevocationEvidence(
+            leaf_der=self.der,
+            chain_der=list(cert_data.get("chain_der") or [self.der]),
+            cert_info=cert_data.get("cert_info") or {},
+            timeout=self.timeout,
+            proxy=self.proxy,
+            crl_check=None if self.offline else self._check_crl,
+            offline=self.offline,
+        )
+
+    def _check_crl(self, crl_der: bytes) -> dict[str, Any]:
+        """Let OpenSSL judge the collected leaf against `crl_der`.
+
+        The CRL is loaded into a verifying context with `VERIFY_CRL_CHECK_LEAF`
+        and one more handshake is run. OpenSSL verifies the CRL's signature
+        against the trusted CA and its validity window, then reports
+        `certificate revoked` if the leaf is listed. The strict context is
+        tried first and the legacy one second, as for trust verification.
+        """
+        assert self.der is not None
+        with tempfile.NamedTemporaryFile("w", suffix=".pem", delete=False) as handle:
+            handle.write(
+                ssl.DER_cert_to_PEM_cert(crl_der).replace("CERTIFICATE", "X509 CRL")
+            )
+            crl_path = handle.name
+        try:
+            last_error: Exception | None = None
+            for legacy in (False, True):
+                try:
+                    context = ssl.create_default_context(
+                        cafile=self.cafile, capath=self.capath
+                    )
+                    context.check_hostname = False
+                    context.load_verify_locations(cafile=crl_path)
+                    context.verify_flags |= ssl.VERIFY_CRL_CHECK_LEAF
+                    if legacy:
+                        context.minimum_version = ssl.TLSVersion.MINIMUM_SUPPORTED
+                        context.set_ciphers("ALL:@SECLEVEL=0")
+                    if self.client_cert:
+                        context.load_cert_chain(self.client_cert, self.client_key)
+                    with open_tls_stream(
+                        self.connection_host,
+                        self.port,
+                        self.timeout,
+                        context,
+                        server_hostname=self.server_hostname,
+                        starttls=self.starttls,
+                        proxy=self.proxy,
+                    ) as secure:
+                        peer = secure.getpeercert(binary_form=True)
+                except ssl.SSLCertVerificationError as exc:
+                    message = getattr(exc, "verify_message", None) or str(exc)
+                    if exc.verify_code == _X509_V_ERR_CERT_REVOKED:
+                        return {"status": "revoked", "verify_code": exc.verify_code}
+                    return {
+                        "status": "error",
+                        "error": "CRLVerificationFailed",
+                        "reason": f"OpenSSL could not check the CRL: {message}",
+                        "verify_code": exc.verify_code,
+                    }
+                except (OSError, ValueError) as exc:
+                    last_error = exc
+                    continue
+                if peer != self.der:
+                    return {
+                        "status": "error",
+                        "error": "SnapshotMismatch",
+                        "reason": "The CRL check observed a different certificate; refresh and retry.",
+                    }
+                return {"status": "good"}
+            return {
+                "status": "error",
+                "error": type(last_error).__name__,
+                "reason": str(last_error),
+            }
+        finally:
+            os.unlink(crl_path)
 
     def _fetch_tls_probe(self) -> dict[str, Any]:
         """Probe the negotiated TLS 1.3 key-exchange group via the Rust probe.

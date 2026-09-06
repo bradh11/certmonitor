@@ -137,6 +137,50 @@ mod py {
         Ok(pyobj::probe_result_dict(py, &result)?.into())
     }
 
+    /// Parse a DER OCSP response (RFC 6960) into a dict: `response_status`,
+    /// the responder id, `produced_at`, per-certificate `responses`, and
+    /// the signed bytes and signature for verification. Never panics.
+    #[pyfunction]
+    pub(super) fn parse_ocsp_response(py: Python<'_>, der_data: Vec<u8>) -> PyResult<Py<PyAny>> {
+        let response = crate::x509::ocsp::OcspResponse::from_der(&der_data).map_err(to_py_err)?;
+        Ok(pyobj::ocsp_response_dict(py, &response)?.into())
+    }
+
+    /// The inputs an OCSP CertID is built from, or `None` when `issuer_der`
+    /// did not issue `leaf_der`.
+    #[pyfunction]
+    pub(super) fn ocsp_cert_id_inputs(
+        py: Python<'_>,
+        leaf_der: Vec<u8>,
+        issuer_der: Vec<u8>,
+    ) -> PyResult<Py<PyAny>> {
+        match crate::x509::ocsp::cert_id_inputs(&leaf_der, &issuer_der).map_err(to_py_err)? {
+            Some(inputs) => Ok(pyobj::cert_id_inputs_dict(py, &inputs)?.into()),
+            None => Ok(py.None()),
+        }
+    }
+
+    /// A DER CRL's issuer, validity window, and size.
+    #[pyfunction]
+    pub(super) fn crl_info(py: Python<'_>, der_data: Vec<u8>) -> PyResult<Py<PyAny>> {
+        let crl = crate::x509::crl::Crl::from_der(&der_data).map_err(to_py_err)?;
+        Ok(pyobj::crl_info_dict(py, &crl)?.into())
+    }
+
+    /// The CRL entry for a serial number (raw INTEGER bytes), or `None`.
+    #[pyfunction]
+    pub(super) fn crl_lookup(
+        py: Python<'_>,
+        der_data: Vec<u8>,
+        serial_number: Vec<u8>,
+    ) -> PyResult<Py<PyAny>> {
+        let crl = crate::x509::crl::Crl::from_der(&der_data).map_err(to_py_err)?;
+        match pyobj::crl_lookup_dict(py, &crl, &serial_number)? {
+            Some(entry) => Ok(entry.into()),
+            None => Ok(py.None()),
+        }
+    }
+
     #[pymodule]
     fn certinfo(m: &Bound<'_, PyModule>) -> PyResult<()> {
         m.add_function(wrap_pyfunction!(parse_public_key_info, m)?)?;
@@ -145,6 +189,10 @@ mod py {
         m.add_function(wrap_pyfunction!(analyze_chain, m)?)?;
         m.add_function(wrap_pyfunction!(pq_algorithms, m)?)?;
         m.add_function(wrap_pyfunction!(probe_tls_handshake, m)?)?;
+        m.add_function(wrap_pyfunction!(parse_ocsp_response, m)?)?;
+        m.add_function(wrap_pyfunction!(ocsp_cert_id_inputs, m)?)?;
+        m.add_function(wrap_pyfunction!(crl_info, m)?)?;
+        m.add_function(wrap_pyfunction!(crl_lookup, m)?)?;
         Ok(())
     }
 }

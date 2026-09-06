@@ -5,7 +5,7 @@ description: "Verify TLS certificate trust using Python SSLContext and the syste
 
 # RootCertificate Validator
 
-Checks whether the leaf certificate chains to a trusted CA using a separate, cryptographically verified TLS handshake; for full structural chain analysis use the [Chain](chain.md) validator.
+Checks whether the leaf certificate chains to a trusted CA using a separate, cryptographically verified TLS handshake; for full structural chain analysis use the [Chain](chain.md) validator, and for whether the certificate has since been revoked use the opt-in [Revocation](revocation.md) validator.
 
 !!! note "Enabled by default"
     `root_certificate` is one of the three default validators.
