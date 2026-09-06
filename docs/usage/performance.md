@@ -20,7 +20,7 @@ for scan in scan_hosts(hosts, max_workers=4, timeout=5):  # entries may be (host
 
 Results arrive in completion order, so a slow host doesn't hold up completed results. Each result includes the host, port, observation timestamp, and the usual validator results. At most `max_workers` endpoints are in flight; the input can be an iterator instead of a list.
 
-The default validators run unless you supply `enabled_validators`, and `validator_args` applies the same per-validator options to every host. This helper has a deliberately small interface. If you need per-host alternate names, custom CA files, or separate connection addresses, create your own `CertMonitor` inside each worker.
+The default validators run unless you supply `enabled_validators`, and `validator_args` applies the same per-validator options to every host. `cafile`, `capath`, `client_cert`, and `client_key` apply to every endpoint too, which covers a private PKI or a mutual-TLS fleet in one call. An endpoint that needs its own settings can be a dict: `{"host": "api.example.com", "connection_host": "192.0.2.10", "server_hostname": "api.example.com"}` targets one backend behind a load balancer, and `port`, `timeout`, and the CA and client-certificate options can be set the same way. If you need per-host validator arguments, create your own `CertMonitor` inside each worker.
 
 ## Use it from async code
 
