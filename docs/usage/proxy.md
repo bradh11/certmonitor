@@ -48,6 +48,6 @@ A proxy that refuses the tunnel, rejects the credentials, or answers unexpectedl
 
 `scan_hosts(proxy=...)` applies one proxy to every endpoint; an endpoint dict can carry its own `proxy`. `certmonitor check --proxy URL` applies to every target in that run.
 
-## Not yet through the proxy
+## Everything goes through the tunnel
 
-The native post-quantum probe opens its own connection and does not tunnel yet, so `pq_key_exchange` reports `status: unsupported` with a reason when a proxy is configured.
+Protocol detection, STARTTLS discovery, certificate collection, the verified trust handshake, and the native post-quantum probe all open their connections through the proxy. Nothing reaches the target directly, and the proxy resolves the target's name, so no DNS query for it leaves the scanning host either.

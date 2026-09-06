@@ -100,7 +100,12 @@ class TestConnectionOverridesReachEveryHandler:
         ):
             result = monitor.validate()["pq_key_exchange"]
         probe_fn.assert_called_once_with(
-            "192.0.2.10", 443, 4000, server_name="service.example.com", starttls=None
+            "192.0.2.10",
+            443,
+            4000,
+            server_name="service.example.com",
+            starttls=None,
+            proxy=None,
         )
         assert result["is_valid"] is True
         assert result["endpoint"] == "192.0.2.10:443"

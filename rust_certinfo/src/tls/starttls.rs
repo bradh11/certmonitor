@@ -8,12 +8,12 @@
 // nothing past the server's final reply is consumed. Every read and write
 // is bounded by the probe's deadline.
 
-use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::time::Instant;
 
+use crate::tls::wire;
+
 pub const PROTOCOLS: [&str; 6] = ["smtp", "imap", "pop3", "ftp", "postgres", "ldap"];
-const LINE_LIMIT: usize = 4096;
 const LDAP_STARTTLS_OID: &[u8] = b"1.3.6.1.4.1.1466.20037";
 const POSTGRES_SSL_REQUEST: [u8; 8] = [0, 0, 0, 8, 0x04, 0xd2, 0x16, 0x2f];
 
@@ -36,51 +36,18 @@ pub fn negotiate(stream: &mut TcpStream, protocol: &str, deadline: Instant) -> R
 
 // --- I/O helpers ---------------------------------------------------------------------
 
-fn arm(stream: &mut TcpStream, deadline: Instant) -> Result<(), String> {
-    let left = deadline.saturating_duration_since(Instant::now());
-    if left.is_zero() {
-        return Err("deadline elapsed during STARTTLS negotiation".into());
-    }
-    // macOS answers EINVAL when the peer has already closed the socket, so a
-    // failure here means the connection is gone, not that the deadline is bad.
-    stream
-        .set_read_timeout(Some(left))
-        .and_then(|_| stream.set_write_timeout(Some(left)))
-        .map_err(|e| format!("connection closed during STARTTLS negotiation ({e})"))
-}
+const WHAT: &str = "STARTTLS negotiation";
 
 fn send(stream: &mut TcpStream, bytes: &[u8], deadline: Instant) -> Result<(), String> {
-    arm(stream, deadline)?;
-    stream
-        .write_all(bytes)
-        .map_err(|e| format!("send failed during STARTTLS negotiation: {e}"))
+    wire::send(stream, bytes, deadline, WHAT)
 }
 
 fn read_exact(stream: &mut TcpStream, size: usize, deadline: Instant) -> Result<Vec<u8>, String> {
-    let mut data = vec![0u8; size];
-    let mut filled = 0;
-    while filled < size {
-        arm(stream, deadline)?;
-        match stream.read(&mut data[filled..]) {
-            Ok(0) => return Err("connection closed during STARTTLS negotiation".into()),
-            Ok(n) => filled += n,
-            Err(e) => return Err(format!("read failed during STARTTLS negotiation: {e}")),
-        }
-    }
-    Ok(data)
+    wire::read_exact(stream, size, deadline, WHAT)
 }
 
 fn read_line(stream: &mut TcpStream, deadline: Instant) -> Result<String, String> {
-    let mut line: Vec<u8> = Vec::new();
-    while !line.ends_with(b"\n") {
-        let byte = read_exact(stream, 1, deadline)?;
-        line.push(byte[0]);
-        if line.len() > LINE_LIMIT {
-            return Err("STARTTLS reply line too long".into());
-        }
-    }
-    let text = String::from_utf8_lossy(&line);
-    Ok(text.trim_end_matches(['\r', '\n']).to_string())
+    wire::read_line(stream, deadline, WHAT)
 }
 
 /// SMTP/FTP style reply: `NNN-` lines continue, `NNN ` (or short) ends it.
@@ -290,7 +257,7 @@ fn ldap(stream: &mut TcpStream, deadline: Instant) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::{BufRead, BufReader};
+    use std::io::{BufRead, BufReader, Read, Write};
     use std::net::TcpListener;
     use std::time::Duration;
 

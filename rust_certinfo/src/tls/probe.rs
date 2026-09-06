@@ -19,7 +19,6 @@
 //     needs a try/except around the call.
 
 use std::io::{Read, Write};
-use std::net::{TcpStream, ToSocketAddrs};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, SystemTime};
 
@@ -28,6 +27,7 @@ use crate::tls::handshake::{
 };
 use crate::tls::key_exchange_groups as groups;
 use crate::tls::mlkem_kat::MLKEM768_KAT_EK;
+use crate::tls::proxy::{self, Proxy};
 use crate::tls::records;
 use crate::tls::starttls;
 
@@ -124,52 +124,34 @@ fn sni_for(host: &str) -> Option<&str> {
 
 /// Run the probe against `host:port`. `server_name` is the SNI to offer;
 /// `None` derives it from `host` (omitted for IP literals either way).
-/// `starttls_protocol` runs that service's plaintext preamble first.
-/// `timeout` bounds the whole probe (connect + write + read), enforced as
-/// a deadline. Never panics.
+/// `starttls_protocol` runs that service's plaintext preamble first, and
+/// `proxy` tunnels the connection through an HTTP CONNECT or SOCKS5 proxy.
+/// `timeout` bounds the whole probe (connect + tunnel + preamble + write +
+/// read), enforced as a deadline. Never panics.
 pub fn probe(
     host: &str,
     port: u16,
     server_name: Option<&str>,
     starttls_protocol: Option<&str>,
+    proxy: Option<&Proxy>,
     timeout: Duration,
 ) -> ProbeResult {
     let deadline = std::time::Instant::now() + timeout;
 
-    // Resolve and connect to the first address that answers.
-    let addrs = match (host, port).to_socket_addrs() {
-        Ok(a) => a,
-        Err(e) => {
-            return ProbeResult::Error {
-                kind: "ResolveError".into(),
-                message: format!("could not resolve {host}:{port}: {e}"),
+    let mut stream = match proxy {
+        Some(proxy) => match proxy::connect(proxy, host, port, deadline) {
+            Ok(s) => s,
+            Err(message) => {
+                return ProbeResult::Error {
+                    kind: "ProxyError".into(),
+                    message,
+                }
             }
-        }
-    };
-    let mut stream = None;
-    let mut last_err = String::from("no addresses resolved");
-    for addr in addrs {
-        let remaining = remaining(deadline);
-        if remaining.is_zero() {
-            last_err = "timed out before connect".into();
-            break;
-        }
-        match TcpStream::connect_timeout(&addr, remaining) {
-            Ok(s) => {
-                stream = Some(s);
-                break;
-            }
-            Err(e) => last_err = e.to_string(),
-        }
-    }
-    let mut stream = match stream {
-        Some(s) => s,
-        None => {
-            return ProbeResult::Error {
-                kind: "ConnectError".into(),
-                message: format!("could not connect to {host}:{port}: {last_err}"),
-            }
-        }
+        },
+        None => match proxy::connect_direct(host, port, deadline) {
+            Ok(s) => s,
+            Err((kind, message)) => return ProbeResult::Error { kind, message },
+        },
     };
 
     if let Some(protocol) = starttls_protocol {
@@ -511,7 +493,7 @@ mod tests {
     #[test]
     fn connect_failure_is_error_not_panic() {
         // Port 1 on localhost: nothing listening, fast refusal.
-        let result = probe("127.0.0.1", 1, None, None, Duration::from_millis(500));
+        let result = probe("127.0.0.1", 1, None, None, None, Duration::from_millis(500));
         match result {
             ProbeResult::Error { kind, .. } => {
                 assert!(

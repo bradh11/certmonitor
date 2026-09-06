@@ -418,13 +418,19 @@ def tls_target(local_pki):
                     continue
                 except OSError:
                     return
-                try:
-                    conn.settimeout(3)
-                    secure = context.wrap_socket(conn, server_side=True)
-                    self.stop.wait(3)
-                    secure.close()
-                except (OSError, ssl.SSLError):
-                    conn.close()
+                # One thread per connection: a monitor keeps its collection
+                # connection open while the trust handshake and the probe
+                # connect, so serving them in turn would starve the later ones.
+                threading.Thread(target=self._handle, args=(conn,), daemon=True).start()
+
+        def _handle(self, conn):
+            try:
+                conn.settimeout(3)
+                secure = context.wrap_socket(conn, server_side=True)
+                self.stop.wait(3)
+                secure.close()
+            except (OSError, ssl.SSLError):
+                conn.close()
 
     with TLSTarget() as target:
         yield target
@@ -450,12 +456,16 @@ def test_monitor_collects_and_verifies_through_a_proxy(
         assert results["root_certificate"]["status"] == "pass", results[
             "root_certificate"
         ]
-        assert results["pq_key_exchange"]["status"] == "unsupported"
+        # The native probe tunnels too and negotiates a real group.
+        assert results["pq_key_exchange"]["status"] in ("pass", "fail"), results[
+            "pq_key_exchange"
+        ]
+        assert results["pq_key_exchange"]["kem_name"]
         assert (
             monitor.cert_data["source"]["proxy"] == f"{scheme}://127.0.0.1:{proxy.port}"
         )
-    # detection, collection, and the verified handshake all went through the proxy
-    assert len(proxy.requests) >= 3
+    # detection, collection, the verified handshake, and the probe all went through the proxy
+    assert len(proxy.requests) >= 4
     assert proxy.failures == []
 
 
@@ -639,3 +649,72 @@ def test_non_socket_failures_still_close_the_socket(monkeypatch):
     with pytest.raises(RuntimeError):
         open_connection("target.test", 443, 1, parse_proxy("http://proxy.test"))
     assert closed == [True]
+
+
+# --- the native probe tunnels through the proxy too ------------------------------
+
+
+def _probe_proxy(scheme, proxy, username=None, password=None):
+    return (scheme, "127.0.0.1", proxy.port, username, password)
+
+
+@pytest.mark.parametrize(
+    "scheme,handshake,username,password",
+    [
+        ("http", http_connect_ok, None, None),
+        ("http", http_connect_requires_auth, "alice", "secret"),
+        ("socks5", socks5_no_auth, None, None),
+        ("socks5", socks5_password, "bob", "hunter2"),
+    ],
+)
+def test_native_probe_tunnels_through_the_proxy(
+    tls_target, scheme, handshake, username, password
+):
+    from certmonitor import certinfo
+
+    with FakeProxy(handshake, ("127.0.0.1", tls_target.port)) as proxy:
+        result = certinfo.probe_tls_handshake(
+            "localhost",
+            tls_target.port,
+            3000,
+            proxy=_probe_proxy(scheme, proxy, username, password),
+        )
+        assert result["result"] == "group", result
+        assert result["name"]
+        last = proxy.requests[-1]
+        if scheme == "http":
+            assert last.startswith(b"CONNECT localhost:%d " % tls_target.port)
+        else:
+            assert last == ("localhost", tls_target.port)
+    assert proxy.failures == []
+
+
+@pytest.mark.parametrize(
+    "scheme,handshake,fragment",
+    [
+        ("http", http_connect_forbidden, "refused CONNECT"),
+        ("http", http_connect_requires_auth, "requires authentication"),
+        ("socks5", socks5_refuses, "connection refused"),
+        ("socks5", socks5_no_acceptable_method, "accepts none"),
+    ],
+)
+def test_native_probe_reports_proxy_refusals(scheme, handshake, fragment):
+    from certmonitor import certinfo
+
+    with FakeProxy(handshake) as proxy:
+        result = certinfo.probe_tls_handshake(
+            "target.test", 443, 3000, proxy=_probe_proxy(scheme, proxy)
+        )
+    assert result["result"] == "error"
+    assert result["error"] == "ProxyError"
+    assert fragment in result["message"]
+
+
+def test_native_probe_reports_an_unreachable_proxy():
+    from certmonitor import certinfo
+
+    result = certinfo.probe_tls_handshake(
+        "target.test", 443, 1000, proxy=("http", "127.0.0.1", 9, None, None)
+    )
+    assert result["error"] == "ProxyError"
+    assert "could not reach proxy http://127.0.0.1:9" in result["message"]
