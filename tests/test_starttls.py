@@ -4,6 +4,7 @@ import socket
 import ssl
 import struct
 import threading
+import time
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -415,3 +416,206 @@ def test_ldap_accepts_long_form_message_length():
     client_end, server_end = paired(reply)
     with client_end, server_end:
         negotiate(client_end, "ldap")
+
+
+# --- discovery: no protocol given, no port assumptions ------------------------------
+
+
+def smtp_bare_220(conn):
+    """An SMTP server whose greeting text gives nothing away."""
+    reader = _lines(conn)
+    conn.sendall(b"220 mail.test ready\r\n")
+    assert reader.readline().startswith(b"EHLO ")
+    conn.sendall(b"250-mail.test\r\n250-STARTTLS\r\n250 OK\r\n")
+    line = reader.readline().strip()
+    if line == b"STARTTLS":
+        conn.sendall(b"220 go ahead\r\n")
+
+
+def ftp_bare_220(conn):
+    """An FTP server whose greeting text gives nothing away."""
+    reader = _lines(conn)
+    conn.sendall(b"220-welcome\r\n220 files.test\r\n")
+    line = reader.readline().strip()
+    if line.startswith(b"EHLO"):
+        conn.sendall(b"500 Unknown command\r\n")
+        return
+    if line == b"AUTH TLS":
+        conn.sendall(b"234 proceed\r\n")
+
+
+def ssh_banner(conn):
+    conn.sendall(b"SSH-2.0-fake\r\n")
+    conn.recv(64)
+
+
+def silent(conn):
+    """Never speaks, never answers."""
+    while conn.recv(64):
+        pass
+
+
+def hangs_up(conn):
+    conn.close()
+
+
+def binary_greeting(conn):
+    conn.sendall(b"\x4a\x00\x00\x00\x0a5.7.0-fake")
+    conn.recv(64)
+
+
+def greets_then_hangs(conn):
+    conn.sendall(b"220 hello\r\n")
+    conn.recv(64)
+    conn.close()
+
+
+@pytest.mark.parametrize(
+    "preamble,expected",
+    [
+        (smtp_ok, "smtp"),
+        (smtp_bare_220, "smtp"),
+        (imap_ok, "imap"),
+        (pop3_ok, "pop3"),
+        (ftp_ok, "ftp"),
+        (ftp_bare_220, "ftp"),
+        (postgres_ok, "postgres"),
+        (postgres_declines, "postgres"),
+        (ldap_ok, "ldap"),
+        (ldap_refuses, "ldap"),
+        (ssh_banner, "ssh"),
+    ],
+)
+def test_discover_names_each_service_without_a_port_hint(preamble, expected):
+    with FakeServer(preamble) as server:
+        assert starttls.discover("127.0.0.1", server.port, 2) == expected
+
+
+@pytest.mark.parametrize(
+    "preamble", [silent, hangs_up, binary_greeting, greets_then_hangs]
+)
+def test_discover_gives_up_on_services_it_cannot_name(preamble):
+    with FakeServer(preamble) as server:
+        assert starttls.discover("127.0.0.1", server.port, 0.5) is None
+
+
+def test_discover_is_bounded_by_its_timeout():
+    with FakeServer(silent) as server:
+        started = time.monotonic()
+        assert starttls.discover("127.0.0.1", server.port, 0.4) is None
+        assert time.monotonic() - started < 1.5
+
+
+def test_discover_propagates_a_failed_connection():
+    with pytest.raises(OSError):
+        starttls.discover("127.0.0.1", 9, 0.5)
+
+
+@pytest.mark.parametrize(
+    "probe", [starttls._answers_ssl_request, starttls._answers_ldap_starttls]
+)
+def test_probes_treat_a_dead_socket_as_no_answer(probe):
+    ours, theirs = socket.socketpair()
+    theirs.close()
+    with ours:
+        assert probe(ours, 0.5) is False
+
+
+@pytest.mark.parametrize(
+    "protocol,preamble",
+    [
+        ("smtp", smtp_ok),
+        ("imap", imap_ok),
+        ("pop3", pop3_ok),
+        ("ftp", ftp_ok),
+        ("postgres", postgres_ok),
+        ("ldap", ldap_ok),
+    ],
+)
+def test_monitor_discovers_the_service_when_no_protocol_is_given(
+    local_pki, server_tls, protocol, preamble
+):
+    with FakeServer(preamble, server_tls) as server:
+        with CertMonitor(
+            "localhost",
+            server.port,
+            connection_host="127.0.0.1",
+            cafile=str(local_pki / "ca.pem"),
+            timeout=2,
+            enabled_validators=["hostname", "root_certificate"],
+        ) as monitor:
+            results = monitor.validate()
+            assert monitor.starttls == protocol
+        assert results["hostname"]["is_valid"] is True
+        assert results["root_certificate"]["status"] == "pass", results[
+            "root_certificate"
+        ]
+
+
+def test_discovery_runs_after_a_failed_tls_handshake(
+    local_pki, server_tls, monkeypatch
+):
+    with FakeServer(smtp_ok, server_tls) as server:
+        monitor = CertMonitor(
+            "localhost", server.port, connection_host="127.0.0.1", timeout=2
+        )
+        # Pretend the greeting had not arrived when detection peeked.
+        monkeypatch.setattr(monitor, "detect_protocol", MagicMock(return_value="ssl"))
+        with monitor:
+            assert monitor.connect() is None
+            assert monitor.starttls == "smtp"
+            assert monitor.protocol == "ssl"
+            assert monitor.get_cert_info()["subject"]
+
+
+def test_discovery_finds_ssh_after_a_failed_tls_handshake(monkeypatch):
+    with FakeServer(ssh_banner) as server:
+        monitor = CertMonitor("127.0.0.1", server.port, timeout=2)
+        monkeypatch.setattr(monitor, "detect_protocol", MagicMock(return_value="ssl"))
+        with monitor:
+            assert monitor.connect() is None
+            assert monitor.protocol == "ssh"
+            assert monitor.starttls is None
+
+
+def test_unnamed_service_keeps_the_original_tls_error(monkeypatch):
+    with FakeServer(silent) as server:
+        monitor = CertMonitor("127.0.0.1", server.port, timeout=0.5)
+        monkeypatch.setattr(monitor, "detect_protocol", MagicMock(return_value="ssl"))
+        result = monitor.connect()
+    assert result["error"] == "SSLError"
+    assert monitor.starttls is None
+
+
+def test_discovery_reports_connection_failures_as_not_found(monkeypatch):
+    monitor = CertMonitor("127.0.0.1", 9, timeout=0.5)
+    monkeypatch.setattr(starttls, "discover", MagicMock(side_effect=OSError("down")))
+    assert monitor._discover_service() is None
+
+
+def test_explicit_protocol_is_the_override(server_tls, monkeypatch):
+    discover = MagicMock(return_value="imap")
+    monkeypatch.setattr(starttls, "discover", discover)
+    with FakeServer(smtp_ok, server_tls) as server:
+        with CertMonitor(
+            "127.0.0.1", server.port, starttls="smtp", timeout=2
+        ) as monitor:
+            assert monitor.get_cert_info()["subject"]
+            assert monitor.starttls == "smtp"
+    discover.assert_not_called()
+
+
+def test_discover_treats_a_failed_second_connection_as_not_found(monkeypatch):
+    real_create_connection = socket.create_connection
+    attempts = []
+
+    def refuses_after_the_first(address, timeout=None):
+        attempts.append(address)
+        if len(attempts) > 1:
+            raise OSError("connection refused")
+        return real_create_connection(address, timeout=timeout)
+
+    monkeypatch.setattr(socket, "create_connection", refuses_after_the_first)
+    with FakeServer(silent) as server:
+        assert starttls.discover("127.0.0.1", server.port, 0.5) is None
+    assert len(attempts) == 2

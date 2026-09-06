@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import socket
 import struct
+import time
 from collections.abc import Callable
 
 PROTOCOLS = ("smtp", "imap", "pop3", "ftp", "postgres", "ldap")
@@ -44,6 +45,118 @@ def negotiate(
             f"unsupported STARTTLS protocol {protocol!r}; choose one of {', '.join(PROTOCOLS)}"
         )
     handler(sock, client_name)
+
+
+# --- discovery ----------------------------------------------------------------
+
+
+def discover(
+    host: str, port: int, timeout: float, *, client_name: str = "certmonitor"
+) -> str | None:
+    """Name the plaintext service on `host:port` so the right STARTTLS preamble can run.
+
+    Nothing here looks at the port number, so services on non-standard ports are
+    found just the same. A service that speaks first is named from its greeting:
+    IMAP (`* OK`), POP3 (`+OK`), SSH (`SSH-`), and the `220` greeting shared by
+    SMTP and FTP, which is settled by the greeting text or, failing that, by
+    whether the server answers `EHLO` with `250`. A service that stays silent is
+    asked, in turn, the PostgreSQL `SSLRequest` and the LDAP StartTLS request,
+    and is named from the reply. The whole exchange is bounded by `timeout`.
+
+    Args:
+        host: Address to connect to.
+        port: TCP port.
+        timeout: Total time budget in seconds for discovery.
+        client_name: Name announced in the `EHLO` used to tell SMTP from FTP.
+
+    Returns:
+        One of `PROTOCOLS`, `"ssh"` for an SSH banner, or `None` when the service
+        could not be named.
+
+    Raises:
+        OSError: If the first connection to the host fails.
+    """
+    deadline = time.monotonic() + timeout
+    with socket.create_connection((host, port), timeout=timeout) as sock:
+        greeting = _wait_for_greeting(sock, _remaining(deadline) / 2)
+        if greeting is not None:
+            return _name_greeting(sock, greeting, client_name)
+        if _answers_ssl_request(sock, _remaining(deadline) / 2):
+            return "postgres"
+    try:
+        with socket.create_connection(
+            (host, port), timeout=_remaining(deadline)
+        ) as sock:
+            if _answers_ldap_starttls(sock, _remaining(deadline)):
+                return "ldap"
+    except OSError:
+        return None
+    return None
+
+
+def _remaining(deadline: float) -> float:
+    """Seconds left before `deadline`, never below a tiny floor so socket calls stay blocking."""
+    return max(deadline - time.monotonic(), 0.01)
+
+
+def _wait_for_greeting(sock: socket.socket, timeout: float) -> list[str] | None:
+    """Return the server's greeting lines, or `None` if it stays silent or hangs up."""
+    sock.settimeout(timeout)
+    try:
+        lines = [_read_line(sock)]
+        while lines[-1].startswith("220-"):
+            lines.append(_read_line(sock))
+    except OSError:
+        return None
+    return lines
+
+
+def _name_greeting(
+    sock: socket.socket, lines: list[str], client_name: str
+) -> str | None:
+    first = lines[0]
+    if first.startswith("SSH-"):
+        return "ssh"
+    if first.startswith("* "):
+        return "imap"
+    if first.startswith("+OK"):
+        return "pop3"
+    if not first.startswith("220"):
+        return None
+    text = "\n".join(lines).upper()
+    if "SMTP" in text:
+        return "smtp"
+    if "FTP" in text:
+        return "ftp"
+    # Both SMTP and FTP greet with 220; only SMTP answers EHLO with 250.
+    try:
+        sock.sendall(f"EHLO {client_name}\r\n".encode("ascii"))
+        code, _ = _read_reply(sock)
+    except OSError:
+        return None
+    return "smtp" if code == "250" else "ftp"
+
+
+def _answers_ssl_request(sock: socket.socket, timeout: float) -> bool:
+    """Send the PostgreSQL `SSLRequest`; any of its one-byte answers names PostgreSQL."""
+    sock.settimeout(timeout)
+    try:
+        sock.sendall(struct.pack("!ii", 8, _POSTGRES_SSL_REQUEST_CODE))
+        reply = sock.recv(1)
+    except OSError:
+        return False
+    return reply in (b"S", b"N", b"E")
+
+
+def _answers_ldap_starttls(sock: socket.socket, timeout: float) -> bool:
+    """Send the LDAP StartTLS request; any LDAPMessage reply (a BER SEQUENCE) names LDAP."""
+    sock.settimeout(timeout)
+    try:
+        sock.sendall(ldap_starttls_request())
+        reply = sock.recv(1)
+    except OSError:
+        return False
+    return reply == b"\x30"
 
 
 # --- line-oriented protocols -------------------------------------------------

@@ -267,7 +267,10 @@ def _add_connection_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--starttls",
         choices=STARTTLS_PROTOCOLS,
-        help="run this protocol's STARTTLS preamble before the TLS handshake",
+        help=(
+            "run this protocol's STARTTLS preamble before the TLS handshake "
+            "(discovered automatically when omitted)"
+        ),
     )
     parser.add_argument("--host", help="identity to check for --file targets")
 

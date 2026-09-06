@@ -13,7 +13,7 @@ rename the headers to emoji form when cutting a release.
 ## [Unreleased]
 
 ### Added
-- STARTTLS support: `starttls="smtp"`, `"imap"`, `"pop3"`, `"ftp"`, `"postgres"`, or `"ldap"` on `CertMonitor`, `scan_hosts()` endpoints, and `certmonitor check --starttls` runs the service's preamble before the TLS handshake, for both collection and the verified trust handshake. The post-quantum probe reports `unsupported` for STARTTLS endpoints (#88).
+- STARTTLS support for SMTP, IMAP, POP3, FTP, PostgreSQL, and LDAP. When a port does not answer a TLS handshake, CertMonitor discovers the service from its greeting or from the PostgreSQL and LDAP StartTLS requests, without looking at the port number, and runs the right preamble before the TLS handshake for both collection and the verified trust handshake. `starttls="smtp"` (and the other names) on `CertMonitor`, `scan_hosts()` endpoints, and `certmonitor check --starttls` is the override that skips discovery. The post-quantum probe reports `unsupported` for STARTTLS endpoints (#88).
 
 ### Changed
 - `certmonitor validators` separates each validator with a blank line.

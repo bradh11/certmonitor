@@ -70,7 +70,8 @@ def scan_hosts(
         client_key: Client private key, if separate from `client_cert`.
         starttls: STARTTLS protocol name applied to every endpoint (`"smtp"`,
             `"imap"`, `"pop3"`, `"ftp"`, `"postgres"`, `"ldap"`); endpoint
-            dicts may set their own.
+            dicts may set their own. Unset, each monitor discovers the service
+            itself when the port does not speak TLS directly.
 
     Raises:
         ValueError: If `max_workers` or `timeout` is not positive.
