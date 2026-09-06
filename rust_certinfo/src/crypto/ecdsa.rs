@@ -241,7 +241,10 @@ fn parse_signature(der: &[u8]) -> Result<(BigUint, BigUint), VerifyError> {
         .map_err(|_| VerifyError::Malformed("ECDSA signature"))?;
     top.end()
         .map_err(|_| VerifyError::Malformed("ECDSA signature"))?;
-    Ok((BigUint::from_be_bytes(r), BigUint::from_be_bytes(s)))
+    // r and s are positive INTEGERs; a sign bit or padding zeros is not DER.
+    let r = BigUint::from_der_positive(r).ok_or(VerifyError::Malformed("ECDSA r"))?;
+    let s = BigUint::from_der_positive(s).ok_or(VerifyError::Malformed("ECDSA s"))?;
+    Ok((r, s))
 }
 
 /// Verify a DER-encoded ECDSA signature over `digest` with `key`.
@@ -343,6 +346,19 @@ mod tests {
         signature[last] ^= 1;
         assert!(!verify(&k256, &hex_bytes(DIGEST256), &signature).unwrap());
         assert!(verify(&k256, &hex_bytes(DIGEST256), &[0x30, 0x00]).is_err());
+        // Wycheproof "MissingZero" and "prepending 0's": non-canonical INTEGERs.
+        let good = hex_bytes(P256_SIG);
+        assert_eq!(good[36..39], [0x02, 0x21, 0x00]); // s is 0x21 bytes with a leading 0
+        let mut missing_zero = good.clone();
+        missing_zero.remove(38);
+        missing_zero[37] = 0x20;
+        missing_zero[1] -= 1;
+        assert!(verify(&k256, &hex_bytes(DIGEST256), &missing_zero).is_err());
+        let mut padded = good.clone();
+        padded.insert(4, 0x00);
+        padded[3] += 1;
+        padded[1] += 1;
+        assert!(verify(&k256, &hex_bytes(DIGEST256), &padded).is_err());
         assert!(verify(&k256, &hex_bytes(DIGEST256), &[0x04, 0x00]).is_err());
         // r or s outside [1, n-1] fails without any curve arithmetic.
         let zero_r = der_signature("00", "01");

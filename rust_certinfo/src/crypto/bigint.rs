@@ -30,6 +30,18 @@ impl BigUint {
         n
     }
 
+    /// Decode the value bytes of a DER INTEGER that must be positive and
+    /// canonically encoded: non-empty, no sign bit, and a leading zero only
+    /// when the next byte needs it. Anything else is `None`.
+    pub fn from_der_positive(bytes: &[u8]) -> Option<Self> {
+        match bytes {
+            [] => None,
+            [first, ..] if first & 0x80 != 0 => None,
+            [0, second, ..] if second & 0x80 == 0 => None,
+            _ => Some(Self::from_be_bytes(bytes)),
+        }
+    }
+
     pub fn from_be_bytes(bytes: &[u8]) -> Self {
         let mut limbs = Vec::with_capacity(bytes.len().div_ceil(4));
         for chunk in bytes.rchunks(4) {
@@ -384,6 +396,114 @@ mod tests {
         assert!(n.bit(0) && !n.bit(8) && n.bit(71));
         assert!(BigUint::zero().to_be_bytes(0).unwrap().is_empty());
         assert!(!BigUint::zero().is_odd() && hex("03").is_odd());
+    }
+
+    #[test]
+    fn der_integers_must_be_canonical_and_positive() {
+        assert_eq!(
+            BigUint::from_der_positive(&[0x7f]),
+            Some(BigUint::from_u64(0x7f))
+        );
+        assert_eq!(
+            BigUint::from_der_positive(&[0x00, 0x80]),
+            Some(BigUint::from_u64(0x80))
+        );
+        assert_eq!(BigUint::from_der_positive(&[0x00]), Some(BigUint::zero()));
+        assert!(BigUint::from_der_positive(&[]).is_none());
+        assert!(BigUint::from_der_positive(&[0x80]).is_none(), "negative");
+        assert!(
+            BigUint::from_der_positive(&[0x00, 0x7f]).is_none(),
+            "non-minimal"
+        );
+        assert!(
+            BigUint::from_der_positive(&[0x00, 0x00, 0x80]).is_none(),
+            "non-minimal"
+        );
+    }
+
+    /// splitmix64, so the property tests are random but reproducible.
+    struct Rng(u64);
+
+    impl Rng {
+        fn next(&mut self) -> u64 {
+            self.0 = self.0.wrapping_add(0x9E37_79B9_7F4A_7C15);
+            let mut z = self.0;
+            z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+            z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+            z ^ (z >> 31)
+        }
+
+        fn big(&mut self, max_bytes: usize) -> BigUint {
+            let len = (self.next() as usize) % (max_bytes + 1);
+            let bytes: Vec<u8> = (0..len).map(|_| self.next() as u8).collect();
+            BigUint::from_be_bytes(&bytes)
+        }
+    }
+
+    #[test]
+    fn division_invariants_hold_on_random_inputs() {
+        let mut rng = Rng(0x5eed);
+        for _ in 0..3000 {
+            let n = rng.big(256);
+            let mut d = rng.big(128);
+            if d.is_zero() {
+                d = BigUint::one();
+            }
+            let (q, r) = n.divrem(&d);
+            assert!(r < d, "remainder must be below the divisor");
+            assert_eq!(q.mul(&d).add(&r), n, "q*d + r must rebuild n");
+            let (q2, r2) = n.mul(&d).add(&r).divrem(&d);
+            assert_eq!((q2, r2), (n.clone(), r), "(n*d + r) / d must give n back");
+        }
+    }
+
+    #[test]
+    fn ring_laws_hold_on_random_inputs() {
+        let mut rng = Rng(0xabc);
+        for _ in 0..2000 {
+            let (a, b, c) = (rng.big(96), rng.big(96), rng.big(96));
+            assert_eq!(a.mul(&b), b.mul(&a));
+            assert_eq!(a.add(&b), b.add(&a));
+            assert_eq!(a.mul(&b).mul(&c), a.mul(&b.mul(&c)));
+            assert_eq!(a.mul(&b.add(&c)), a.mul(&b).add(&a.mul(&c)));
+            assert_eq!(a.add(&b).sub(&b), a);
+            let width = a
+                .to_be_bytes(0)
+                .map(|_| 0)
+                .unwrap_or(a.bit_len().div_ceil(8));
+            assert_eq!(BigUint::from_be_bytes(&a.to_be_bytes(width).unwrap()), a);
+        }
+    }
+
+    #[test]
+    fn mod_pow_matches_repeated_multiplication_and_fermat() {
+        let mut rng = Rng(0xf00d);
+        for _ in 0..300 {
+            let base = rng.big(64);
+            let mut modulus = rng.big(64);
+            if modulus.is_zero() {
+                modulus = BigUint::from_u64(97);
+            }
+            let exponent = (rng.next() % 40) as usize;
+            let mut expected = BigUint::one().rem(&modulus);
+            for _ in 0..exponent {
+                expected = expected.mul(&base).rem(&modulus);
+            }
+            assert_eq!(
+                base.mod_pow(&BigUint::from_u64(exponent as u64), &modulus),
+                expected
+            );
+        }
+        // Fermat's little theorem with the (prime) P-256 group order.
+        let n = hex("ffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632551");
+        let n_minus_one = n.sub(&BigUint::one());
+        for _ in 0..50 {
+            let mut a = rng.big(32).rem(&n);
+            if a.is_zero() {
+                a = BigUint::from_u64(2);
+            }
+            assert_eq!(a.mod_pow(&n_minus_one, &n), BigUint::one());
+        }
     }
 
     fn hex_bytes(text: &str) -> Vec<u8> {

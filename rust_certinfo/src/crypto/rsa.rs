@@ -81,8 +81,10 @@ impl RsaPublicKey {
             .map_err(|_| VerifyError::Malformed("RSA exponent"))?;
         seq.end()
             .map_err(|_| VerifyError::Malformed("RSAPublicKey"))?;
-        let modulus = BigUint::from_be_bytes(modulus);
-        let exponent = BigUint::from_be_bytes(exponent);
+        let modulus = BigUint::from_der_positive(modulus)
+            .ok_or(VerifyError::Malformed("RSA modulus encoding"))?;
+        let exponent = BigUint::from_der_positive(exponent)
+            .ok_or(VerifyError::Malformed("RSA exponent encoding"))?;
         if modulus.bit_len() < 512 || !modulus.is_odd() || exponent < BigUint::from_u64(3) {
             return Err(VerifyError::Malformed("RSA key parameters"));
         }
