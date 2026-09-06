@@ -6,12 +6,13 @@ that says what the source reported and whether that answer is proven.
 
 OCSP requests are built here, hashed with `hashlib`, sent with the small
 HTTP client in `protocol_handlers.http`, and parsed by the in-house Rust
-DER parser. The responder's signature is not verified yet, so every OCSP
-answer carries `signature_verified: False` until in-tree verification
-lands. CRLs are fetched here and judged by OpenSSL: the monitor loads the
-CRL into a verifying TLS context, so a `good` or `revoked` CRL answer is
-backed by OpenSSL's signature and validity checks and carries
-`signature_verified: True`.
+DER parser, which also verifies the responder's signature (RSA PKCS#1 v1.5
+and ECDSA over P-256 and P-384). A response signed by the issuing CA, or by
+a delegated responder certificate the CA issued for OCSP signing, carries
+`signature_verified: True`; anything else says why in `verification_error`.
+CRLs are fetched here and judged by OpenSSL: the monitor loads the CRL into
+a verifying TLS context, so a `good` or `revoked` CRL answer is backed by
+OpenSSL's signature and validity checks.
 
 Fetched CRLs and OCSP answers are cached process-wide until their
 `nextUpdate`, so a fleet scan downloads each CA's CRL once. A monitor built
@@ -38,6 +39,7 @@ OCSP_CONTENT_TYPE = "application/ocsp-request"
 OCSP_RESPONSE_TYPE = "application/ocsp-response"
 
 _OID_SHA1 = b"\x06\x05\x2b\x0e\x03\x02\x1a"
+_OID_OCSP_SIGNING = "1.3.6.1.5.5.7.3.9"
 _CACHE_FLOOR_SECONDS = 5 * 60
 _CACHE_CEILING_SECONDS = 24 * 60 * 60
 _DEFAULT_TTL_SECONDS = 60 * 60
@@ -215,7 +217,9 @@ def check_ocsp(
     cached = OCSP_CACHE.get(key, now)
     if cached is not None:
         return {**cached, "cached": True}
-    answer = _ask_ocsp(request, expected, url, timeout=timeout, proxy=proxy, now=now)
+    answer = _ask_ocsp(
+        request, expected, url, issuer_der, timeout=timeout, proxy=proxy, now=now
+    )
     if answer["status"] in ("good", "revoked", "unknown"):
         OCSP_CACHE.put(key, answer, _expiry_for(answer.get("_next_update"), now))
     return {**answer, "cached": False}
@@ -225,6 +229,7 @@ def _ask_ocsp(
     request: bytes,
     expected: dict[str, str],
     url: str,
+    issuer_der: bytes,
     *,
     timeout: float,
     proxy: ProxyConfig | None,
@@ -285,6 +290,12 @@ def _ask_ocsp(
             reason=f"OCSP response expired at {format_time(single['next_update'])}",
         )
         return answer
+    verified, problem = verify_ocsp_response(
+        parsed, issuer_der, expected["issuer_key_hash"], now
+    )
+    answer["signature_verified"] = verified
+    if problem is not None:
+        answer["verification_error"] = problem
     answer.update(
         status=single["status"],
         produced_at=format_time(parsed["produced_at"]),
@@ -297,6 +308,81 @@ def _ask_ocsp(
         _next_update=single["next_update"],
     )
     return answer
+
+
+def _signed_by(
+    signer_spki: bytes, algorithm: str, tbs: bytes, signature: bytes
+) -> tuple[bool, str | None]:
+    """Check one signature; `(False, why)` when it fails or cannot be checked."""
+    hash_name = certinfo.signature_hash(algorithm)  # type: ignore[attr-defined]
+    if hash_name is None:
+        return False, f"unsupported signature algorithm {algorithm}"
+    digest = hashlib.new(hash_name, tbs).digest()
+    try:
+        ok = certinfo.verify_signature(  # type: ignore[attr-defined]
+            algorithm, digest, signature, signer_spki
+        )
+    except ValueError as exc:
+        return False, str(exc)
+    return ok, None if ok else "signature does not verify"
+
+
+def verify_ocsp_response(
+    parsed: dict[str, Any], issuer_der: bytes, issuer_key_hash: str, now: float
+) -> tuple[bool, str | None]:
+    """Verify a parsed OCSP response against the certificate's issuer.
+
+    The response is accepted when it is signed by the issuer itself, or by a
+    responder certificate that the issuer signed, that carries the OCSP
+    signing extended key usage, and that is valid at `now` (RFC 6960 §4.2.2.2).
+
+    Returns `(True, None)` when verified, else `(False, reason)`.
+    """
+    issuer = certinfo.certificate_signature_parts(issuer_der)  # type: ignore[attr-defined]
+    algorithm = parsed["signature_algorithm"]
+    tbs = parsed["tbs_response_data"]
+    signature = parsed["signature"]
+    if not tbs or not signature or algorithm is None:
+        return False, "response carries no signature"
+
+    def names_issuer(name_der: bytes | None, key_hash: str | None) -> bool:
+        return name_der == issuer["subject_der"] or key_hash == issuer_key_hash
+
+    if names_issuer(parsed["responder_name_der"], parsed["responder_key_hash"]):
+        return _signed_by(issuer["spki"], algorithm, tbs, signature)
+
+    for cert_der in parsed["certs"]:
+        try:
+            responder = certinfo.certificate_signature_parts(cert_der)  # type: ignore[attr-defined]
+        except ValueError:
+            continue
+        key_hash = hashlib.sha1(
+            responder["key_bits"], usedforsecurity=False
+        ).hexdigest()
+        if not names_issuer(responder["subject_der"], key_hash) and not (
+            parsed["responder_name_der"] == responder["subject_der"]
+            or parsed["responder_key_hash"] == key_hash
+        ):
+            continue
+        if responder["issuer_der"] != issuer["subject_der"]:
+            return False, "responder certificate was not issued by the certificate's CA"
+        if _OID_OCSP_SIGNING not in responder["extended_key_usage"]:
+            return (
+                False,
+                "responder certificate lacks the OCSP signing extended key usage",
+            )
+        if not responder["not_before"] <= now <= responder["not_after"]:
+            return False, "responder certificate is not currently valid"
+        ok, problem = _signed_by(
+            issuer["spki"],
+            responder["signature_algorithm"],
+            responder["tbs"],
+            responder["signature"],
+        )
+        if not ok:
+            return False, f"responder certificate: {problem}"
+        return _signed_by(responder["spki"], algorithm, tbs, signature)
+    return False, "response is not signed by the issuer or an authorized responder"
 
 
 # --- CRL -----------------------------------------------------------------------------

@@ -49,7 +49,8 @@ def probe_tls_handshake(
 def parse_ocsp_response(der_data: bytes) -> dict[str, Any]:
     """Parse a DER OCSP response (RFC 6960).
 
-    Returns `response_status`, `responder_name` or `responder_key_hash`,
+    Returns `response_status`, `responder_name` (with `responder_name_der`) or
+    `responder_key_hash`,
     `produced_at` (unix seconds), `signature_algorithm`, `signature`,
     `tbs_response_data` (the signed bytes), `certs` (attached responder
     certificates as DER), and `responses`: one dict per certificate with
@@ -78,5 +79,31 @@ def crl_lookup(der_data: bytes, serial_number: bytes) -> dict[str, Any] | None:
     """The CRL entry for `serial_number` (raw INTEGER bytes, leading zeros
     ignored): `revocation_time` and `revocation_reason`, or `None` when the
     serial is not listed.
+    """
+    ...
+
+def signature_hash(algorithm: str) -> str | None:
+    """The `hashlib` name (`sha1`, `sha256`, `sha384`, `sha512`) implied by a
+    signature algorithm OID in dotted form, or `None` when CertMonitor cannot
+    verify that algorithm (RSA PKCS#1 v1.5 and ECDSA are supported).
+    """
+    ...
+
+def verify_signature(
+    algorithm: str, digest: bytes, signature: bytes, spki_der: bytes
+) -> bool:
+    """Verify `signature` over `digest` with the public key in `spki_der`
+    (a DER SubjectPublicKeyInfo). `digest` must already be hashed with the
+    algorithm `signature_hash(algorithm)` names. Returns `False` for a
+    signature that does not verify; raises `ValueError` when the algorithm,
+    curve, or key is unsupported or malformed.
+    """
+    ...
+
+def certificate_signature_parts(der_data: bytes) -> dict[str, Any]:
+    """The pieces needed to verify a certificate's own signature and to use it
+    as a signer: `tbs`, `signature`, `signature_algorithm`, `spki`, `key_bits`,
+    `subject`, `subject_der`, `issuer_der`, `not_before`, `not_after` (unix
+    seconds), and `extended_key_usage` (OIDs in dotted form).
     """
     ...

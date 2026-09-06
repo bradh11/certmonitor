@@ -33,14 +33,17 @@ class RevocationValidator(_ValidatorBase):
     Each method is tried in order. A `revoked` answer from any method fails
     the check at once. A `good` answer passes only when it is proven: CRL
     answers are, because OpenSSL verifies the CRL's signature and validity
-    while loading it; OCSP answers are not yet, so by default an OCSP
-    `good` is reported as a warning unless a verified method confirms it.
-    Set `accept_unverified=True` to let an unverified OCSP `good` pass.
+    while loading it; OCSP answers are, when the response is signed by the
+    issuing CA or an authorized responder with RSA PKCS#1 v1.5 or ECDSA
+    (P-256, P-384). An OCSP `good` that cannot be verified, for example one
+    signed with an algorithm CertMonitor does not implement, is reported as
+    a warning unless a verified method confirms it, or
+    `accept_unverified=True` accepts the responder's word.
 
     Args:
         methods: Order in which to consult `"ocsp"` and `"crl"`. Defaults
             to OCSP first, then the CRL.
-        accept_unverified: Treat an OCSP `good` whose signature was not
+        accept_unverified: Treat an OCSP `good` whose signature could not be
             verified as a pass instead of a warning.
 
     Example:
@@ -96,8 +99,10 @@ class RevocationValidator(_ValidatorBase):
                 status="warn",
                 warnings=[
                     "The OCSP responder reported the certificate as good, but the "
-                    "response signature was not verified. Set accept_unverified=True "
-                    "to treat it as proof, or enable the crl method for a verified answer."
+                    "response could not be verified ("
+                    + str(unverified_good.get("verification_error", "unknown reason"))
+                    + "). Set accept_unverified=True to treat it as proof, or enable "
+                    "the crl method for a verified answer."
                 ],
             )
         if all(answer["status"] == "unsupported" for answer in answers.values()):

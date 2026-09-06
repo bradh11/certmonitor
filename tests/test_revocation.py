@@ -94,9 +94,18 @@ class TLSServer:
 class RevocationPKI:
     """A CA with a good and a revoked leaf, a published CRL, and an OCSP responder."""
 
-    def __init__(self, directory: Path, openssl: str):
+    def __init__(
+        self,
+        directory: Path,
+        openssl: str,
+        key_type: str = "rsa",
+        ca_name: str = "CertMonitor Revocation CA",
+    ):
         self.directory = directory
         self.openssl = openssl
+        self.key_type = key_type
+        self.ca_name = ca_name
+        self.signer = "ca"  # which key answers OCSP: "ca" or "responder"
         self.crl_listener = _listener()
         self.ocsp_listener = _listener()
         self.crl_port = self.crl_listener.getsockname()[1]
@@ -124,6 +133,11 @@ class RevocationPKI:
     def ocsp_url(self) -> str:
         return f"http://127.0.0.1:{self.ocsp_port}"
 
+    def newkey(self) -> list[str]:
+        if self.key_type == "ec":
+            return ["-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:P-256"]
+        return ["-newkey", "rsa:2048"]
+
     def _build(self) -> None:
         directory = self.directory
         (directory / "newcerts").mkdir()
@@ -145,21 +159,28 @@ class RevocationPKI:
             f"authorityInfoAccess = OCSP;URI:{self.ocsp_url},"
             f"caIssuers;URI:http://127.0.0.1:{self.crl_port}/ca.pem\n"
             f"crlDistributionPoints = URI:{self.crl_url}\n"
+            "[ v3_ocsp ]\nbasicConstraints = critical,CA:FALSE\n"
+            "keyUsage = critical,digitalSignature\nextendedKeyUsage = OCSPSigning\n"
+            "authorityKeyIdentifier = keyid,issuer\nsubjectKeyIdentifier = hash\n"
             "[ req ]\ndistinguished_name = dn\n[ dn ]\n"
         )
         self.run(
-            "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-keyout", "ca.key",
-            "-out", "ca.pem", "-days", "2", "-subj", "/CN=CertMonitor Revocation CA",
+            "req", "-x509", *self.newkey(), "-nodes", "-keyout", "ca.key",
+            "-out", "ca.pem", "-days", "2", "-subj", f"/CN={self.ca_name}",
             "-addext", "basicConstraints=critical,CA:TRUE",
             "-addext", "keyUsage=critical,keyCertSign,cRLSign",
         )  # fmt: skip
-        for name in ("good", "revoked"):
+        for name, section in (
+            ("good", "v3_leaf"),
+            ("revoked", "v3_leaf"),
+            ("responder", "v3_ocsp"),
+        ):
             self.run(
-                "req", "-new", "-newkey", "rsa:2048", "-nodes", "-keyout", f"{name}.key",
+                "req", "-new", *self.newkey(), "-nodes", "-keyout", f"{name}.key",
                 "-out", f"{name}.csr", "-subj", f"/CN={name}.test",
             )  # fmt: skip
             self.run(
-                "ca", "-config", "ca.cnf", "-batch", "-extensions", "v3_leaf",
+                "ca", "-config", "ca.cnf", "-batch", "-extensions", section,
                 "-in", f"{name}.csr", "-out", f"{name}.pem", "-notext",
             )  # fmt: skip
             bundle = (directory / f"{name}.pem").read_text() + self.ca_pem.read_text()
@@ -208,9 +229,10 @@ class RevocationPKI:
                     response_path = Path(scratch) / "response.der"
                     request_path.write_bytes(request)
                     pki.run(
-                        "ocsp", "-index", "index.txt", "-CA", "ca.pem", "-rsigner", "ca.pem",
-                        "-rkey", "ca.key", "-reqin", str(request_path),
-                        "-respout", str(response_path), "-ndays", "1",
+                        "ocsp", "-index", "index.txt", "-CA", "ca.pem",
+                        "-rsigner", f"{pki.signer}.pem", "-rkey", f"{pki.signer}.key",
+                        "-reqin", str(request_path), "-respout", str(response_path),
+                        "-ndays", "1",
                     )  # fmt: skip
                     body = response_path.read_bytes()
                 self.send_response(200)
@@ -236,6 +258,21 @@ def pki(tmp_path_factory):
     if openssl is None:
         pytest.skip("OpenSSL CLI required to build the revocation fixtures")
     built = RevocationPKI(tmp_path_factory.mktemp("revocation"), openssl)
+    yield built
+    built.close()
+
+
+@pytest.fixture(scope="module")
+def ec_pki(tmp_path_factory):
+    openssl = shutil.which("openssl")
+    if openssl is None:
+        pytest.skip("OpenSSL CLI required to build the revocation fixtures")
+    built = RevocationPKI(
+        tmp_path_factory.mktemp("revocation-ec"),
+        openssl,
+        key_type="ec",
+        ca_name="CertMonitor EC Revocation CA",
+    )
     yield built
     built.close()
 
@@ -308,18 +345,72 @@ def test_revoked_certificate_via_crl_fails_with_the_entry(pki):
     assert result["methods"]["crl"]["verify_code"] == 23
 
 
-def test_ocsp_good_is_a_warning_until_verified(pki):
+def test_ocsp_good_signed_by_the_ca_is_a_verified_pass(pki):
     server, options = monitor_for(pki, "good")
     with server, CertMonitor("localhost", server.port, **options) as monitor:
         result = monitor.validate({"revocation": {"methods": ["ocsp"]}})["revocation"]
-    assert result["status"] == "warn", result
-    assert result["is_valid"] is True
+    assert result["status"] == "pass", result
     assert result["revocation_status"] == "good"
     assert result["source"] == "ocsp"
-    assert result["signature_verified"] is False
-    assert "not verified" in result["warnings"][0]
+    assert result["signature_verified"] is True
+    assert "verification_error" not in result["methods"]["ocsp"]
     assert result["methods"]["ocsp"]["responder_name"]["commonName"].endswith("CA")
     assert pki.ocsp_requests
+
+
+def test_ocsp_signed_by_a_delegated_responder_is_verified(pki):
+    server, options = monitor_for(pki, "good")
+    pki.signer = "responder"
+    try:
+        with server, CertMonitor("localhost", server.port, **options) as monitor:
+            result = monitor.validate({"revocation": {"methods": ["ocsp"]}})[
+                "revocation"
+            ]
+    finally:
+        pki.signer = "ca"
+    assert result["status"] == "pass", result
+    assert result["signature_verified"] is True
+    assert result["methods"]["ocsp"]["responder_name"]["commonName"] == "responder.test"
+
+
+def test_ocsp_signed_by_an_ecdsa_ca_is_verified(ec_pki):
+    server, options = monitor_for(ec_pki, "good")
+    with server, CertMonitor("localhost", server.port, **options) as monitor:
+        result = monitor.validate()["revocation"]
+    assert result["status"] == "pass", result
+    assert result["source"] == "ocsp"
+    assert result["signature_verified"] is True
+    assert result["methods"]["ocsp"]["responder_key_hash"] is None
+    revoked_server, options = monitor_for(ec_pki, "revoked")
+    with (
+        revoked_server,
+        CertMonitor("localhost", revoked_server.port, **options) as monitor,
+    ):
+        result = monitor.validate({"revocation": {"methods": ["crl"]}})["revocation"]
+    assert (
+        result["status"] == "fail" and result["revocation_reason"] == "key_compromise"
+    )
+
+
+def test_tampered_ocsp_response_is_a_warning_with_the_reason(pki, monkeypatch):
+    real_fetch = http.fetch
+
+    def flip_a_signature_byte(url, **kwargs):
+        body = bytearray(real_fetch(url, **kwargs))
+        signature = certinfo.parse_ocsp_response(bytes(body))["signature"]
+        body[body.find(signature)] ^= 0x01
+        return bytes(body)
+
+    monkeypatch.setattr(http, "fetch", flip_a_signature_byte)
+    server, options = monitor_for(pki, "good", chain=True)
+    with server, CertMonitor("localhost", server.port, **options) as monitor:
+        result = monitor.validate({"revocation": {"methods": ["ocsp"]}})["revocation"]
+    assert result["status"] == "warn", result
+    assert result["signature_verified"] is False
+    assert (
+        result["methods"]["ocsp"]["verification_error"] == "signature does not verify"
+    )
+    assert "signature does not verify" in result["warnings"][0]
 
 
 def test_ocsp_good_passes_when_unverified_answers_are_accepted(pki):
@@ -332,15 +423,28 @@ def test_ocsp_good_passes_when_unverified_answers_are_accepted(pki):
     assert result["source"] == "ocsp"
 
 
-def test_default_order_falls_through_to_the_verified_crl(pki):
+def test_default_order_stops_at_a_verified_ocsp_answer(pki):
     server, options = monitor_for(pki, "good")
     with server, CertMonitor("localhost", server.port, **options) as monitor:
         result = monitor.validate()["revocation"]
-    # OCSP said good but unverified, so the CRL was consulted and proved it.
+    assert result["status"] == "pass", result
+    assert result["source"] == "ocsp"
+    assert "crl" not in result["methods"]
+
+
+def test_unverifiable_ocsp_falls_through_to_the_verified_crl(pki, monkeypatch):
+    # An algorithm CertMonitor cannot verify leaves OCSP unproven; the CRL settles it.
+    monkeypatch.setattr(certinfo, "signature_hash", MagicMock(return_value=None))
+    server, options = monitor_for(pki, "good")
+    with server, CertMonitor("localhost", server.port, **options) as monitor:
+        result = monitor.validate()["revocation"]
     assert result["status"] == "pass", result
     assert result["source"] == "crl"
     assert result["methods"]["ocsp"]["status"] == "good"
-    assert result["methods"]["crl"]["status"] == "good"
+    assert (
+        "unsupported signature algorithm"
+        in result["methods"]["ocsp"]["verification_error"]
+    )
 
 
 def test_revoked_via_ocsp_fails_even_unverified(pki):
@@ -364,15 +468,19 @@ def test_issuer_comes_from_the_served_chain_when_present(pki):
 
 def test_answers_are_cached_across_monitors(pki):
     server, options = monitor_for(pki, "good")
+    both = {"revocation": {"methods": ["crl", "ocsp"]}}
     with server:
         with CertMonitor("localhost", server.port, **options) as monitor:
-            first = monitor.validate()["revocation"]
+            first = monitor.validate(both)["revocation"]
+            # A verified CRL answer settles it, so OCSP is asked separately.
+            first_ocsp = monitor.validate({"revocation": {"methods": ["ocsp"]}})
         with CertMonitor("localhost", server.port, **options) as monitor:
-            second = monitor.validate()["revocation"]
+            second = monitor.validate(both)["revocation"]
+            second_ocsp = monitor.validate({"revocation": {"methods": ["ocsp"]}})
     assert first["methods"]["crl"]["cached"] is False
     assert second["methods"]["crl"]["cached"] is True
-    assert first["methods"]["ocsp"]["cached"] is False
-    assert second["methods"]["ocsp"]["cached"] is True
+    assert first_ocsp["revocation"]["methods"]["ocsp"]["cached"] is False
+    assert second_ocsp["revocation"]["methods"]["ocsp"]["cached"] is True
 
 
 def test_certificate_without_pointers_is_unsupported(local_pki):
@@ -777,3 +885,93 @@ def test_http_client_stops_filling_an_oversized_chunk():
     )
     with pytest.raises(HTTPError, match="exceeds"):
         http.fetch(f"http://127.0.0.1:{server.port}/", timeout=3, max_bytes=1000)
+
+
+# --- OCSP response verification ----------------------------------------------------
+
+
+def _parsed_ocsp(pki, signer="ca"):
+    pki.signer = signer
+    try:
+        leaf = ssl.PEM_cert_to_DER_cert((pki.directory / "good.pem").read_text())
+        issuer = ssl.PEM_cert_to_DER_cert(pki.ca_pem.read_text())
+        request, expected = revocation.build_ocsp_request(leaf, issuer)
+        body = http.fetch(
+            pki.ocsp_url,
+            timeout=5,
+            method="POST",
+            body=request,
+            content_type="application/ocsp-request",
+        )
+    finally:
+        pki.signer = "ca"
+    return certinfo.parse_ocsp_response(body), issuer, expected["issuer_key_hash"]
+
+
+def test_verify_ocsp_response_rejects_unauthorized_responders(pki):
+    parsed, issuer, key_hash = _parsed_ocsp(pki, signer="responder")
+    now = time.time()
+    assert revocation.verify_ocsp_response(parsed, issuer, key_hash, now) == (
+        True,
+        None,
+    )
+
+    stripped = {**parsed, "certs": []}
+    ok, why = revocation.verify_ocsp_response(stripped, issuer, key_hash, now)
+    assert not ok and "not signed by the issuer or an authorized responder" in why
+
+    # Unparseable and unrelated certificates are skipped; a plain leaf that does
+    # name the responder is refused for lacking the OCSP signing purpose.
+    leaf_der = ssl.PEM_cert_to_DER_cert((pki.directory / "good.pem").read_text())
+    other_der = ssl.PEM_cert_to_DER_cert((pki.directory / "revoked.pem").read_text())
+    leaf_name = certinfo.certificate_signature_parts(leaf_der)["subject_der"]
+    impostor = {
+        **parsed,
+        "certs": [b"junk", other_der, leaf_der],
+        "responder_name_der": leaf_name,
+    }
+    ok, why = revocation.verify_ocsp_response(impostor, issuer, key_hash, now)
+    assert not ok and "extended key usage" in why
+
+    expired = revocation.verify_ocsp_response(
+        parsed, issuer, key_hash, now + 10 * 86400
+    )
+    assert expired == (False, "responder certificate is not currently valid")
+
+    unsigned = {**parsed, "signature": b""}
+    assert revocation.verify_ocsp_response(unsigned, issuer, key_hash, now)[1] == (
+        "response carries no signature"
+    )
+
+
+def test_verify_ocsp_response_rejects_a_responder_from_another_ca(pki, ec_pki):
+    parsed, issuer, key_hash = _parsed_ocsp(pki, signer="responder")
+    foreign = ssl.PEM_cert_to_DER_cert((ec_pki.directory / "responder.pem").read_text())
+    foreign_name = certinfo.certificate_signature_parts(foreign)["subject_der"]
+    swapped = {**parsed, "certs": [foreign], "responder_name_der": foreign_name}
+    ok, why = revocation.verify_ocsp_response(swapped, issuer, key_hash, time.time())
+    assert not ok and "not issued by the certificate's CA" in why
+
+    # A responder certificate whose own signature is broken is refused.
+    responder = ssl.PEM_cert_to_DER_cert((pki.directory / "responder.pem").read_text())
+    broken = bytearray(responder)
+    broken[-1] ^= 0x01
+    ok, why = revocation.verify_ocsp_response(
+        {**parsed, "certs": [bytes(broken)]}, issuer, key_hash, time.time()
+    )
+    assert not ok and why.startswith("responder certificate:")
+
+
+def test_signature_primitives_surface_errors(pki):
+    assert certinfo.signature_hash("1.2.840.113549.1.1.11") == "sha256"
+    assert certinfo.signature_hash("1.3.101.112") is None
+    issuer = ssl.PEM_cert_to_DER_cert(pki.ca_pem.read_text())
+    spki = certinfo.certificate_signature_parts(issuer)["spki"]
+    with pytest.raises(ValueError, match="digest length"):
+        certinfo.verify_signature("1.2.840.113549.1.1.11", b"short", b"sig", spki)
+    ok, why = revocation._signed_by(spki, "1.2.840.113549.1.1.11", b"tbs", b"sig")
+    assert not ok and why == "signature does not verify"
+    ok, why = revocation._signed_by(
+        b"\x30\x00", "1.2.840.113549.1.1.11", b"tbs", b"sig"
+    )
+    assert not ok and "SubjectPublicKeyInfo" in why

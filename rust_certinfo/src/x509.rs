@@ -11,6 +11,7 @@ pub mod extensions;
 pub mod name;
 pub mod ocsp;
 pub mod spki;
+pub mod verify;
 
 // `Certificate` is always public, it's the entry point both the PyO3
 // shim and the in-repo fuzz crate use.
