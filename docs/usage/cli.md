@@ -49,7 +49,7 @@ certmonitor check --file /etc/ssl/certs/service.pem --host service.example.com
 
 ## Connection options
 
-STARTTLS services are discovered automatically; `--starttls smtp|imap|pop3|ftp|postgres|ldap` pins the preamble when you already know the service, see [STARTTLS Services](starttls.md). The constructor's other connection options are available as flags: `--connection-host` and `--server-hostname` to split the address from the SNI name, `--cafile` or `--capath` for a private CA, and `--client-cert` with `--client-key` for mutual TLS. See [Using IP Addresses](ip.md) and [RootCertificate](../validators/root_certificate.md) for what they mean.
+STARTTLS services are discovered automatically; `--starttls smtp|imap|pop3|ftp|postgres|ldap` pins the preamble when you already know the service, see [STARTTLS Services](starttls.md). `--proxy http://[user:pass@]host:port` or `socks5://...` tunnels every connection; see [Proxies](proxy.md). The constructor's other connection options are available as flags: `--connection-host` and `--server-hostname` to split the address from the SNI name, `--cafile` or `--capath` for a private CA, and `--client-cert` with `--client-key` for mutual TLS. See [Using IP Addresses](ip.md) and [RootCertificate](../validators/root_certificate.md) for what they mean.
 
 ## Machine-readable output
 

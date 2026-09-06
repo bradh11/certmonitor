@@ -20,6 +20,7 @@ ENDPOINT_OPTIONS = frozenset(
         "client_cert",
         "client_key",
         "starttls",
+        "proxy",
     }
 )
 
@@ -37,6 +38,7 @@ def scan_hosts(
     client_cert: str | None = None,
     client_key: str | None = None,
     starttls: str | None = None,
+    proxy: str | None = None,
 ) -> Iterator[dict[str, Any]]:
     """Yield completed scans with at most `max_workers` endpoints in flight.
 
@@ -56,7 +58,7 @@ def scan_hosts(
         hosts: Endpoints to scan, consumed lazily. Each entry is a host name or
             IP address, a `(host, port)` pair, or a dict with `host` plus any of
             `port`, `connection_host`, `server_hostname`, `timeout`, `cafile`,
-            `capath`, `client_cert`, `client_key`, and `starttls` for endpoints that need
+            `capath`, `client_cert`, `client_key`, `starttls`, and `proxy` for endpoints that need
             their own connection settings.
         port: TCP port for entries that do not carry one. Defaults to 443.
         max_workers: Maximum number of concurrent scans. Defaults to 8.
@@ -73,6 +75,8 @@ def scan_hosts(
             `"imap"`, `"pop3"`, `"ftp"`, `"postgres"`, `"ldap"`); endpoint
             dicts may set their own. Unset, each monitor discovers the service
             itself when the port does not speak TLS directly.
+        proxy: `http://` or `socks5://` proxy URL applied to every endpoint;
+            endpoint dicts may set their own.
 
     Raises:
         ValueError: If `max_workers` or `timeout` is not positive.
@@ -101,6 +105,7 @@ def scan_hosts(
         "client_cert": client_cert,
         "client_key": client_key,
         "starttls": starttls,
+        "proxy": proxy,
     }
 
     def describe(entry: Endpoint) -> tuple[str, int, dict[str, Any]]:

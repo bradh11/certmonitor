@@ -641,3 +641,25 @@ def test_discover_treats_a_failed_second_connection_as_not_found(monkeypatch):
     with FakeServer(silent) as server:
         assert starttls.discover("127.0.0.1", server.port, 0.5) is None
     assert len(attempts) == 2
+
+
+def test_discovery_goes_through_the_proxy(local_pki, server_tls):
+    from tests.test_proxy import FakeProxy, http_connect_ok
+
+    with FakeServer(smtp_ok, server_tls) as server:
+        with FakeProxy(http_connect_ok, ("127.0.0.1", server.port)) as proxy:
+            with CertMonitor(
+                "localhost",
+                server.port,
+                proxy=f"http://127.0.0.1:{proxy.port}",
+                cafile=str(local_pki / "ca.pem"),
+                timeout=2,
+                enabled_validators=["hostname", "root_certificate"],
+            ) as monitor:
+                results = monitor.validate()
+                assert monitor.starttls == "smtp"
+            assert results["hostname"]["is_valid"] is True
+            assert results["root_certificate"]["status"] == "pass"
+    # Detection, discovery, collection, and the verified handshake all tunnelled.
+    assert len(proxy.requests) >= 4
+    assert proxy.failures == []

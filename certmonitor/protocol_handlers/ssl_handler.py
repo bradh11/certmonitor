@@ -58,6 +58,7 @@ class SSLHandler(BaseProtocolHandler):
                 self._build_context(**options),
                 server_hostname=self.server_hostname,
                 starttls=self.starttls,
+                proxy=self.proxy,
             )
             self.tls_version = self.secure_socket.version()
             return None
