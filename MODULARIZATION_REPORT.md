@@ -10,8 +10,8 @@
 
 ### Test Coverage
 - **Overall coverage:** 99.9%
-- **Total tests:** 3296
-- **Statements covered:** 2,797/2,801
+- **Total tests:** 3298
+- **Statements covered:** 2,800/2,804
 - **Files with coverage:** 38
 
 ### Type Hint Coverage
@@ -30,7 +30,7 @@
 - **Python security scanning:** ✅ Enabled
 - **Python security issues found:** 0
 - **Files scanned by bandit:** 38
-- **Lines scanned by bandit:** 6,031
+- **Lines scanned by bandit:** 6,048
 - **Overall security status:** 🔒 Clean
 - **PyO3 version:** 0.29
 
@@ -93,7 +93,7 @@
 - **validators/pq_key_exchange.py**: ✅ (186 lines)
 - **validators/root_certificate_validator.py**: ✅ (88 lines)
 - **validators/pq_signature.py**: ✅ (187 lines)
-- **validators/revocation.py**: ✅ (182 lines)
+- **validators/revocation.py**: ✅ (202 lines)
 - **validators/tls_version.py**: ✅ (95 lines)
 - **validators/key_info.py**: ✅ (204 lines)
 - **validators/base.py**: ✅ (157 lines)
