@@ -87,9 +87,4 @@ for scan in scan_hosts(targets):
 
 ## Reference
 
-::: certmonitor.starttls
-    options:
-      members:
-        - negotiate
-        - StartTLSError
-        - PROTOCOLS
+The preambles, `discover()`, and `StartTLSError` are documented with the other connection code in [Protocol Handlers](../reference/protocol_handlers.md#starttls).

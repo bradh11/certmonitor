@@ -16,7 +16,7 @@ from importlib.metadata import PackageNotFoundError, version
 from typing import Any
 
 from .core import CertMonitor
-from .starttls import PROTOCOLS as STARTTLS_PROTOCOLS
+from .protocol_handlers.starttls import PROTOCOLS as STARTTLS_PROTOCOLS
 
 STATUS_LABELS = {
     "pass": "PASS",

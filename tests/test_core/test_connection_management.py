@@ -141,7 +141,9 @@ class TestProtocolDetection:
         mock_socket = MagicMock()
         mock_socket.recv.return_value = b"SSH-2.0-OpenSSH"
 
-        with patch("certmonitor.core.socket.create_connection") as mock_create:
+        with patch(
+            "certmonitor.protocol_handlers.connection.socket.create_connection"
+        ) as mock_create:
             mock_create.return_value.__enter__.return_value = mock_socket
 
             result = monitor.detect_protocol()
@@ -154,7 +156,9 @@ class TestProtocolDetection:
         mock_socket = MagicMock()
         mock_socket.recv.return_value = b"\x16\x03\x01\x00"  # SSL handshake
 
-        with patch("certmonitor.core.socket.create_connection") as mock_create:
+        with patch(
+            "certmonitor.protocol_handlers.connection.socket.create_connection"
+        ) as mock_create:
             mock_create.return_value.__enter__.return_value = mock_socket
 
             result = monitor.detect_protocol()
@@ -169,7 +173,9 @@ class TestProtocolDetection:
             mock_socket = MagicMock()
             mock_socket.recv.return_value = bytes([first_byte, 0, 0, 0])
 
-            with patch("certmonitor.core.socket.create_connection") as mock_create:
+            with patch(
+                "certmonitor.protocol_handlers.connection.socket.create_connection"
+            ) as mock_create:
                 mock_create.return_value.__enter__.return_value = mock_socket
 
                 result = monitor.detect_protocol()
@@ -183,8 +189,10 @@ class TestProtocolDetection:
         mock_socket.recv.return_value = b"HTTP/1.1"  # Unknown protocol
 
         with (
-            patch("certmonitor.core.socket.create_connection") as mock_create,
-            patch.object(monitor, "_discover_service", return_value=None),
+            patch(
+                "certmonitor.protocol_handlers.connection.socket.create_connection"
+            ) as mock_create,
+            patch("certmonitor.protocol_handlers.starttls.discover", return_value=None),
         ):
             mock_create.return_value.__enter__.return_value = mock_socket
 
@@ -205,8 +213,13 @@ class TestProtocolDetection:
         mock_socket.recv.return_value = b"220 "
 
         with (
-            patch("certmonitor.core.socket.create_connection") as mock_create,
-            patch.object(monitor, "_discover_service", return_value=discovered),
+            patch(
+                "certmonitor.protocol_handlers.connection.socket.create_connection"
+            ) as mock_create,
+            patch(
+                "certmonitor.protocol_handlers.starttls.discover",
+                return_value=discovered,
+            ),
         ):
             mock_create.return_value.__enter__.return_value = mock_socket
             assert monitor.detect_protocol() == expected
@@ -232,7 +245,9 @@ class TestProtocolDetection:
         mock_socket = MagicMock()
         mock_socket.recv.side_effect = OSError("No data")
 
-        with patch("certmonitor.core.socket.create_connection") as mock_create:
+        with patch(
+            "certmonitor.protocol_handlers.connection.socket.create_connection"
+        ) as mock_create:
             mock_create.return_value.__enter__.return_value = mock_socket
 
             result = monitor.detect_protocol()
@@ -242,7 +257,9 @@ class TestProtocolDetection:
         """Test detect_protocol() handles connection errors."""
         monitor = CertMonitor("www.example.com")
 
-        with patch("certmonitor.core.socket.create_connection") as mock_create:
+        with patch(
+            "certmonitor.protocol_handlers.connection.socket.create_connection"
+        ) as mock_create:
             mock_create.side_effect = ConnectionError("Connection refused")
 
             result = monitor.detect_protocol()

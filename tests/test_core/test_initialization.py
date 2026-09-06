@@ -189,7 +189,9 @@ class TestContextManager:
 
     def test_context_manager_full_workflow(self):
         """Test complete context manager workflow."""
-        with patch("certmonitor.core.socket.create_connection") as mock_socket:
+        with patch(
+            "certmonitor.protocol_handlers.connection.socket.create_connection"
+        ) as mock_socket:
             mock_socket.return_value.__enter__.return_value.recv.return_value = (
                 b"\x16\x03\x01"  # SSL handshake
             )

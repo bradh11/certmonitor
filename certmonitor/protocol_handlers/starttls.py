@@ -50,8 +50,17 @@ def negotiate(
 # --- discovery ----------------------------------------------------------------
 
 
+def _direct_connection(host: str, port: int, timeout: float) -> socket.socket:
+    return socket.create_connection((host, port), timeout=timeout)
+
+
 def discover(
-    host: str, port: int, timeout: float, *, client_name: str = "certmonitor"
+    host: str,
+    port: int,
+    timeout: float,
+    *,
+    client_name: str = "certmonitor",
+    connect: Callable[[str, int, float], socket.socket] = _direct_connection,
 ) -> str | None:
     """Name the plaintext service on `host:port` so the right STARTTLS preamble can run.
 
@@ -68,6 +77,8 @@ def discover(
         port: TCP port.
         timeout: Total time budget in seconds for discovery.
         client_name: Name announced in the `EHLO` used to tell SMTP from FTP.
+        connect: Opens a plaintext socket to `(host, port, timeout)`; the default
+            connects directly, and a proxy-aware opener routes discovery too.
 
     Returns:
         One of `PROTOCOLS`, `"ssh"` for an SSH banner, or `None` when the service
@@ -77,16 +88,14 @@ def discover(
         OSError: If the first connection to the host fails.
     """
     deadline = time.monotonic() + timeout
-    with socket.create_connection((host, port), timeout=timeout) as sock:
+    with connect(host, port, timeout) as sock:
         greeting = _wait_for_greeting(sock, _remaining(deadline) / 2)
         if greeting is not None:
             return _name_greeting(sock, greeting, client_name)
         if _answers_ssl_request(sock, _remaining(deadline) / 2):
             return "postgres"
     try:
-        with socket.create_connection(
-            (host, port), timeout=_remaining(deadline)
-        ) as sock:
+        with connect(host, port, _remaining(deadline)) as sock:
             if _answers_ldap_starttls(sock, _remaining(deadline)):
                 return "ldap"
     except OSError:

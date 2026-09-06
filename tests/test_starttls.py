@@ -11,9 +11,14 @@ import pytest
 
 import certmonitor.cli as cli
 import certmonitor.scanning as scanning
-from certmonitor import CertMonitor, starttls
+from certmonitor import CertMonitor
+from certmonitor.protocol_handlers import starttls
 from certmonitor.scanning import scan_hosts
-from certmonitor.starttls import StartTLSError, ldap_starttls_request, negotiate
+from certmonitor.protocol_handlers.starttls import (
+    StartTLSError,
+    ldap_starttls_request,
+    negotiate,
+)
 
 LDAP_OK = bytes.fromhex("300c020101780702010004000400")
 LDAP_REFUSED = (

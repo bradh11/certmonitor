@@ -6,7 +6,6 @@ import ipaddress
 import re
 import logging
 import os
-import socket
 import ssl
 import tempfile
 import warnings
@@ -15,10 +14,12 @@ from collections.abc import Callable, Mapping
 from pathlib import Path
 
 from certmonitor import certinfo, config
-from certmonitor import starttls as starttls_negotiation
 from certmonitor.cipher_algorithms import parse_cipher_suite
 from certmonitor.error_handlers import ErrorHandler
+from certmonitor.protocol_handlers import detection
+from certmonitor.protocol_handlers import starttls as starttls_negotiation
 from certmonitor.protocol_handlers.base import BaseProtocolHandler
+from certmonitor.protocol_handlers.connection import open_tls_stream
 from certmonitor.protocol_handlers.ssh_handler import SSHHandler
 from certmonitor.protocol_handlers.ssl_handler import SSLHandler
 from certmonitor.validators import VALIDATORS
@@ -378,42 +379,14 @@ class CertMonitor:
         greeting belongs to a STARTTLS service, or an error dict.
         """
         try:
-            with socket.create_connection(
-                (self.connection_host, self.port), timeout=self.timeout
-            ) as sock:
-                sock.setblocking(False)
-                try:
-                    data = sock.recv(4, socket.MSG_PEEK)
-                    if data.startswith(b"SSH-"):
-                        return "ssh"
-                    elif data and data[0] in [
-                        22,
-                        128,
-                        160,
-                    ]:  # Common first bytes for SSL/TLS
-                        return "ssl"
-                    else:
-                        # A plaintext greeting: name the service so its
-                        # STARTTLS preamble can run instead of a doomed handshake.
-                        discovered = self._discover_service()
-                        if discovered == "ssh":
-                            return "ssh"
-                        if discovered is not None:
-                            return f"starttls:{discovered}"
-                        return cast(
-                            dict[str, Any],
-                            self.error_handler.handle_error(
-                                "ProtocolDetectionError",
-                                f"Unable to determine protocol. First bytes: {data.hex()}",
-                                self.host,
-                                self.port,
-                            ),
-                        )
-                except OSError:
-                    # If no data is received, assume it's SSL
-                    return "ssl"
-                finally:
-                    sock.setblocking(True)
+            found = detection.detect(self.connection_host, self.port, self.timeout)
+        except detection.ProtocolDetectionError as exc:
+            return cast(
+                dict[str, Any],
+                self.error_handler.handle_error(
+                    "ProtocolDetectionError", str(exc), self.host, self.port
+                ),
+            )
         except Exception as e:
             return cast(
                 dict[str, Any],
@@ -421,6 +394,9 @@ class CertMonitor:
                     "ConnectionError", str(e), self.host, self.port
                 ),
             )
+        if found.starttls:
+            return f"starttls:{found.starttls}"
+        return found.protocol
 
     def _ensure_connection(self) -> dict[str, Any] | None:
         """Ensures that a valid connection is established."""
@@ -1041,16 +1017,15 @@ class CertMonitor:
 
     def _verified_peer(self, legacy: bool) -> bytes:
         """Complete a verified handshake and return the DER leaf it observed."""
-        context = self._verify_context(legacy)
-        with socket.create_connection(
-            (self.connection_host, self.port), timeout=self.timeout
-        ) as sock:
-            if self.starttls:
-                starttls_negotiation.negotiate(sock, self.starttls)
-            with context.wrap_socket(
-                sock, server_hostname=self.server_hostname
-            ) as secure:
-                return secure.getpeercert(binary_form=True) or b""
+        with open_tls_stream(
+            self.connection_host,
+            self.port,
+            self.timeout,
+            self._verify_context(legacy),
+            server_hostname=self.server_hostname,
+            starttls=self.starttls,
+        ) as secure:
+            return secure.getpeercert(binary_form=True) or b""
 
     def _verify_trust(self) -> dict[str, Any]:
         """Verify a separate handshake, requiring the collected leaf to match.
