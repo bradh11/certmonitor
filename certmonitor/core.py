@@ -421,7 +421,7 @@ class CertMonitor:
         if isinstance(cert_data, dict) and "error" in cert_data:
             return cert_data
 
-        cert_info = cert_data["cert_info"]
+        cert_info = cert_data.get("cert_info")
         self.der = cert_data.get("der")  # Use .get() to allow None
         self.pem = cert_data.get("pem")  # Use .get() to allow None
 
@@ -656,6 +656,10 @@ class CertMonitor:
 
     def get_raw_der(self) -> bytes | dict[str, Any]:
         """Return the raw DER format of the certificate."""
+        connection_result = self._ensure_connection()
+        if connection_result is not None:  # Connection failed
+            return connection_result
+
         if self.protocol != "ssl":
             return cast(
                 dict[str, Any],
@@ -667,32 +671,20 @@ class CertMonitor:
                 ),
             )
 
-        connection_result = self._ensure_connection()
-        if connection_result is not None:  # Connection failed
-            return connection_result
-
         if self.der is None:
-            if self.handler is None:
-                return cast(
-                    dict[str, Any],
-                    self.error_handler.handle_error(
-                        "ConnectionError",
-                        "Handler is not initialized",
-                        self.host,
-                        self.port,
-                    ),
-                )
-
-            cert_data = self.handler.fetch_raw_cert()
+            cert_data = self._fetch_raw_cert()
             if isinstance(cert_data, dict) and "error" in cert_data:
                 return cert_data
-            self.der = cert_data.get("der")
 
         # Return the DER or empty bytes if None
         return self.der if self.der is not None else b""
 
     def get_raw_pem(self) -> str | dict[str, Any]:
         """Return the raw PEM format of the certificate."""
+        connection_result = self._ensure_connection()
+        if connection_result is not None:  # Connection failed
+            return connection_result
+
         if self.protocol != "ssl":
             return cast(
                 dict[str, Any],
@@ -704,26 +696,10 @@ class CertMonitor:
                 ),
             )
 
-        connection_result = self._ensure_connection()
-        if connection_result is not None:  # Connection failed
-            return connection_result
-
         if self.pem is None:
-            if self.handler is None:
-                return cast(
-                    dict[str, Any],
-                    self.error_handler.handle_error(
-                        "ConnectionError",
-                        "Handler is not initialized",
-                        self.host,
-                        self.port,
-                    ),
-                )
-
-            cert_data = self.handler.fetch_raw_cert()
+            cert_data = self._fetch_raw_cert()
             if isinstance(cert_data, dict) and "error" in cert_data:
                 return cert_data
-            self.pem = cert_data.get("pem")
 
         # Return the PEM or empty string if None
         return self.pem if self.pem is not None else ""

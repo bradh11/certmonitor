@@ -64,6 +64,9 @@ Repository = "https://github.com/bradh11/certmonitor"
 Issues = "https://github.com/bradh11/certmonitor/issues"
 Changelog = "https://github.com/bradh11/certmonitor/blob/main/CHANGELOG.md"
 
+[project.scripts]
+certmonitor = "certmonitor.cli:main"
+
 [dependency-groups]
 dev = [
     "ruff>=0.5.2",

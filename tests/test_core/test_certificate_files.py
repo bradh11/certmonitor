@@ -161,3 +161,10 @@ def test_probe_is_unsupported_offline(bundle):
     assert probe["result"] == "n/a"
     assert probe["protocol"] == "offline"
     assert "live connection" in probe["reason"]
+
+
+def test_raw_accessors_work_before_get_cert_info(bundle):
+    with CertMonitor.from_file(bundle, host=LEAF_HOST) as monitor:
+        assert monitor.get_raw_pem().startswith("-----BEGIN CERTIFICATE-----")
+    with CertMonitor.from_file(bundle, host=LEAF_HOST) as monitor:
+        assert monitor.get_raw_der() == CHAIN_DER[0]

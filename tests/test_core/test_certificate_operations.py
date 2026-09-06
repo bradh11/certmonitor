@@ -143,9 +143,15 @@ class TestRawCertificateData:
             "-----BEGIN CERTIFICATE-----\nfetched pem data\n-----END CERTIFICATE-----\n"
         )
         cert_monitor.pem = None
-        cert_monitor.handler.fetch_raw_cert.return_value = {"pem": mock_pem}
 
-        with patch.object(cert_monitor, "_ensure_connection", return_value=None):
+        def fetch():
+            cert_monitor.pem = mock_pem
+            return {"pem": mock_pem, "cert_info": {}}
+
+        with (
+            patch.object(cert_monitor, "_ensure_connection", return_value=None),
+            patch.object(cert_monitor, "_fetch_raw_cert", side_effect=fetch),
+        ):
             result = cert_monitor.get_raw_pem()
             assert result == mock_pem
             assert cert_monitor.pem == mock_pem
@@ -154,6 +160,7 @@ class TestRawCertificateData:
         """Test get_raw_der returns protocol error for non-SSL protocols."""
         monitor = CertMonitor("www.example.com")
         monitor.protocol = "ssh"
+        monitor.connected, monitor.handler = True, MagicMock()
 
         result = monitor.get_raw_der()
 
@@ -168,6 +175,7 @@ class TestRawCertificateData:
         """Test get_raw_pem returns protocol error for non-SSL protocols."""
         monitor = CertMonitor("www.example.com")
         monitor.protocol = "ssh"
+        monitor.connected, monitor.handler = True, MagicMock()
 
         result = monitor.get_raw_pem()
 
