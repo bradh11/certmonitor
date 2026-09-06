@@ -1,6 +1,6 @@
 [project]
 name = "certmonitor"
-version = "0.5.0"
+version = "0.5.1"
 description = "Zero-dependency Python SSL/TLS certificate monitoring and validation: expiration checks, hostname/SAN matching, X.509 chain analysis, and post-quantum readiness."
 authors = [
     { name = "Brad Haas", email = "bradh11@gmail.com" }
