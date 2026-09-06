@@ -155,6 +155,7 @@ Each validator reports its own `is_valid` flag plus the details behind its decis
 ## ✨ Features
 
 - 🔒 **Zero Dependencies:** no third-party Python runtime dependencies, ever. The required native extension is distributed in platform wheels.
+- 📄 **Files too:** `CertMonitor.from_file()` runs the certificate checks on a PEM or DER file with no connection at all. See [Certificates from Files](https://certmonitor.readthedocs.io/en/latest/usage/files/).
 - 🛡️ **Certificate Validators:** Modular checks for expiration, hostname, SANs, key strength, protocol, ciphers, and more.
 - ⚡ **Batch Monitoring:** overlap network waits with independent monitors and bounded workers.
 - 🧩 **Extensible:** Add your own custom validators for organization-specific checks.

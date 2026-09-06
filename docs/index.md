@@ -166,6 +166,7 @@ Each validator reports its own `is_valid` flag plus the details behind its decis
 ## What you can check
 
 - 🔒 **Zero Dependencies:** no third-party Python runtime dependencies, ever. The required native extension is included in compatible platform wheels.
+- 📄 **Files too:** `CertMonitor.from_file()` runs the certificate checks on a PEM or DER file with no connection at all. See [Certificates from Files](usage/files.md).
 - 🛡️ **Certificate Validators:** Modular checks for expiration, hostname, SANs, key strength, protocol, ciphers, and more.
 - ⚡ **Batch Monitoring:** overlap network waits with independent monitors and bounded workers.
 - 🧩 **Extensible:** Add your own custom validators for organization-specific checks.
