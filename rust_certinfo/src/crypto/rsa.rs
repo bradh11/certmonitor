@@ -20,6 +20,8 @@ pub enum HashAlg {
 }
 
 impl HashAlg {
+    /// The `hashlib` name Python uses to produce the digest.
+    #[cfg_attr(not(feature = "python"), allow(dead_code))]
     pub fn name(self) -> &'static str {
         match self {
             Self::Sha1 => "sha1",

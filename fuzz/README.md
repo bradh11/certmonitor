@@ -19,6 +19,20 @@ This means **the wheel build is unaffected**. `make develop`, the
 release wheel, and `cargo test` of the main crate all build with the
 default `python` feature on and get the full PyO3 surface.
 
+## Targets
+
+| Target | What it feeds | What a finding means |
+|---|---|---|
+| `parse_certificate` | `Certificate::from_der` | a panic in the X.509 parser |
+| `parse_server_hello` | the TLS ServerHello / HelloRetryRequest parser | a panic in the PQ probe's parser |
+| `parse_ocsp_response` | `OcspResponse::from_der` | a panic parsing an OCSP responder's answer |
+| `parse_crl` | `Crl::from_der`, `revoked_count`, `lookup` | a panic parsing or searching a CRL |
+| `verify_signature` | arbitrary signatures against real keys, and arbitrary keys against a real signature | a panic in signature or key parsing, or in the big-integer arithmetic |
+| `bigint_divrem` | two arbitrary integers | a **wrong answer**: the division identity or a modular power failed, which would mean a wrong signature verdict |
+
+Run one with `make fuzz FUZZ_TARGET=verify_signature`, or all of them
+with `make fuzz-all` (60 seconds each by default).
+
 ## Why fuzz the parser
 
 The new in-tree DER parser takes untrusted bytes from the network on
@@ -83,14 +97,17 @@ Before tagging a release that touches `rust_certinfo/src/{der,x509}/`:
    the release notes so future maintainers can see the gate was
    honored.
 
-## Why this is not in CI
+## Why this is not in PR CI
 
 `cargo fuzz` needs nightly Rust, takes orders of magnitude longer than
 a unit test, and brings in `libfuzzer-sys`. None of those belong in PR
 CI. The corpus snapshot test at `tests/test_certinfo_corpus.py` covers
-the day-to-day regression check against real-world certs; this fuzz
-target is the deeper, slower defense against malformed input we
-haven't seen yet.
+the day-to-day regression check against real-world certs, the Wycheproof
+vectors and the OpenSSL differential check cover the signature verifier,
+and this fuzzing is the deeper, slower defense against malformed input we
+haven't seen yet. A weekly `fuzz-smoke` job in the CI workflow runs every
+target for a minute so regressions surface without anyone remembering to
+run it.
 
 ## Adding new fuzz targets
 

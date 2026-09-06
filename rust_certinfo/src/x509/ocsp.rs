@@ -80,6 +80,7 @@ impl CertStatus {
 }
 
 /// CRLReason (RFC 5280 §5.3.1), shared with CRL entries.
+#[cfg_attr(not(feature = "python"), allow(dead_code))]
 pub fn crl_reason_name(code: u8) -> String {
     match code {
         0 => "unspecified".into(),
@@ -329,12 +330,14 @@ fn parse_single_response<'a>(reader: &mut DerReader<'a>) -> Result<SingleRespons
 /// and the issuer's public key bits (hashed as issuerKeyHash). Fails if
 /// `issuer_der` is not the certificate that issued `leaf_der`.
 #[derive(Debug, Clone, Copy)]
+#[cfg_attr(not(feature = "python"), allow(dead_code))]
 pub struct CertIdInputs<'a> {
     pub serial_raw: &'a [u8],
     pub issuer_name_der: &'a [u8],
     pub issuer_key_bits: &'a [u8],
 }
 
+#[cfg_attr(not(feature = "python"), allow(dead_code))]
 pub fn cert_id_inputs<'a>(
     leaf_der: &'a [u8],
     issuer_der: &'a [u8],

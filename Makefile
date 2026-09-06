@@ -1,6 +1,6 @@
 # Makefile for certmonitor project
 
-.PHONY: develop build wheel test test-quick docs clean lint format format-check verify-wheel check report ci help typecheck typecheck-ty python-lint python-format rust-format rust-format-check rust-lint security fuzz fuzz-long version version.patch version.minor version.major _sync-cargo-version
+.PHONY: develop build wheel test test-quick docs clean lint format format-check verify-wheel check report ci help typecheck typecheck-ty python-lint python-format rust-format rust-format-check rust-lint security fuzz fuzz-long fuzz-all differential version version.patch version.minor version.major _sync-cargo-version
 
 # Show available targets and their descriptions
 help:
@@ -47,6 +47,8 @@ help:
 	@echo "🐛 Fuzzing (manual pre-release gate, requires nightly Rust):"
 	@echo "  fuzz         Run the certificate parser fuzz target for 60s"
 	@echo "  fuzz-long    Run the certificate parser fuzz target for 1 hour"
+	@echo "  fuzz-all     Run every fuzz target for 60s each (FUZZ_DURATION to change)"
+	@echo "  differential Long run of the OpenSSL signature cross-check (pre-release)"
 
 # Install the package in development mode (Python + Rust)
 develop:
@@ -233,12 +235,23 @@ security:
 #
 # `fuzz` is a 60-second smoke run for use during development.
 # `fuzz-long` is a 1-hour soak for use before tagging a release.
+# `fuzz-all` runs every target in fuzz/fuzz_targets/ for FUZZ_DURATION each.
+# Pick one target with FUZZ_TARGET=name (default parse_certificate).
 # See fuzz/README.md for details.
+FUZZ_TARGET ?= parse_certificate
+FUZZ_TARGETS := $(notdir $(basename $(wildcard fuzz/fuzz_targets/*.rs)))
+
 fuzz: FUZZ_DURATION ?= 60
 fuzz: _fuzz_run
 
 fuzz-long: FUZZ_DURATION = 3600
 fuzz-long: _fuzz_run
+
+fuzz-all: FUZZ_DURATION ?= 60
+fuzz-all:
+	@for target in $(FUZZ_TARGETS); do \
+		$(MAKE) --no-print-directory _fuzz_run FUZZ_TARGET=$$target FUZZ_DURATION=$(FUZZ_DURATION) || exit 1; \
+	done
 
 _fuzz_run:
 	@if ! command -v cargo-fuzz >/dev/null 2>&1; then \
@@ -274,10 +287,17 @@ _fuzz_run:
 	@cp tests/fixtures/diff_corpus/*.der fuzz/corpus/parse_certificate/ 2>/dev/null || true
 	@CORPUS_COUNT=$$(ls fuzz/corpus/parse_certificate/*.der 2>/dev/null | wc -l | tr -d ' '); \
 		echo "   $$CORPUS_COUNT seed files in corpus"
-	@echo "🐛 Running parse_certificate fuzz target for $(FUZZ_DURATION)s..."
-	@echo "   Crashes (if any) will land in fuzz/artifacts/parse_certificate/"
-	cargo +nightly fuzz run parse_certificate -- -max_total_time=$(FUZZ_DURATION)
+	@echo "🐛 Running $(FUZZ_TARGET) fuzz target for $(FUZZ_DURATION)s..."
+	@echo "   Crashes (if any) will land in fuzz/artifacts/$(FUZZ_TARGET)/"
+	cargo +nightly fuzz run $(FUZZ_TARGET) -- -max_total_time=$(FUZZ_DURATION)
 	@echo "✅ Fuzz run complete (no crashes)"
+
+# Longer differential check of the in-house signature verifier against
+# OpenSSL. The normal suite runs a few keys per scheme; this runs many
+# more with a fresh seed, for use before tagging a release.
+differential:
+	CERTMONITOR_DIFFERENTIAL_KEYS=10 CERTMONITOR_DIFFERENTIAL_MESSAGES=20 \
+		uv run pytest -m differential --no-cov -q tests/test_differential_openssl.py
 
 # Clean all build artifacts, cache, eggs, and venv
 clean:
