@@ -336,7 +336,7 @@ weak signatures fail by default; `reject_weak_signatures=False` permits
 weak signatures with warnings. Subject/issuer name equality does not verify
 a signature, including for certificates labeled self-signed.
 
-The timeout bounds each network operation, including each protocol attempt
+The timeout bounds each network operation, including each connection attempt
 made while collecting the certificate, not the entire scan. OS DNS resolution
 cannot be interrupted by these socket timeouts. Concurrency and queued
 endpoints are bounded by `max_workers`. Cipher/TLS checks describe the

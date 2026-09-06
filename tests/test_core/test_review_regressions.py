@@ -68,13 +68,12 @@ class TestConnectionOverridesReachEveryHandler:
             handler.connect()
         create_connection.assert_called_once_with(("host.test", 22), timeout=10.0)
 
-    def test_ssl_handler_gives_each_protocol_its_own_timeout(self):
+    def test_ssl_handler_gives_each_attempt_its_own_timeout(self):
         handler = SSLHandler("host.test", 443, MagicMock())
         handler.timeout = 3
         with (
-            patch.object(handler, "get_supported_protocols", return_value=[1, 2]),
+            patch.object(handler, "_build_context", return_value=MagicMock()),
             patch("socket.create_connection", side_effect=TimeoutError) as create,
-            patch("ssl.SSLContext"),
         ):
             handler.connect()
         assert [call.kwargs["timeout"] for call in create.call_args_list] == [3, 3]

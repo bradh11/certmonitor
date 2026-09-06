@@ -46,7 +46,7 @@ Intentional changes:
 | Chain policy | Non-CA issuers and weak signatures fail by default. | Read structural validity separately from verified trust. Explicit `reject_weak_signatures=False` preserves warning-only weak-signature policy. |
 | PQ probe | Results describe unauthenticated capability observations; TLS alerts are errors. The probe honors `connection_host` and `server_hostname`. | Do not infer protection of application traffic from capability results. |
 | Result metadata | `status`, `code`, and observation fields are added. Argument mistakes in `validator_args` report `status: error` with `InvalidValidatorArgs` or `UnknownValidatorArgs`. | Permit additive keys in result schemas. Use status/error fields rather than parsing human-readable messages. |
-| Timeouts | `timeout` bounds each network operation, including each protocol attempt during collection. | Budget up to `timeout` times the number of protocol attempts for hosts that drop modern handshakes. |
+| Timeouts | `timeout` bounds each network operation, including each connection attempt during collection (at most two). | Budget up to twice `timeout` for hosts that silently drop handshakes. |
 
 Collection remains permissive. Revocation checking is not implemented; successful
 trust verification reports `revocation_status: not_checked`.
@@ -71,7 +71,7 @@ trust verification reports `revocation_status: not_checked`.
 - `expiration` checks `notBefore` and sub-day urgency, accepts fractional thresholds, and warns when the total lifetime exceeds `max_lifetime_days`, which defaults to 398 days and can be tightened, relaxed, or disabled with `None`.
 - **Breaking:** `chain` fails on non-CA issuers and weak signatures by default; `reject_weak_signatures=False` restores warning-only handling. Structural validity is reported separately from cryptographic trust.
 - `pq_key_exchange` results carry observation evidence (`endpoint`, `observed_at`, `offered_groups`, `handshake_completed`, `authenticated`). TLS alerts are reported as inconclusive errors, the native probe bounds its write timeout, and it honors `connection_host` and `server_hostname` separately.
-- `validate()` collects the certificate automatically. `close()` resets connection state but retains the last snapshot; only `refresh()` discards it. `timeout` bounds each network operation, including each protocol attempt made while collecting.
+- `validate()` collects the certificate automatically. `close()` resets connection state but retains the last snapshot; only `refresh()` discards it. `timeout` bounds each network operation, including each connection attempt made while collecting.
 - **Breaking:** Dropped support for Python 3.8 and 3.9 (both end-of-life). The new minimum is Python 3.10 (`requires-python = ">=3.10,<3.16"`), with socket chain APIs and private fallbacks used when available.
 - Modernized the codebase to Python 3.10+ idioms: built-in generics (`list`/`dict`), `X | None` unions, and a full ruff `pyupgrade` (UP) sweep, with `target-version = "py310"` enforcing it going forward. No runtime behavior change.
 - Raised the Rust extension's abi3 floor to `abi3-py310` to match the new Python minimum.
@@ -80,6 +80,7 @@ trust verification reports `revocation_status: not_checked`.
 - Added a `make typecheck-ty` command to run astral's `ty` type checker on demand (a 0.0.x preview, advisory only). mypy remains the enforced gate; ty is kept out of `make test` and is commented out in CI with a note to revisit once it stabilizes.
 
 ### Fixed
+- The TLS collector negotiates with a single version-ranged context instead of retrying deprecated per-protocol constants under `warnings.catch_warnings()`, which is not thread-safe under concurrent scans. Legacy TLS 1.0 and 1.1 servers remain reachable where the local build allows them, and collecting a certificate now costs one connection instead of up to five (#67).
 - The README logo now uses an absolute CDN URL so it renders on the PyPI project page (relative paths only resolve on GitHub).
 
 ## [0.4.0] - 2026-06-14

@@ -4,9 +4,9 @@ CertMonitor needs to inspect the certificates that normal clients reject: expire
 
 ## Why collection is permissive
 
-The SSL/TLS handler disables certificate verification for the collection connection. Otherwise, an expired certificate could prevent you from collecting the very evidence you need for an alert. Collection may also retry legacy TLS protocols supported by the local OpenSSL build.
+The SSL/TLS handler disables certificate verification for the collection connection. Otherwise, an expired certificate could prevent you from collecting the very evidence you need for an alert. The collection context offers every protocol version the local Python build supports, so legacy TLS 1.0 and 1.1 servers can still be inspected where the build allows them.
 
-`PROTOCOL_SSLv23` is a historical Python constant name, not an “SSL 2.3” protocol. Which old versions can actually connect depends on the local Python/OpenSSL configuration. CertMonitor cannot promise support for every obsolete protocol or certificate encoding.
+Which old versions can actually connect depends on the local Python build and its TLS library configuration. CertMonitor cannot promise support for every obsolete protocol or certificate encoding.
 
 !!! warning "Collected does not mean trusted"
     A successful `get_cert_info()` call means you retrieved certificate data. Read `hostname`, `expiration`, and `root_certificate` before deciding whether the endpoint meets those checks. The collection socket is not a verified connection for your application traffic.

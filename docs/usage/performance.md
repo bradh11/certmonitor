@@ -58,7 +58,7 @@ The semaphore limits active scans to four. This example still creates one task p
 
 ## Understand the limits
 
-`timeout` bounds each network operation, including each protocol attempt made while collecting a certificate. It is not a deadline for an entire scan; a host that silently drops modern handshakes can take up to `timeout` multiplied by the number of protocol attempts. Platform DNS resolution is not interruptible, and cancelling an `asyncio.to_thread()` await does not stop a scan already running in the worker.
+`timeout` bounds each network operation, including each connection attempt made while collecting a certificate. It is not a deadline for an entire scan; collection makes at most two attempts (a full-range offer, then one capped at TLS 1.2), so a host that silently drops handshakes can take up to twice `timeout` to give up. Platform DNS resolution is not interruptible, and cancelling an `asyncio.to_thread()` await does not stop a scan already running in the worker.
 
 The Rust TLS probe releases the GIL during its network work. The certificate parser does not make that same guarantee; don't assume all Rust calls run concurrently just because they're written in Rust.
 
