@@ -56,7 +56,7 @@ class TestConnectionOverridesReachEveryHandler:
         monitor = CertMonitor(
             "bastion.internal", 22, connection_host="10.0.0.5", timeout=2
         )
-        monkeypatch.setattr(monitor, "detect_protocol", lambda: "ssh")
+        monkeypatch.setattr(monitor, "detect_protocol", MagicMock(return_value="ssh"))
         with patch("socket.create_connection") as create_connection:
             assert monitor.connect() is None
         create_connection.assert_called_once_with(("10.0.0.5", 22), timeout=2)
@@ -214,7 +214,7 @@ class TestVerifiedTrust:
         with patch.object(monitor, "_verified_peer", return_value=b"collected"):
             monitor._verify_trust()
         assert monitor._trust_verdict is not None
-        monkeypatch.setattr(monitor, "get_cert_info", lambda: {})
+        monkeypatch.setattr(monitor, "get_cert_info", MagicMock(return_value={}))
         monitor.refresh()
         assert monitor._trust_verdict is None
 
@@ -308,7 +308,7 @@ class TestRawGettersConnectLazily:
     def test_connection_failure_is_returned_by_both_getters(self, monkeypatch):
         monitor = CertMonitor("example.com")
         failure = {"error": "ConnectionError", "message": "refused"}
-        monkeypatch.setattr(monitor, "connect", lambda: failure)
+        monkeypatch.setattr(monitor, "connect", MagicMock(return_value=failure))
         assert monitor.get_raw_der() == failure
         assert monitor.get_raw_pem() == failure
 

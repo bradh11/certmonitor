@@ -2,6 +2,7 @@
 
 import ssl
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -149,7 +150,7 @@ def test_offline_monitor_never_touches_the_network(bundle, monkeypatch):
 
 def test_undecodable_certificate_is_reported(bundle, monkeypatch):
     monitor = CertMonitor.from_file(bundle, host=LEAF_HOST)
-    monkeypatch.setattr(monitor, "_parse_pem_cert", lambda pem: {})
+    monkeypatch.setattr(monitor, "_parse_pem_cert", MagicMock(return_value={}))
     info = monitor.get_cert_info()
     assert info["error"] == "CertificateError"
     assert "not a PEM or DER" in info["message"]

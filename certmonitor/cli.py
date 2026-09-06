@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from functools import partial
 from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor
 from importlib.metadata import PackageNotFoundError, version
@@ -24,6 +25,28 @@ STATUS_LABELS = {
     "unsupported": "N/A",
 }
 FAILING = {"fail", "error"}
+
+# One-line summary per validator for the human-readable report, filled from
+# the validator's result fields. A missing field renders as "?".
+SUMMARY_FORMATS = {
+    "expiration": "{days_to_expiry} days remaining",
+    "hostname": "matched {matched_name}",
+    "subject_alt_names": "{count} SANs",
+    "root_certificate": "trust verified",
+    "tls_version": "{protocol_version}",
+    "weak_cipher": "{cipher_suite}",
+    "key_info": "{key_type} {key_size}",
+    "chain": "{chain_length} certificates",
+    "pq_key_exchange": "{kem_name}",
+    "pq_signature": "{key_algorithm}",
+}
+
+
+class _ResultFields(dict):
+    """Result dict that renders missing fields as "?" inside a format string."""
+
+    def __missing__(self, key: str) -> str:
+        return "?"
 
 
 def _version() -> str:
@@ -69,6 +92,11 @@ def parse_validator_arg(text: str) -> tuple[str, str, Any]:
     return validator, name, value
 
 
+def parse_name_list(text: str) -> list[str]:
+    """Split a comma-separated list of validator names."""
+    return [name for name in text.split(",") if name]
+
+
 def _validator_args(pairs: list[tuple[str, str, Any]]) -> dict[str, Any] | None:
     if not pairs:
         return None
@@ -97,19 +125,8 @@ def _summary(name: str, result: dict[str, Any]) -> str:
     warnings = result.get("warnings") or []
     if warnings and result.get("status") == "warn":
         return str(warnings[0])
-    detail = {
-        "expiration": lambda r: f"{r.get('days_to_expiry')} days remaining",
-        "hostname": lambda r: f"matched {r.get('matched_name')}",
-        "subject_alt_names": lambda r: f"{r.get('count')} SANs",
-        "root_certificate": lambda r: "trust verified",
-        "tls_version": lambda r: str(r.get("protocol_version")),
-        "weak_cipher": lambda r: str(r.get("cipher_suite")),
-        "key_info": lambda r: f"{r.get('key_type')} {r.get('key_size')}",
-        "chain": lambda r: f"{r.get('chain_length')} certificates",
-        "pq_key_exchange": lambda r: str(r.get("kem_name")),
-        "pq_signature": lambda r: str(r.get("key_algorithm")),
-    }.get(name)
-    return detail(result) if detail else ""
+    template = SUMMARY_FORMATS.get(name)
+    return template.format_map(_ResultFields(result)) if template else ""
 
 
 def _run_check_job(job: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
@@ -181,7 +198,7 @@ def cmd_check(args: argparse.Namespace, out: Any) -> int:
         print("check: give at least one target or --file", file=sys.stderr)
         return 2
     with ThreadPoolExecutor(max_workers=max(1, min(args.workers, len(jobs)))) as pool:
-        reports = list(pool.map(lambda job: _run_check_job(job, args), jobs))
+        reports = list(pool.map(partial(_run_check_job, args=args), jobs))
     if args.json:
         json.dump(reports, out, indent=2)
         print(file=out)
@@ -269,7 +286,7 @@ def build_parser() -> argparse.ArgumentParser:
     check.add_argument(
         "-v",
         "--validators",
-        type=lambda s: s.split(","),
+        type=parse_name_list,
         help="comma-separated validator names (default set if omitted)",
     )
     check.add_argument(

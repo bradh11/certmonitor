@@ -10,6 +10,10 @@ from certmonitor.validators.key_info import KeyInfoValidator
 _FIXTURES = Path(__file__).resolve().parent.parent / "fixtures"
 
 
+def _algorithm_name(alg):
+    return alg["name"]
+
+
 class TestKeyInfoValidator:
     """Test the KeyInfoValidator class."""
 
@@ -256,9 +260,7 @@ class TestKeyInfoPostQuantum:
     so an algorithm added there is covered here with no test changes.
     """
 
-    @pytest.mark.parametrize(
-        "alg", certinfo.pq_algorithms(), ids=lambda alg: alg["name"]
-    )
+    @pytest.mark.parametrize("alg", certinfo.pq_algorithms(), ids=_algorithm_name)
     def test_pq_algorithm_is_valid(self, alg):
         cert = {"public_key_info": {"algorithm": alg["name"], "size": 15616}}
         validator = KeyInfoValidator()
