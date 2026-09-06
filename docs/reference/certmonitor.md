@@ -15,3 +15,6 @@ The reference below comes directly from the code's docstrings. Certificate colle
 
 ## Scan multiple hosts
 
+`scan_hosts()` creates an independent monitor per worker and yields results in completion order. See [Performance Tips](../usage/performance.md) for a complete example and timeout limits.
+
+::: certmonitor.scanning.scan_hosts

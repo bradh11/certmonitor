@@ -1,3 +1,5 @@
 from certmonitor.core import CertMonitor
 
-__all__ = ["CertMonitor"]
+from certmonitor.scanning import scan_hosts
+
+__all__ = ["CertMonitor", "scan_hosts"]

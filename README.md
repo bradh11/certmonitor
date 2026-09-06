@@ -304,7 +304,7 @@ CN matching never overrides the SAN-based result. The opt-in
 the primary host when none are given.
 
 ```python
-from certmonitor import CertMonitor
+from certmonitor import CertMonitor, scan_hosts
 
 with CertMonitor(
     "service.example.com",
@@ -318,6 +318,9 @@ with CertMonitor(
     })
     print(results)
     monitor.refresh()
+
+for result in scan_hosts(["example.com", "example.org"], max_workers=4, timeout=5):
+    print(result)
 ```
 
 Client authentication accepts `client_cert` and optional `client_key` paths.
@@ -335,7 +338,8 @@ a signature, including for certificates labeled self-signed.
 
 The timeout bounds each network operation, including each protocol attempt
 made while collecting the certificate, not the entire scan. OS DNS resolution
-cannot be interrupted by these socket timeouts. Cipher/TLS checks describe the
+cannot be interrupted by these socket timeouts. Concurrency and queued
+endpoints are bounded by `max_workers`. Cipher/TLS checks describe the
 negotiated connection, not an exhaustive inventory of server-supported
 protocols or ciphers. The native PQ probe connects to `connection_host` and
 offers `server_hostname` as SNI, so split-address configurations are probed.
