@@ -573,6 +573,7 @@ def socks5_binds_domain(conn, requests):
 
 def _socks5_read_request(conn, requests):
     head = conn.recv(4)
+    assert head[:3] == b"\x05\x01\x00" and head[3] == 3
     (length,) = conn.recv(1)
     host = conn.recv(length).decode()
     (port,) = struct.unpack("!H", conn.recv(2))
