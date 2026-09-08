@@ -85,9 +85,28 @@ SCHEMES = {
         "1.2.840.113549.1.1.10",
         ["-sigopt", "rsa_padding_mode:pss", "-sigopt", "rsa_pss_saltlen:digest"],
     ),
+    "rsa2048-pss-sha256-mgf1sha1-salt0": (
+        ["-algorithm", "RSA", "-pkeyopt", "rsa_keygen_bits:2048"],
+        "sha256",
+        "1.2.840.113549.1.1.10",
+        [
+            "-sigopt",
+            "rsa_padding_mode:pss",
+            "-sigopt",
+            "rsa_mgf1_md:sha1",
+            "-sigopt",
+            "rsa_pss_saltlen:0",
+        ],
+    ),
     "ed25519": (["-algorithm", "ED25519"], None, "1.3.101.112", []),
     "ed448": (["-algorithm", "ED448"], None, "1.3.101.113", []),
 }
+# Scheme name -> (MGF1 hash, salt length) for a PSS scheme whose mask
+# generation hash or salt length is not the message hash and its digest size.
+# RFC 8017 §8.1 lets both be chosen independently, so a verifier that read the
+# message hash where the parameters name one of these would still pass every
+# scheme left out of this table.
+PSS_MGF_AND_SALT = {"rsa2048-pss-sha256-mgf1sha1-salt0": ("sha1", 0)}
 
 
 @pytest.fixture(scope="module")
@@ -210,13 +229,22 @@ class Signer:
 
 
 def ours_verifies(
-    algorithm: str, hash_name: str | None, message: bytes, signature: bytes, spki: bytes
+    algorithm: str,
+    hash_name: str | None,
+    message: bytes,
+    signature: bytes,
+    spki: bytes,
+    pss: tuple[str, int] | None = None,
 ) -> bool:
     if algorithm in (signatures.ED25519, signatures.ED448):
         outcome, _ = signatures.verify(spki, algorithm, None, message, signature)
         return outcome == signatures.VERIFIED
     if algorithm == signatures.RSASSA_PSS:
-        params = pss_params(hash_name, hash_name, hashlib.new(hash_name).digest_size)
+        mgf_hash, salt_length = pss or (
+            hash_name,
+            hashlib.new(hash_name).digest_size,
+        )
+        params = pss_params(hash_name, mgf_hash, salt_length)
         outcome, _ = signatures.verify(spki, algorithm, params, message, signature)
         return outcome == signatures.VERIFIED
     digest = hashlib.new(hash_name, message).digest()
@@ -278,6 +306,7 @@ def damage(
 def test_openssl_and_certmonitor_agree(openssl, rng, tmp_path, scheme):
     random_, seed = rng
     genpkey, hash_name, algorithm, sign_options = SCHEMES[scheme]
+    pss = PSS_MGF_AND_SALT.get(scheme)
     for key_index in range(KEYS_PER_TYPE):
         signer = Signer(
             openssl,
@@ -293,7 +322,7 @@ def test_openssl_and_certmonitor_agree(openssl, rng, tmp_path, scheme):
             signature = signer.sign(message)
             context = f"seed={seed} scheme={scheme} key={key_index}"
             assert ours_verifies(
-                algorithm, hash_name, message, signature, signer.spki
+                algorithm, hash_name, message, signature, signer.spki, pss
             ), f"{context}: rejected a signature OpenSSL produced"
             # The right signature checked under the wrong hash must fail too.
             # RSASSA-PSS keeps one OID across hashes, so the wrong-hash check
@@ -313,11 +342,11 @@ def test_openssl_and_certmonitor_agree(openssl, rng, tmp_path, scheme):
                         if h == wrong and oid.rsplit(".", 1)[0] == family
                     )
                 assert not ours_verifies(
-                    wrong_algorithm, wrong, message, signature, signer.spki
+                    wrong_algorithm, wrong, message, signature, signer.spki, pss
                 ), f"{context}: accepted a signature under the wrong hash algorithm"
             what, bad_signature, bad_message = damage(random_, signature, message)
             mine = ours_verifies(
-                algorithm, hash_name, bad_message, bad_signature, signer.spki
+                algorithm, hash_name, bad_message, bad_signature, signer.spki, pss
             )
             assert mine is False, f"{context}: accepted a damaged input after '{what}'"
             theirs = signer.openssl_verifies(bad_message, bad_signature)

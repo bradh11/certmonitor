@@ -36,16 +36,16 @@ class RevocationValidator(_ValidatorBase):
     CA and the collected certificate's serial is looked up in it; OCSP
     answers are proven when the response is signed by the issuing CA or an
     authorized responder with RSA (PKCS#1 v1.5 or PSS), ECDSA (P-256, P-384,
-    P-521), or EdDSA (Ed25519, Ed448). An
-    answer whose signature was checked and is wrong is discarded before its
-    content is read, whatever it claims; if no other method answers, the
-    result is an `error`, its code prefixed by the source that failed
-    (`OCSPInvalidSignature` or `CRLInvalidSignature`). An answer that cannot
-    be checked, for example an OCSP response signed with an algorithm
-    CertMonitor does not implement, is held back: a `good` becomes a warning
-    and a `revoked` becomes an `error` (`OCSPUnverifiedRevocation` or
-    `CRLUnverifiedRevocation`) unless a verified method answers or
-    `accept_unverified=True` accepts the source's word for either verdict.
+    P-521), or EdDSA (Ed25519, Ed448). An answer whose signature was checked
+    and is wrong is discarded before its content is read, whatever it claims;
+    if no other method answers, the result is an `error`, its code prefixed
+    by the source that failed (`OCSPInvalidSignature` or
+    `CRLInvalidSignature`). An answer that cannot be checked, for example an
+    OCSP response signed with an algorithm CertMonitor does not implement, is
+    held back: a `good` becomes a warning and a `revoked` becomes an `error`
+    (`OCSPUnverifiedRevocation` or `CRLUnverifiedRevocation`) unless a
+    verified method answers or `accept_unverified=True` accepts the source's
+    word for either verdict.
 
     Args:
         methods: Order in which to consult `"ocsp"` and `"crl"`. Defaults

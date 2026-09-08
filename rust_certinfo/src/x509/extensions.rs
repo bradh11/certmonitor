@@ -191,6 +191,12 @@ fn parse_basic_constraints(value: &[u8]) -> Result<BasicConstraints, ParseError>
         if !had_sign_byte && digits[0] & 0x80 != 0 {
             return Err(ParseError::IntegerOverflow);
         }
+        if had_sign_byte && digits[0] == 0x00 {
+            // Two leading zero octets: DER (X.690 §8.3.2) allows the sign
+            // byte only when the next octet's high bit is set, so this is a
+            // padded re-encoding of a smaller value.
+            return Err(ParseError::IntegerOverflow);
+        }
         let n = digits
             .iter()
             .try_fold(0u64, |acc, &b| {
@@ -281,6 +287,29 @@ mod tests {
             parse_basic_constraints(&value).unwrap_err(),
             ParseError::IntegerOverflow
         );
+    }
+
+    #[test]
+    fn basic_constraints_rejects_non_minimal_path_len() {
+        // SEQUENCE { INTEGER 00 00 20 }: a second leading zero octet, which
+        // X.690 §8.3.2 forbids because the first one alone already encodes 32.
+        let value = [
+            tag::TAG_SEQUENCE,
+            0x05,
+            tag::TAG_INTEGER,
+            0x03,
+            0x00,
+            0x00,
+            0x20,
+        ];
+        assert_eq!(
+            parse_basic_constraints(&value).unwrap_err(),
+            ParseError::IntegerOverflow
+        );
+        // SEQUENCE { INTEGER 00 80 }: the sign byte the same rule requires,
+        // since 0x80's high bit would otherwise read as negative.
+        let value = [tag::TAG_SEQUENCE, 0x04, tag::TAG_INTEGER, 0x02, 0x00, 0x80];
+        assert_eq!(parse_basic_constraints(&value).unwrap().path_len, Some(128));
     }
 
     #[test]

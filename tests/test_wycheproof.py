@@ -13,8 +13,11 @@ directly. RSASSA-PSS vectors carry no algorithm parameters of their own, so
 §3.1) from each test group's `sha`, `mgfSha`, and `sLen` fields (groups
 naming a mask generation function other than MGF1 are skipped), and the check goes
 through `certmonitor.signatures.verify`, which is where the PSS padding is
-implemented. EdDSA vectors go through `signatures.verify` too, since that is
-where the challenge hash is computed.
+implemented. Two of the PSS files exist to pin the parameters RFC 8017 §8.1
+lets a signer choose independently of the message hash: one names SHA-1 as the
+MGF1 hash where the message hash is SHA-256, the other a zero-length salt where
+the digest is 32 bytes. EdDSA vectors go through `signatures.verify` too, since
+that is where the challenge hash is computed.
 """
 
 from __future__ import annotations
@@ -37,7 +40,12 @@ ALGORITHMS = {
     ("RSASSA-PKCS1-v1_5", "SHA-384"): "1.2.840.113549.1.1.12",
     ("RSASSA-PKCS1-v1_5", "SHA-512"): "1.2.840.113549.1.1.13",
 }
-HASHES = {"SHA-256": "sha256", "SHA-384": "sha384", "SHA-512": "sha512"}
+HASHES = {
+    "SHA-1": "sha1",
+    "SHA-256": "sha256",
+    "SHA-384": "sha384",
+    "SHA-512": "sha512",
+}
 EDDSA_OIDS = {"Ed25519": signatures.ED25519, "Ed448": signatures.ED448}
 
 
@@ -117,7 +125,9 @@ def test_vector_files_are_complete():
         "ecdsa_secp521r1_sha512_test.json",
         "ed25519_test.json",
         "ed448_test.json",
+        "rsa_pss_2048_sha256_mgf1_0_test.json",
         "rsa_pss_2048_sha256_mgf1_32_test.json",
+        "rsa_pss_2048_sha256_mgf1sha1_20_test.json",
         "rsa_pss_2048_sha384_mgf1_48_test.json",
         "rsa_pss_3072_sha256_mgf1_32_test.json",
         "rsa_signature_2048_sha256_test.json",

@@ -72,7 +72,7 @@ Each method in `methods` is consulted in order, OCSP first by default:
 The per-method detail always lands in `methods`, so you can see what each source said even when the verdict came from the other one.
 
 !!! note "How verification stays dependency-free"
-    The Python standard library has no primitive for checking an RSA, ECDSA, or EdDSA signature, so CertMonitor's Rust extension carries its own: big-integer arithmetic, RSASSA-PKCS1-v1_5, RSASSA-PSS (MGF1 with SHA-1, SHA-256, SHA-384, or SHA-512), ECDSA over P-256, P-384, and P-521, and Ed25519 and Ed448. It is verification only, tested against RFC 6979 vectors and against real `openssl` output. What remains unsupported is anything else, for example post-quantum signatures, SHAKE-based PSS, or other curves; those are reported with `signature_verified: false` and the algorithm named in `verification_error`. Set `accept_unverified=True` if you are willing to take such a responder's word.
+    The Python standard library has no primitive for checking an RSA, ECDSA, or EdDSA signature, so CertMonitor's Rust extension carries its own: big-integer arithmetic, RSASSA-PKCS1-v1_5, RSASSA-PSS (MGF1 with SHA-1, SHA-256, SHA-384, or SHA-512), ECDSA over P-256, P-384, and P-521, and Ed25519 and Ed448. It is verification only, tested against RFC 6979 and RFC 8032 vectors, Wycheproof's ECDSA, RSA, RSASSA-PSS, and EdDSA suites, and real `openssl` output. What remains unsupported is anything else, for example post-quantum signatures, SHAKE-based PSS, or other curves; those are reported with `signature_verified: false` and the algorithm named in `verification_error`. Set `accept_unverified=True` if you are willing to take such a responder's word.
 
 ## Arguments
 

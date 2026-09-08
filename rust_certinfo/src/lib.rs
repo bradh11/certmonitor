@@ -35,6 +35,7 @@ mod x509;
 // CLI) can use the same surface.
 pub use crate::crypto::bigint::BigUint;
 pub use crate::crypto::eddsa::{verify as verify_eddsa, EdCurve};
+pub use crate::crypto::rsa::PssParameters;
 pub use crate::crypto::VerifyError;
 pub use crate::error::ParseError;
 pub use crate::x509::crl::Crl;

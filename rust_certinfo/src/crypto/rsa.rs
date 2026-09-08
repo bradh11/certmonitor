@@ -1,17 +1,29 @@
 // rust_certinfo/src/crypto/rsa.rs
 //
-// RSASSA-PKCS1-v1_5 signature verification (RFC 8017 §8.2.2). The public
-// key is the RSAPublicKey inside a SubjectPublicKeyInfo; the digest is
-// computed by the caller. Verification recovers the encoded message
-// s^e mod n and compares it, byte for byte, with the expected
-// `00 01 FF..FF 00 || DigestInfo` encoding.
+// The RSA half of signature verification. The public key is the
+// RSAPublicKey inside a SubjectPublicKeyInfo and the digest is computed by
+// the caller. Four things live here:
+//
+//   - RSASSA-PKCS1-v1_5 verification (RFC 8017 §8.2.2), start to finish:
+//     recover the encoded message and compare it, byte for byte, with the
+//     expected `00 01 FF..FF 00 || DigestInfo` encoding.
+//   - RSAVP1 (§5.2.2), the `s^e mod n` primitive both schemes stand on.
+//   - The RSASSA-PSS encoded message: RSAVP1 plus the §8.1.2 step 2.c trim
+//     to `emLen` octets, with the modulus bit length the caller needs. The
+//     PSS padding check itself is in Python, in `certmonitor.signatures`,
+//     because that is where the hashing is.
+//   - RSASSA-PSS-params parsing (RFC 4055 §3.1): the two hash algorithms,
+//     the MGF1 mask generation function, the salt length, and the trailer
+//     field, each with the RFC's default when absent.
 
 use crate::crypto::bigint::BigUint;
 use crate::crypto::VerifyError;
 use crate::der::{tag, DerReader};
 use crate::x509::algorithm::AlgorithmIdentifier;
 
-/// The hash algorithms PKCS#1 v1.5 signatures may name in DigestInfo.
+/// A hash algorithm named by a signature scheme: in a PKCS#1 v1.5
+/// DigestInfo, or as either the message hash or the MGF1 hash of
+/// RSASSA-PSS-params. These four are what RFC 4055 §2.1 defines.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HashAlg {
     Sha1,
@@ -256,6 +268,12 @@ fn small_uint(value: &[u8]) -> Result<u64, VerifyError> {
         return Err(ERR);
     }
     if !had_sign_byte && digits[0] & 0x80 != 0 {
+        return Err(ERR);
+    }
+    if had_sign_byte && digits[0] == 0x00 {
+        // Two leading zero octets: DER (X.690 §8.3.2) allows the sign byte
+        // only when the next octet's high bit is set, so this is a padded
+        // re-encoding of a smaller value, not a value in its own right.
         return Err(ERR);
     }
     digits
@@ -535,6 +553,19 @@ mod tests {
         );
         // The minimal DER encoding of zero.
         assert_eq!(small_uint(&hex("00")).unwrap(), 0);
+    }
+
+    #[test]
+    fn small_uint_requires_minimal_der() {
+        // [2] INTEGER 00 00 20: a second leading zero octet, which X.690
+        // §8.3.2 forbids because the first one alone already encodes 32.
+        assert_eq!(
+            small_uint(&hex("000020")).unwrap_err(),
+            VerifyError::Malformed("PSS parameter integer")
+        );
+        // [2] INTEGER 00 80: the sign byte the same rule requires, since
+        // 0x80's high bit would otherwise read as negative.
+        assert_eq!(small_uint(&hex("0080")).unwrap(), 128);
     }
 
     #[test]
