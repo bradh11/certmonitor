@@ -596,6 +596,19 @@ def test_issuer_must_have_signed_the_leaf(pki):
     assert found == real and binding == revocation.VERIFIED and problem is None
 
 
+def test_find_issuer_skips_unrelated_and_unparsable_candidates(pki):
+    leaf = ssl.PEM_cert_to_DER_cert((pki.directory / "good.pem").read_text())
+    other_leaf = ssl.PEM_cert_to_DER_cert((pki.directory / "revoked.pem").read_text())
+    real = ssl.PEM_cert_to_DER_cert(pki.ca_pem.read_text())
+    # A sibling leaf has another subject; garbage does not parse; the CA still wins.
+    found, binding, _ = revocation.find_issuer(
+        leaf, [other_leaf, b"not a certificate", real]
+    )
+    assert found == real and binding == revocation.VERIFIED
+    # A leaf that does not parse cannot be bound to anything.
+    assert revocation.find_issuer(b"not a certificate", [real]) == (None, None, None)
+
+
 def test_impostor_issuer_from_aia_is_rejected(pki, monkeypatch):
     _impostor_ca(pki)
     impostor_pem = (pki.directory / "impostor.pem").read_bytes()
@@ -690,6 +703,14 @@ def test_unknown_method_is_an_argument_error(pki):
         result = monitor.validate({"revocation": {"methods": ["dns"]}})["revocation"]
     assert result["status"] == "error"
     assert "unknown revocation method" in result["reason"]
+
+
+def test_negative_max_age_hours_is_an_argument_error(pki):
+    server, options = monitor_for(pki, "good")
+    with server, CertMonitor("localhost", server.port, **options) as monitor:
+        result = monitor.validate({"revocation": {"max_age_hours": -1}})["revocation"]
+    assert result["status"] == "error"
+    assert "max_age_hours" in result["reason"]
 
 
 def test_crl_verdict_is_about_the_collected_certificate_and_needs_no_reconnect(pki):
@@ -874,6 +895,14 @@ def test_ocsp_error_statuses_and_staleness(pki, monkeypatch):
         leaf, issuer, pki.ocsp_url, timeout=5, now=far_future
     )
     assert answer["error"] == "OCSPStale"
+
+    just_expired = time.time() + 30 * 3600  # past nextUpdate, under the ten-day ceiling
+    revocation.OCSP_CACHE.clear()
+    answer = revocation.check_ocsp(
+        leaf, issuer, pki.ocsp_url, timeout=5, now=just_expired
+    )
+    assert answer["error"] == "OCSPStale" and "expired at" in answer["reason"]
+
     long_ago = 946_684_800  # 2000-01-01
     answer = revocation.check_ocsp(leaf, issuer, pki.ocsp_url, timeout=5, now=long_ago)
     assert answer["error"] == "OCSPNotYetValid"
@@ -1377,6 +1406,17 @@ def test_signature_primitives_surface_errors(pki):
         b"\x30\x00", "1.2.840.113549.1.1.11", b"tbs", b"sig"
     )
     assert outcome == "failed" and "SubjectPublicKeyInfo" in why
+
+
+def test_unknown_digest_name_is_unsupported_not_a_crash(monkeypatch):
+    monkeypatch.setattr(
+        certinfo, "signature_hash", MagicMock(return_value="no-such-digest")
+    )
+    outcome, problem = revocation._signed_by(
+        b"", "1.2.840.113549.1.1.11", b"tbs", b"sig"
+    )
+    assert outcome == revocation.UNSUPPORTED
+    assert "no-such-digest" in problem
 
 
 def test_cached_answers_never_outlive_next_update(pki):
