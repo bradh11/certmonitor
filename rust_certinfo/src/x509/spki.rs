@@ -422,9 +422,7 @@ mod tests {
         }
     }
 
-    /// Build an SPKI wrapping a raw RSA modulus, as `der_tlv` already
-    /// produces the same TLV bytes as the inline encoding a modulus test
-    /// needs.
+    /// Build a minimal rsaEncryption SPKI around a raw modulus value.
     fn rsa_spki(modulus: &[u8]) -> Vec<u8> {
         let mut key = der_tlv(tag::TAG_INTEGER, modulus);
         key.extend(der_tlv(tag::TAG_INTEGER, &[0x01, 0x00, 0x01]));
