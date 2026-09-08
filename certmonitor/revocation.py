@@ -16,10 +16,12 @@ is recorded before its list is consulted, and the validator discards any
 answer whose signature failed. No second connection is opened for either
 method, so an answer can only describe the certificate that was collected.
 
-Fetched CRLs and OCSP answers are cached process-wide until their
-`nextUpdate`, so a fleet scan downloads each CA's CRL once. A monitor built
-from a file never touches the network, so both methods report `unsupported`
-for it.
+Fetched CRLs and OCSP answers are cached process-wide: verified answers are
+cached until their `nextUpdate`, never longer than a day; an answer with no
+`nextUpdate` is cached for at most an hour and, for OCSP, never past
+`thisUpdate` plus `max_age`; failed or unverifiable answers are fetched
+again next time. A monitor built from a file never touches the network, so
+both methods report `unsupported` for it.
 """
 
 from __future__ import annotations
@@ -270,7 +272,7 @@ def check_ocsp(
     timeout: float,
     proxy: ProxyConfig | None = None,
     now: float | None = None,
-    issuer_binding: str = VERIFIED,
+    issuer_binding: str = UNSUPPORTED,
     binding_problem: str | None = None,
     max_age: float = _OCSP_MAX_AGE_SECONDS,
 ) -> dict[str, Any]:
@@ -278,8 +280,10 @@ def check_ocsp(
 
     The answer's `status` is `good`, `revoked`, or `unknown` when the
     responder answered about this certificate, and `error` otherwise, with
-    `reason` saying why. Verified answers are cached until their `nextUpdate`;
-    failed or unverifiable ones are fetched again next time.
+    `reason` saying why. Verified answers are cached until their `nextUpdate`,
+    never longer than a day; an answer with no `nextUpdate` is cached for at
+    most an hour and never past `thisUpdate` plus `max_age`; failed or
+    unverifiable answers are fetched again next time.
     """
     now = time.time() if now is None else now
     request, expected = build_ocsp_request(leaf_der, issuer_der)
@@ -290,7 +294,14 @@ def check_ocsp(
         expected["serial_number"],
     )
     cached = OCSP_CACHE.get(key, now)
-    if cached is not None and _still_current(cached.get("_next_update"), now):
+    if (
+        cached is not None
+        and _still_current(cached.get("_next_update"), now)
+        and (
+            cached.get("_next_update") is not None
+            or now - cached["_this_update"] <= max_age
+        )
+    ):
         return {**cached, "cached": True}
     answer = _ask_ocsp(
         request,
@@ -326,7 +337,7 @@ def _ask_ocsp(
     timeout: float,
     proxy: ProxyConfig | None,
     now: float,
-    issuer_binding: str = VERIFIED,
+    issuer_binding: str = UNSUPPORTED,
     binding_problem: str | None = None,
     max_age: float,
 ) -> dict[str, Any]:
@@ -441,7 +452,10 @@ def _signed_by(
     hash_name = certinfo.signature_hash(algorithm)  # type: ignore[attr-defined]
     if hash_name is None:
         return UNSUPPORTED, f"unsupported signature algorithm {algorithm}"
-    digest = hashlib.new(hash_name, tbs).digest()
+    try:
+        digest = hashlib.new(hash_name, tbs).digest()
+    except ValueError as exc:
+        return UNSUPPORTED, f"unsupported digest {hash_name}: {exc}"
     try:
         ok = certinfo.verify_signature(  # type: ignore[attr-defined]
             algorithm, digest, signature, signer_spki
@@ -544,13 +558,14 @@ def fetch_crl(
     der = pem_to_der(body) if body.lstrip().startswith(b"-----BEGIN") else body
     info = certinfo.crl_info(der)  # type: ignore[attr-defined]
     if _still_current(info["next_update"], now):
-        CRL_CACHE.put(
-            url,
-            (der, info),
-            _expiry_for(
-                info["this_update"], info["next_update"], now, _OCSP_MAX_AGE_SECONDS
-            ),
+        expires_at = (
+            now + _DEFAULT_TTL_SECONDS
+            if info["next_update"] is None
+            else _expiry_for(
+                info["this_update"], info["next_update"], now, _DEFAULT_TTL_SECONDS
+            )
         )
+        CRL_CACHE.put(url, (der, info), expires_at)
     return der, info, False
 
 

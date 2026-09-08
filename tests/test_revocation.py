@@ -438,9 +438,13 @@ def test_failed_verification_is_not_cached(pki, monkeypatch):
     bad = revocation.check_ocsp(leaf, issuer, pki.ocsp_url, timeout=5)
     assert bad["verification"] == "failed"
     monkeypatch.setattr(http, "fetch", real_fetch)
-    good = revocation.check_ocsp(leaf, issuer, pki.ocsp_url, timeout=5)
+    good = revocation.check_ocsp(
+        leaf, issuer, pki.ocsp_url, timeout=5, issuer_binding=revocation.VERIFIED
+    )
     assert good["verification"] == "verified" and good["cached"] is False
-    again = revocation.check_ocsp(leaf, issuer, pki.ocsp_url, timeout=5)
+    again = revocation.check_ocsp(
+        leaf, issuer, pki.ocsp_url, timeout=5, issuer_binding=revocation.VERIFIED
+    )
     assert again["cached"] is True
 
 
@@ -790,6 +794,22 @@ def test_stale_and_future_crls_are_errors(pki, monkeypatch):
     assert evidence.crl()["error"] == "CRLNotYetValid"
 
 
+def test_crl_without_next_update_keeps_a_one_hour_lease(pki, monkeypatch):
+    real_info = certinfo.crl_info
+
+    def without_next_update(der):
+        info = real_info(der)
+        info["next_update"] = None
+        info["this_update"] -= 3 * 86400
+        return info
+
+    monkeypatch.setattr(certinfo, "crl_info", without_next_update)
+    first = revocation.fetch_crl(pki.crl_url, timeout=5)
+    assert first[2] is False
+    second = revocation.fetch_crl(pki.crl_url, timeout=5)
+    assert second[2] is True
+
+
 # --- evidence details ------------------------------------------------------------
 
 
@@ -945,9 +965,15 @@ def test_max_age_hours_is_a_validator_argument(pki, monkeypatch):
         fresh = monitor.validate(
             {"revocation": {"methods": ["ocsp"], "max_age_hours": 3}}
         )["revocation"]
+        # The cached fresh answer must not satisfy a tighter max_age on reuse.
+        tightened = monitor.validate(
+            {"revocation": {"methods": ["ocsp"], "max_age_hours": 1}}
+        )["revocation"]
     assert stale["status"] == "error", stale
     assert stale["methods"]["ocsp"]["error"] == "OCSPStale"
     assert fresh["status"] == "pass", fresh
+    assert tightened["status"] == "error", tightened
+    assert tightened["methods"]["ocsp"]["error"] == "OCSPStale"
 
 
 def test_issuer_fetch_failures_are_reported(pki, monkeypatch):
@@ -1357,7 +1383,14 @@ def test_cached_answers_never_outlive_next_update(pki):
     leaf = ssl.PEM_cert_to_DER_cert((pki.directory / "good.pem").read_text())
     issuer = ssl.PEM_cert_to_DER_cert(pki.ca_pem.read_text())
     now = time.time()
-    first = revocation.check_ocsp(leaf, issuer, pki.ocsp_url, timeout=5, now=now)
+    first = revocation.check_ocsp(
+        leaf,
+        issuer,
+        pki.ocsp_url,
+        timeout=5,
+        now=now,
+        issuer_binding=revocation.VERIFIED,
+    )
     assert first["cached"] is False and first["status"] == "good"
     assert revocation.check_ocsp(leaf, issuer, pki.ocsp_url, timeout=5, now=now + 1)[
         "cached"

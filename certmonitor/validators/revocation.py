@@ -49,10 +49,10 @@ class RevocationValidator(_ValidatorBase):
     Args:
         methods: Order in which to consult `"ocsp"` and `"crl"`. Defaults
             to OCSP first, then the CRL.
-        accept_unverified: Act on an OCSP answer whose signature could not be
-            checked (unsupported algorithm) as if it were verified: `good`
-            passes and `revoked` fails. Never applies to a signature that was
-            checked and found wrong.
+        accept_unverified: Act on an OCSP or CRL answer whose signature could
+            not be checked (unsupported algorithm) as if it were verified:
+            `good` passes and `revoked` fails. Never applies to a signature
+            that was checked and found wrong.
         max_age_hours: Oldest `thisUpdate` accepted for an OCSP response that
             carries no `nextUpdate`, in hours. Responses older than ten days
             are refused whatever `nextUpdate` says.
