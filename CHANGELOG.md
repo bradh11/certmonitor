@@ -14,6 +14,7 @@ rename the headers to emoji form when cutting a release.
 
 ### Added
 - `revocation`: `max_age_hours` argument.
+- `key_info`: Ed25519 and Ed448 keys are recognized (`algorithm: "Ed25519"` or `"Ed448"`) and judged strong, instead of `unknown` and failing closed. Signature verification for EdDSA is still unsupported.
 
 ### Changed
 - TBD
@@ -24,6 +25,9 @@ rename the headers to emoji form when cutting a release.
 - `revocation`: OCSP responses without `nextUpdate` are refused once `thisUpdate` is older than `max_age_hours` (default 24), any response older than ten days is refused, and cache lifetime is anchored to `thisUpdate` so a re-fetched historical response gets no new lease.
 - `revocation`: answers whose signature failed verification are no longer cached.
 - `revocation`: the CRL is verified in-house against the bound issuer and the collected certificate's serial is looked up directly; the extra OpenSSL handshake, which could attribute another certificate's revocation to the snapshot, is gone. CRL answers now carry `verification` and `verification_error` like OCSP answers, and a failed CRL signature reports `CRLInvalidSignature`.
+- `key_info`: RSA modulus sizes are reported exactly (a 2041-bit key is 2041 bits, not 2048), so undersized keys no longer pass the 2048-bit floor.
+- Signature verification refuses RSA keys with a modulus over 16384 bits or a public exponent over 64 bits (OpenSSL's limits) as `unsupported` instead of computing with them.
+- `pq_key_exchange`: a ServerHello split across TLS records is reassembled instead of reported as `ServerHello split across records`.
 
 ## [0.5.2] - 2026-09-06
 
