@@ -1,15 +1,18 @@
 """Offline regressions for the repository review's validation findings."""
 
 import contextlib
+import shutil
 import socket
 import ssl
+import subprocess
 import threading
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from certmonitor import CertMonitor
+from certmonitor import CertMonitor, certinfo
 from certmonitor.validators.hostname import HostnameValidator
+from certmonitor.validators.key_info import KeyInfoValidator
 from certmonitor.validators.subject_alt_names import SubjectAltNamesValidator
 
 
@@ -243,3 +246,25 @@ def test_chain_non_ca_is_rejected_and_weak_policy_configurable():
     assert validator.validate(
         {"chain_analysis": analysis}, "example.com", 443, reject_weak_signatures=False
     )["is_valid"]
+
+
+def _self_signed(tmp_path, *key_args: str) -> bytes:
+    openssl = shutil.which("openssl")
+    if openssl is None:
+        pytest.skip("OpenSSL CLI required")
+    pem = tmp_path / "cert.pem"
+    subprocess.run(
+        [openssl, "req", "-x509", "-nodes", *key_args, "-keyout", str(tmp_path / "k.pem"),
+         "-out", str(pem), "-days", "1", "-subj", "/CN=t"],
+        check=True, capture_output=True,
+    )  # fmt: skip
+    return ssl.PEM_cert_to_DER_cert(pem.read_text())
+
+
+def test_rsa_key_size_is_not_rounded_up(tmp_path):
+    der = _self_signed(tmp_path, "-newkey", "rsa:2041")
+    info = certinfo.parse_public_key_info(der)
+    assert info["size"] == 2041
+    verdict = KeyInfoValidator().validate({"public_key_info": info}, "h", 443)
+    assert verdict["is_valid"] is False
+    assert "2041" in verdict["reason"]
