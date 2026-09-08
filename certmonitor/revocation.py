@@ -11,10 +11,10 @@ and ECDSA over P-256 and P-384). A response signed by the issuing CA, or by
 a delegated responder certificate the CA issued for OCSP signing, carries
 `signature_verified: True`; anything else says why in `verification_error`.
 CRLs are fetched here and verified the same way: the CRL must name the
-leaf's issuer and carry that issuer's signature, and only then is the
-collected certificate's serial looked up in it. No second connection is
-opened for either method, so an answer can only describe the certificate
-that was collected.
+leaf's issuer and carry that issuer's signature. The CRL's signature outcome
+is recorded before its list is consulted, and the validator discards any
+answer whose signature failed. No second connection is opened for either
+method, so an answer can only describe the certificate that was collected.
 
 Fetched CRLs and OCSP answers are cached process-wide until their
 `nextUpdate`, so a fleet scan downloads each CA's CRL once. A monitor built
@@ -70,14 +70,6 @@ def format_time(unix: int | None) -> str | None:
     if unix is None:
         return None
     return datetime.fromtimestamp(unix, timezone.utc).isoformat()
-
-
-def serial_bytes(serial_hex: str) -> bytes:
-    """The raw INTEGER bytes of a serial number rendered as hex."""
-    digits = serial_hex.replace(":", "")
-    if len(digits) % 2:
-        digits = "0" + digits
-    return bytes.fromhex(digits)
 
 
 def pem_to_der(text: bytes) -> bytes:
@@ -683,7 +675,7 @@ class RevocationEvidence:
                 binding_problem=self._binding_problem,
                 max_age=self.ocsp_max_age,
             )
-            if last["status"] != "error":
+            if last["status"] != "error" and last.get("verification") != FAILED:
                 break
         return self._remember("ocsp", last)
 
@@ -704,16 +696,16 @@ class RevocationEvidence:
         last: dict[str, Any] = {}
         for url in self.crl_urls:
             last = self._check_one_crl(url)
-            if last["status"] != "error":
+            if last["status"] != "error" and last.get("verification") != FAILED:
                 break
         return self._remember("crl", last)
 
     def _check_one_crl(self, url: str) -> dict[str, Any]:
         """Fetch one CRL, verify it against the bound issuer, and look the leaf up.
 
-        The CRL must name the leaf's issuer and be signed by the issuer's key;
-        only then is its list consulted for the collected certificate's serial.
-        No second connection is opened, so the verdict can only ever describe
+        The CRL's signature outcome is recorded before its list is consulted,
+        and the validator discards any answer whose signature failed. No
+        second connection is opened, so the verdict can only ever describe
         the certificate that was collected.
         """
         answer: dict[str, Any] = {

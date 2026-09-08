@@ -203,10 +203,11 @@ class RevocationPKI:
         class FileHandler(BaseHTTPRequestHandler):
             def do_GET(self):
                 pki.crl_requests.append(self.path)
-                path = pki.directory / self.path.lstrip("/")
-                if self.path == "/ca.crl":
+                route = self.path.split("?", 1)[0]
+                path = pki.directory / route.lstrip("/")
+                if route == "/ca.crl":
                     body, kind = path.read_bytes(), "application/pkix-crl"
-                elif self.path == "/ca.pem":
+                elif route == "/ca.pem":
                     body, kind = path.read_bytes(), "application/x-pem-file"
                 else:
                     self.send_error(404)
@@ -472,6 +473,9 @@ def test_default_order_stops_at_a_verified_ocsp_answer(pki):
 
 def test_unverifiable_ocsp_falls_through_to_the_verified_crl(pki, monkeypatch):
     # An algorithm CertMonitor cannot verify leaves OCSP unproven; the CRL settles it.
+    # The stub targets OCSP's own verifier rather than certinfo.signature_hash:
+    # the CRL is signed with the same algorithm in this PKI and now goes
+    # through the same primitive, so a global patch would leave it unproven too.
     monkeypatch.setattr(
         revocation,
         "verify_ocsp_response",
@@ -527,6 +531,9 @@ def test_forged_revoked_is_discarded_not_acted_on(pki, monkeypatch):
 
 
 def test_unverifiable_revoked_is_an_error_unless_accepted(pki, monkeypatch):
+    # The stub targets OCSP's own verifier rather than certinfo.signature_hash:
+    # the CRL is signed with the same algorithm in this PKI and now goes
+    # through the same primitive, so a global patch would leave it unproven too.
     monkeypatch.setattr(
         revocation,
         "verify_ocsp_response",
@@ -714,6 +721,36 @@ def test_tampered_crl_is_an_error_not_evidence(pki, monkeypatch):
     assert result["status"] == "error", result
     assert result["error"] == "CRLInvalidSignature"
     assert result["methods"]["crl"]["verification"] == "failed"
+
+
+def test_crl_falls_through_to_the_next_distribution_point_after_a_failed_signature(
+    pki, monkeypatch
+):
+    leaf = ssl.PEM_cert_to_DER_cert((pki.directory / "good.pem").read_text())
+    issuer = ssl.PEM_cert_to_DER_cert(pki.ca_pem.read_text())
+    first_url = pki.crl_url + "?first"
+    real_fetch = http.fetch
+
+    def flip_the_first_signature_byte(url, **kwargs):
+        body = real_fetch(url, **kwargs)
+        if url != first_url:
+            return body
+        body = bytearray(body)
+        signature = certinfo.crl_info(bytes(body))["signature"]
+        body[body.find(signature)] ^= 0x01
+        return bytes(body)
+
+    monkeypatch.setattr(http, "fetch", flip_the_first_signature_byte)
+    info = {
+        "crlDistributionPoints": [first_url, pki.crl_url],
+        "caIssuers": [f"http://127.0.0.1:{pki.crl_port}/ca.pem"],
+    }
+    evidence = revocation.RevocationEvidence(
+        leaf_der=leaf, chain_der=[leaf, issuer], cert_info=info, timeout=5
+    )
+    answer = evidence.crl()
+    assert answer["verification"] == "verified", answer
+    assert answer["url"] == pki.crl_url
 
 
 def test_crl_from_another_issuer_is_rejected(pki, monkeypatch):
@@ -961,8 +998,6 @@ def test_crl_lookup_and_info_through_the_parser(pki):
 
 
 def test_helpers():
-    assert revocation.serial_bytes("abc") == b"\x0a\xbc"
-    assert revocation.serial_bytes("0A:BC") == b"\x0a\xbc"
     assert revocation.format_time(None) is None
     assert revocation.format_time(0) == "1970-01-01T00:00:00+00:00"
     assert revocation.http_urls(["ldap://x", "http://a", "HTTPS://b", None]) == [
@@ -1146,7 +1181,7 @@ def test_revocation_source_needs_a_collected_certificate():
     assert "could not be performed" in result["reason"]
 
 
-def test_crl_check_with_a_client_certificate(pki):
+def test_crl_check_with_a_client_certificate(pki, local_pki):
     server, options = monitor_for(
         pki,
         "good",
@@ -1154,11 +1189,16 @@ def test_crl_check_with_a_client_certificate(pki):
         client_key=str(pki.directory / "good.key"),
     )
     with server, CertMonitor("localhost", server.port, **options) as monitor:
+        # A foreign trust store, unrelated to pki's CA, is configured after
+        # the connection completes: the CRL check must not consult it.
+        monitor.cafile = str(local_pki / "ca.pem")
         result = monitor.validate({"revocation": {"methods": ["crl"]}})["revocation"]
     # The CRL is judged against the collected chain alone, so presenting a
-    # client certificate to the server does not affect it.
+    # client certificate to the server, or configuring a foreign trust store,
+    # does not affect it.
     assert result["status"] == "pass"
     assert result["source"] == "crl"
+    assert result["methods"]["crl"]["signature_verified"] is True
 
 
 def test_evidence_remembers_answers_and_reports_a_missing_issuer(pki):
