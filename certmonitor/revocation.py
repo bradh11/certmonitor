@@ -622,20 +622,22 @@ def remember_crl(
 ) -> None:
     """Cache a verified CRL until its `nextUpdate`, never longer than a day.
 
-    A CRL without `nextUpdate` is kept for an hour. Call this only once the
-    CRL's signature has verified under its issuer; the cache holds evidence,
-    not fetch results.
+    A CRL without `nextUpdate` is kept for an hour, and never past the ten
+    days after `thisUpdate` at which `_check_one_crl` stops accepting one.
+    Unlike an OCSP response, a CRL with a `nextUpdate` is good however old
+    its `thisUpdate` is, so that ceiling does not apply here. Call this only
+    once the CRL's signature has verified under its issuer; the cache holds
+    evidence, not fetch results.
     """
     now = time.time() if now is None else now
     if not _still_current(info["next_update"], now):
         return
-    expires_at = (
-        now + _DEFAULT_TTL_SECONDS
-        if info["next_update"] is None
-        else _expiry_for(
-            info["this_update"], info["next_update"], now, _DEFAULT_TTL_SECONDS
+    if info["next_update"] is None:
+        expires_at = min(
+            now + _DEFAULT_TTL_SECONDS, info["this_update"] + _MAX_LIFETIME_SECONDS
         )
-    )
+    else:
+        expires_at = min(float(info["next_update"]), now + _CACHE_CEILING_SECONDS)
     CRL_CACHE.put(url, (der, info), expires_at)
 
 

@@ -1025,6 +1025,33 @@ def test_crl_without_next_update_keeps_a_one_hour_lease(pki, monkeypatch):
     assert second["cached"] is True
 
 
+def test_an_old_crl_with_a_valid_next_update_is_cached(pki, monkeypatch):
+    # RFC 5280 puts no age limit on a CRL that is still inside its validity
+    # window, and neither does the acceptance check, so the cache must not
+    # apply the OCSP ten-day ceiling and drop it on every check.
+    real_info = certinfo.crl_info
+
+    def issued_two_weeks_ago_valid_for_two_more(der):
+        info = real_info(der)
+        info["this_update"] -= 15 * 86400
+        info["next_update"] += 15 * 86400
+        return info
+
+    monkeypatch.setattr(certinfo, "crl_info", issued_two_weeks_ago_valid_for_two_more)
+    first = _evidence_for_crl(pki, "good", pki.crl_url).crl()
+    assert first["verification"] == "verified" and first["cached"] is False
+    second = _evidence_for_crl(pki, "good", pki.crl_url).crl()
+    assert second["verification"] == "verified" and second["cached"] is True
+    # Still never longer than a day, and never past nextUpdate.
+    now = time.time()
+    der, info, _ = revocation.fetch_crl(pki.crl_url, timeout=5, now=now)
+    revocation.remember_crl("http://crl.test/far", der, info, now=now)
+    assert revocation.CRL_CACHE._expiry("http://crl.test/far") == now + 86400
+    soon = {**info, "next_update": int(now) + 60}
+    revocation.remember_crl("http://crl.test/soon", der, soon, now=now)
+    assert revocation.CRL_CACHE._expiry("http://crl.test/soon") == int(now) + 60
+
+
 def test_crl_info_reports_scope_extensions(pki):
     full = certinfo.crl_info((pki.directory / "ca.crl").read_bytes())
     assert full["delta_crl_indicator"] is False
