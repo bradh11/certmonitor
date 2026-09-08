@@ -13,6 +13,7 @@ fuzz_target!(|data: &[u8]| {
         let _ = crl.revoked_count();
         let _ = crl.is_delta();
         let _ = crl.issuing_distribution_point();
+        let _ = crl.unsupported_critical_extensions();
         let probe = &data[..data.len().min(8)];
         let _ = crl.lookup(probe);
     }

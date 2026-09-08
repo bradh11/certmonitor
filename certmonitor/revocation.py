@@ -594,10 +594,13 @@ def fetch_crl(
     proxy: ProxyConfig | None = None,
     now: float | None = None,
 ) -> tuple[bytes, dict[str, Any], bool]:
-    """Fetch and parse the CRL at `url`, reusing a cached copy until its nextUpdate.
+    """Fetch and parse the CRL at `url`, reusing a remembered copy until its nextUpdate.
 
     Returns the DER bytes, the parsed summary from `certinfo.crl_info`, and
-    whether the copy came from the cache. PEM CRLs are converted.
+    whether the copy came from the cache. PEM CRLs are converted. Nothing is
+    cached here: a CRL enters the cache through `remember_crl` once its
+    signature has verified, so a corrupted or forged copy is fetched again
+    next time rather than pinned until its `nextUpdate`.
 
     Raises:
         OSError: If the CRL cannot be fetched.
@@ -611,16 +614,29 @@ def fetch_crl(
     body = http.fetch(url, timeout=timeout, proxy=proxy, accept="application/pkix-crl")
     der = pem_to_der(body) if body.lstrip().startswith(b"-----BEGIN") else body
     info = certinfo.crl_info(der)  # type: ignore[attr-defined]
-    if _still_current(info["next_update"], now):
-        expires_at = (
-            now + _DEFAULT_TTL_SECONDS
-            if info["next_update"] is None
-            else _expiry_for(
-                info["this_update"], info["next_update"], now, _DEFAULT_TTL_SECONDS
-            )
-        )
-        CRL_CACHE.put(url, (der, info), expires_at)
     return der, info, False
+
+
+def remember_crl(
+    url: str, der: bytes, info: dict[str, Any], *, now: float | None = None
+) -> None:
+    """Cache a verified CRL until its `nextUpdate`, never longer than a day.
+
+    A CRL without `nextUpdate` is kept for an hour. Call this only once the
+    CRL's signature has verified under its issuer; the cache holds evidence,
+    not fetch results.
+    """
+    now = time.time() if now is None else now
+    if not _still_current(info["next_update"], now):
+        return
+    expires_at = (
+        now + _DEFAULT_TTL_SECONDS
+        if info["next_update"] is None
+        else _expiry_for(
+            info["this_update"], info["next_update"], now, _DEFAULT_TTL_SECONDS
+        )
+    )
+    CRL_CACHE.put(url, (der, info), expires_at)
 
 
 # --- evidence ------------------------------------------------------------------------
@@ -826,9 +842,13 @@ class RevocationEvidence:
     def _check_one_crl(self, url: str) -> dict[str, Any]:
         """Fetch one CRL, verify it against the bound issuer, and look the leaf up.
 
-        The CRL's signature outcome is recorded before its list is consulted,
-        and the validator discards any answer whose signature failed. No
-        second connection is opened, so the verdict can only ever describe
+        Before the list is consulted the CRL must be in scope for the leaf,
+        carry no critical extension CertMonitor cannot process (RFC 5280
+        §5.2, §5.3), name the bound issuer, come from an issuer whose
+        `keyUsage`, if present, allows `cRLSign` (§6.3.3 step (f)), and
+        carry that issuer's signature. Only a CRL whose signature verified
+        is cached. The validator discards any answer whose signature failed.
+        No second connection is opened, so the verdict can only ever describe
         the certificate that was collected.
         """
         answer: dict[str, Any] = {
@@ -883,6 +903,18 @@ class RevocationEvidence:
                 reason=f"{scope_problem}; the certificate's status cannot be read from it",
             )
             return answer
+        unsupported = info.get("unsupported_critical_extensions") or []
+        if unsupported:
+            answer.update(
+                status="error",
+                error="CRLUnsupportedCriticalExtension",
+                reason=(
+                    "the CRL carries a critical extension CertMonitor cannot "
+                    f"process ({', '.join(unsupported)}); RFC 5280 sections 5.2 "
+                    "and 5.3 forbid using it to determine certificate status"
+                ),
+            )
+            return answer
         issuer = self.issuer()
         if issuer is None:
             answer.update(
@@ -899,6 +931,17 @@ class RevocationEvidence:
                 reason="the CRL was not issued by the certificate's CA",
             )
             return answer
+        key_usage = parts.get("key_usage")
+        if key_usage is not None and "crl_sign" not in key_usage:
+            answer.update(
+                status="error",
+                error="CRLSignerNotAuthorized",
+                reason=(
+                    "the issuer certificate's keyUsage does not include cRLSign, "
+                    "so it may not sign CRLs (RFC 5280 section 6.3.3)"
+                ),
+            )
+            return answer
         outcome, problem = _signed_by(
             parts["spki"],
             info["signature_algorithm"],
@@ -906,6 +949,8 @@ class RevocationEvidence:
             info["signature"],
             info["signature_algorithm_params"],
         )
+        if outcome == VERIFIED and not cached:
+            remember_crl(url, der, info, now=now)
         outcome, problem = _bound_by_issuer(
             outcome, problem, self._issuer_binding, self._binding_problem
         )

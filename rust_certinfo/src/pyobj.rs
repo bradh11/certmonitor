@@ -426,6 +426,10 @@ pub fn crl_info_dict<'py>(py: Python<'py>, crl: &Crl<'_>) -> PyResult<Bound<'py,
     d.set_item("tbs_cert_list", PyBytes::new(py, crl.tbs_cert_list))?;
     d.set_item("signature", PyBytes::new(py, crl.signature))?;
     d.set_item("delta_crl_indicator", crl.is_delta().map_err(to_py_err)?)?;
+    d.set_item(
+        "unsupported_critical_extensions",
+        crl.unsupported_critical_extensions().map_err(to_py_err)?,
+    )?;
     match crl.issuing_distribution_point().map_err(to_py_err)? {
         Some(idp) => {
             let scope = PyDict::new(py);
@@ -477,7 +481,7 @@ pub fn cert_id_inputs_dict<'py>(
 
 /// The pieces needed to verify a certificate's own signature and to use it
 /// as a signer: signed bytes, signature, algorithm, key, names, validity,
-/// and extended key usage.
+/// key usage, and extended key usage.
 pub fn certificate_signature_parts_dict<'py>(
     py: Python<'py>,
     cert: &Certificate<'_>,
@@ -507,5 +511,9 @@ pub fn certificate_signature_parts_dict<'py>(
         purposes.append(purpose.to_id_string())?;
     }
     d.set_item("extended_key_usage", purposes)?;
+    match cert.extensions.key_usage().map_err(to_py_err)? {
+        Some(usage) => d.set_item("key_usage", usage.names())?,
+        None => d.set_item("key_usage", py.None())?,
+    }
     Ok(d)
 }
