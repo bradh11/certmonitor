@@ -44,6 +44,8 @@ _OID_OCSP_SIGNING = "1.3.6.1.5.5.7.3.9"
 _CACHE_CEILING_SECONDS = 24 * 60 * 60
 _DEFAULT_TTL_SECONDS = 60 * 60
 _CACHE_LIMIT = 256
+_OCSP_MAX_AGE_SECONDS = 24 * 60 * 60
+_OCSP_MAX_LIFETIME_SECONDS = 10 * 24 * 60 * 60
 
 CrlCheck = Callable[[bytes], dict[str, Any]]
 
@@ -140,15 +142,19 @@ CRL_CACHE = _Cache()
 OCSP_CACHE = _Cache()
 
 
-def _expiry_for(next_update: int | None, now: float) -> float:
+def _expiry_for(
+    this_update: int, next_update: int | None, now: float, max_age: float
+) -> float:
     """When a fetched answer stops being reusable.
 
     Never later than the answer's own `nextUpdate`: a cache must not extend
     the validity of signed evidence. Capped at a day for answers that promise
-    more, and an hour for answers that carry no `nextUpdate` at all.
+    more. An answer without `nextUpdate` is reusable until `thisUpdate` plus
+    `max_age`, and never longer than an hour, so re-fetching a historical
+    response cannot give it a fresh lease.
     """
     if next_update is None:
-        return now + _DEFAULT_TTL_SECONDS
+        return min(this_update + max_age, now + _DEFAULT_TTL_SECONDS)
     return min(float(next_update), now + _CACHE_CEILING_SECONDS)
 
 
@@ -275,6 +281,7 @@ def check_ocsp(
     now: float | None = None,
     issuer_binding: str = VERIFIED,
     binding_problem: str | None = None,
+    max_age: float = _OCSP_MAX_AGE_SECONDS,
 ) -> dict[str, Any]:
     """Ask `url` about `leaf_der` and return one answer dict.
 
@@ -303,11 +310,18 @@ def check_ocsp(
         now=now,
         issuer_binding=issuer_binding,
         binding_problem=binding_problem,
+        max_age=max_age,
     )
     if answer["status"] in ("good", "revoked", "unknown") and _still_current(
         answer.get("_next_update"), now
     ):
-        OCSP_CACHE.put(key, answer, _expiry_for(answer.get("_next_update"), now))
+        OCSP_CACHE.put(
+            key,
+            answer,
+            _expiry_for(
+                answer["_this_update"], answer.get("_next_update"), now, max_age
+            ),
+        )
     return {**answer, "cached": False}
 
 
@@ -322,6 +336,7 @@ def _ask_ocsp(
     now: float,
     issuer_binding: str = VERIFIED,
     binding_problem: str | None = None,
+    max_age: float,
 ) -> dict[str, Any]:
     answer: dict[str, Any] = {
         "method": "ocsp",
@@ -368,6 +383,28 @@ def _ask_ocsp(
             reason=f"OCSP response thisUpdate {format_time(single['this_update'])} is in the future",
         )
         return answer
+    age = now - single["this_update"]
+    if single["next_update"] is None and age > max_age:
+        answer.update(
+            status="error",
+            error="OCSPStale",
+            reason=(
+                f"OCSP response thisUpdate {format_time(single['this_update'])} is "
+                f"{age / 3600:.0f} hours old and carries no nextUpdate; the limit is "
+                f"{max_age / 3600:.0f} hours (RFC 6960 §3.2 requires a recent thisUpdate)"
+            ),
+        )
+        return answer
+    if age > _OCSP_MAX_LIFETIME_SECONDS:
+        answer.update(
+            status="error",
+            error="OCSPStale",
+            reason=(
+                f"OCSP response thisUpdate {format_time(single['this_update'])} is "
+                "older than 10 days, whatever nextUpdate says"
+            ),
+        )
+        return answer
     if single["next_update"] is not None and single["next_update"] < now:
         answer.update(
             status="error",
@@ -395,6 +432,7 @@ def _ask_ocsp(
         responder_key_hash=parsed["responder_key_hash"],
         responder_name=parsed["responder_name"],
         _next_update=single["next_update"],
+        _this_update=single["this_update"],
     )
     return answer
 
@@ -514,7 +552,13 @@ def fetch_crl(
     der = pem_to_der(body) if body.lstrip().startswith(b"-----BEGIN") else body
     info = certinfo.crl_info(der)  # type: ignore[attr-defined]
     if _still_current(info["next_update"], now):
-        CRL_CACHE.put(url, (der, info), _expiry_for(info["next_update"], now))
+        CRL_CACHE.put(
+            url,
+            (der, info),
+            _expiry_for(
+                info["this_update"], info["next_update"], now, _OCSP_MAX_AGE_SECONDS
+            ),
+        )
     return der, info, False
 
 
@@ -547,6 +591,7 @@ class RevocationEvidence:
         self.timeout = timeout
         self.proxy = proxy
         self.crl_check = crl_check
+        self.ocsp_max_age: float = _OCSP_MAX_AGE_SECONDS
         self.ocsp_urls = http_urls(cert_info.get("OCSP"))
         self.crl_urls = http_urls(cert_info.get("crlDistributionPoints"))
         self.issuer_urls = http_urls(cert_info.get("caIssuers"))
@@ -638,6 +683,7 @@ class RevocationEvidence:
                 proxy=self.proxy,
                 issuer_binding=self._issuer_binding or UNSUPPORTED,
                 binding_problem=self._binding_problem,
+                max_age=self.ocsp_max_age,
             )
             if last["status"] != "error":
                 break

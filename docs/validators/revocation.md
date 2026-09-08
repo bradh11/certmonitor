@@ -79,6 +79,7 @@ The per-method detail always lands in `methods`, so you can see what each source
 |---|---|---|---|
 | `methods` | `list[str]` | `["ocsp", "crl"]` | Sources to consult, in order. Any subset of `ocsp` and `crl`. |
 | `accept_unverified` | `bool` | `False` | Act on an OCSP answer whose signature could not be checked (unsupported algorithm) as if it were verified: `good` passes, `revoked` fails. Never applies to a signature that was checked and failed. |
+| `max_age_hours` | `float` | `24` | Oldest `thisUpdate` accepted for an OCSP response with no `nextUpdate`. Responses older than ten days are refused whatever `nextUpdate` says, the same ceiling Firefox applies. |
 
 ```python
 monitor.validate({"revocation": {"methods": ["crl"]}})

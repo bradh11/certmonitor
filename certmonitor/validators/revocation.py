@@ -51,6 +51,9 @@ class RevocationValidator(_ValidatorBase):
             checked (unsupported algorithm) as if it were verified: `good`
             passes and `revoked` fails. Never applies to a signature that was
             checked and found wrong.
+        max_age_hours: Oldest `thisUpdate` accepted for an OCSP response that
+            carries no `nextUpdate`, in hours. Responses older than ten days
+            are refused whatever `nextUpdate` says.
 
     Example:
         ```python
@@ -72,6 +75,7 @@ class RevocationValidator(_ValidatorBase):
         *,
         methods: list[str] | None = None,
         accept_unverified: bool = False,
+        max_age_hours: float = 24.0,
     ) -> RevocationResult:
         order = list(methods) if methods else list(_DEFAULT_METHODS)
         unknown = [method for method in order if method not in _DEFAULT_METHODS]
@@ -79,11 +83,15 @@ class RevocationValidator(_ValidatorBase):
             raise ValueError(
                 f"unknown revocation method(s) {', '.join(unknown)}; choose from ocsp, crl"
             )
+        if max_age_hours < 0:
+            raise ValueError("max_age_hours must be zero or positive")
+        evidence.ocsp_max_age = max_age_hours * 3600
         answers: dict[str, dict[str, Any]] = {}
         unverified: dict[str, Any] | None = None
         for method in order:
             answer = dict(evidence.answer(method))
             answer.pop("_next_update", None)
+            answer.pop("_this_update", None)
             answers[method] = answer
             if answer["status"] not in ("good", "revoked"):
                 continue

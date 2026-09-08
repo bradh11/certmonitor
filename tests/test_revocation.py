@@ -742,6 +742,85 @@ def test_ocsp_error_statuses_and_staleness(pki, monkeypatch):
     assert answer["error"] == "OCSPNotYetValid"
 
 
+def _without_next_update(real_parse):
+    def parse(body):
+        parsed = real_parse(body)
+        for single in parsed["responses"]:
+            single["next_update"] = None
+        return parsed
+
+    return parse
+
+
+def test_old_ocsp_responses_without_next_update_are_stale(pki, monkeypatch):
+    leaf = ssl.PEM_cert_to_DER_cert((pki.directory / "good.pem").read_text())
+    issuer = ssl.PEM_cert_to_DER_cert(pki.ca_pem.read_text())
+    monkeypatch.setattr(
+        certinfo,
+        "parse_ocsp_response",
+        _without_next_update(certinfo.parse_ocsp_response),
+    )
+    produced = time.time()
+    fresh = revocation.check_ocsp(
+        leaf, issuer, pki.ocsp_url, timeout=5, now=produced + 3600
+    )
+    assert fresh["status"] == "good" and fresh["next_update"] is None
+    revocation.OCSP_CACHE.clear()
+    old = revocation.check_ocsp(
+        leaf, issuer, pki.ocsp_url, timeout=5, now=produced + 2 * 86400
+    )
+    assert old["error"] == "OCSPStale" and "no nextUpdate" in old["reason"]
+    revocation.OCSP_CACHE.clear()
+    tight = revocation.check_ocsp(
+        leaf, issuer, pki.ocsp_url, timeout=5, now=produced + 3600, max_age=1800
+    )
+    assert tight["error"] == "OCSPStale"
+
+
+def test_ocsp_responses_older_than_ten_days_are_stale_even_with_next_update(
+    pki, monkeypatch
+):
+    leaf = ssl.PEM_cert_to_DER_cert((pki.directory / "good.pem").read_text())
+    issuer = ssl.PEM_cert_to_DER_cert(pki.ca_pem.read_text())
+    real_parse = certinfo.parse_ocsp_response
+
+    def with_far_next_update(body):
+        parsed = real_parse(body)
+        for single in parsed["responses"]:
+            single["next_update"] = single["this_update"] + 30 * 86400
+        return parsed
+
+    monkeypatch.setattr(certinfo, "parse_ocsp_response", with_far_next_update)
+    answer = revocation.check_ocsp(
+        leaf, issuer, pki.ocsp_url, timeout=5, now=time.time() + 11 * 86400
+    )
+    assert answer["error"] == "OCSPStale" and "10 days" in answer["reason"]
+
+
+def test_cache_expiry_is_anchored_to_this_update_without_next_update():
+    now = 1_000_000.0
+    # No nextUpdate: never past thisUpdate + max_age, never past the default TTL.
+    assert revocation._expiry_for(int(now) - 3000, None, now, 3600) == now + 600
+    assert revocation._expiry_for(int(now), None, now, 86400) == now + 3600
+    # With nextUpdate: the earlier of nextUpdate and the one-day ceiling.
+    assert revocation._expiry_for(int(now), int(now) + 100, now, 3600) == now + 100
+
+
+def test_max_age_hours_is_a_validator_argument(pki, monkeypatch):
+    monkeypatch.setattr(
+        certinfo,
+        "parse_ocsp_response",
+        _without_next_update(certinfo.parse_ocsp_response),
+    )
+    server, options = monitor_for(pki, "good")
+    with server, CertMonitor("localhost", server.port, **options) as monitor:
+        result = monitor.validate(
+            {"revocation": {"methods": ["ocsp"], "max_age_hours": 0}}
+        )["revocation"]
+    assert result["status"] == "error", result
+    assert result["methods"]["ocsp"]["error"] == "OCSPStale"
+
+
 def test_issuer_fetch_failures_are_reported(pki, monkeypatch):
     leaf = ssl.PEM_cert_to_DER_cert((pki.directory / "good.pem").read_text())
     info = {
@@ -812,9 +891,9 @@ def test_helpers():
     ]
     assert revocation.http_urls(None) == []
     now = 1_000_000.0
-    assert revocation._expiry_for(None, now) == now + 3600
-    assert revocation._expiry_for(int(now) + 10, now) == now + 10
-    assert revocation._expiry_for(int(now) + 10**7, now) == now + 86400
+    assert revocation._expiry_for(int(now), None, now, 3600) == now + 3600
+    assert revocation._expiry_for(int(now), int(now) + 10, now, 3600) == now + 10
+    assert revocation._expiry_for(int(now), int(now) + 10**7, now, 3600) == now + 86400
     assert revocation._still_current(None, now)
     assert revocation._still_current(int(now) + 1, now)
     assert not revocation._still_current(int(now), now)
