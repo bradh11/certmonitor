@@ -14,6 +14,10 @@ from certmonitor import CertMonitor, certinfo
 from certmonitor.validators.hostname import HostnameValidator
 from certmonitor.validators.key_info import KeyInfoValidator
 from certmonitor.validators.subject_alt_names import SubjectAltNamesValidator
+from tests.support import algorithm_identifier, der
+
+# id-Ed25519 (RFC 8410 §3), OID 1.3.101.112.
+_OID_ED25519 = bytes.fromhex("2b6570")
 
 
 @pytest.mark.parametrize(
@@ -267,8 +271,8 @@ def _self_signed(tmp_path, *key_args: str) -> bytes:
 
 
 def test_rsa_key_size_is_not_rounded_up(tmp_path):
-    der = _self_signed(tmp_path, "-newkey", "rsa:2041")
-    info = certinfo.parse_public_key_info(der)
+    cert_der = _self_signed(tmp_path, "-newkey", "rsa:2041")
+    info = certinfo.parse_public_key_info(cert_der)
     assert info["size"] == 2041
     verdict = KeyInfoValidator().validate({"public_key_info": info}, "h", 443)
     assert verdict["is_valid"] is False
@@ -276,8 +280,30 @@ def test_rsa_key_size_is_not_rounded_up(tmp_path):
 
 
 def test_ed25519_keys_are_recognized_and_strong(tmp_path):
-    der = _self_signed(tmp_path, "-newkey", "ed25519")
-    info = certinfo.parse_public_key_info(der)
+    cert_der = _self_signed(tmp_path, "-newkey", "ed25519")
+    info = certinfo.parse_public_key_info(cert_der)
     assert info == {"algorithm": "Ed25519", "size": 256, "curve": None}
     verdict = KeyInfoValidator().validate({"public_key_info": info}, "h", 443)
     assert verdict["is_valid"] is True
+
+
+def _minimal_certificate(spki: bytes) -> bytes:
+    """The smallest Certificate DER `Certificate::from_der` accepts: version
+    absent, empty issuer/subject Names, a UTCTime validity, no extensions."""
+    serial = der(0x02, b"\x01")
+    sig_alg = algorithm_identifier(_OID_ED25519)
+    empty_name = der(0x30, b"")
+    validity = der(0x30, der(0x17, b"250101000000Z") + der(0x17, b"350101000000Z"))
+    tbs = der(0x30, serial + sig_alg + empty_name + validity + empty_name + spki)
+    signature_value = der(0x03, b"\x00\x00")
+    return der(0x30, tbs + sig_alg + signature_value)
+
+
+def test_ed25519_wrong_length_key_reports_unknown_algorithm():
+    # RFC 8410 §3 fixes Ed25519 keys at 32 bytes; a 31-byte key must fail
+    # closed to "unknown" rather than being classified as EdDSA.
+    spki = der(
+        0x30, algorithm_identifier(_OID_ED25519) + der(0x03, b"\x00" + b"\x00" * 31)
+    )
+    info = certinfo.parse_public_key_info(_minimal_certificate(spki))
+    assert info["algorithm"] == "unknown"

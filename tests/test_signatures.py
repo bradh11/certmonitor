@@ -303,3 +303,10 @@ def test_eddsa_verify_reports_its_errors():
         )
         is True
     )
+
+
+def test_eddsa_challenge_rejects_a_curve_not_in_its_table():
+    # A third curve name must raise rather than silently falling through
+    # to the Ed448 challenge hash.
+    with pytest.raises(ValueError, match="^unsupported EdDSA curve Ed12345$"):
+        signatures._eddsa_challenge("Ed12345", b"\x00" * 32, b"\x00" * 32, b"tbs")

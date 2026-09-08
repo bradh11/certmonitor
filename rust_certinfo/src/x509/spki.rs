@@ -103,16 +103,29 @@ impl<'a> SubjectPublicKeyInfo<'a> {
         if alg_bytes == oid::OID_EC_PUBLIC_KEY {
             return parse_ec(self);
         }
+        // RFC 8410 §3 fixes the key length for each curve: 32 bytes for
+        // Ed25519, 57 for Ed448. A key of any other length under one of
+        // these OIDs is malformed, so it falls to `Unknown` rather than
+        // being reported as EdDSA with a length no `key_info` check
+        // written against RFC 8410 would expect.
         if alg_bytes == oid::OID_ED25519 {
-            return PublicKeyAlgorithm::EdDsa {
-                name: "Ed25519",
-                key_bits: self.subject_public_key.len() * 8,
+            return if self.subject_public_key.len() == 32 {
+                PublicKeyAlgorithm::EdDsa {
+                    name: "Ed25519",
+                    key_bits: self.subject_public_key.len() * 8,
+                }
+            } else {
+                PublicKeyAlgorithm::Unknown
             };
         }
         if alg_bytes == oid::OID_ED448 {
-            return PublicKeyAlgorithm::EdDsa {
-                name: "Ed448",
-                key_bits: self.subject_public_key.len() * 8,
+            return if self.subject_public_key.len() == 57 {
+                PublicKeyAlgorithm::EdDsa {
+                    name: "Ed448",
+                    key_bits: self.subject_public_key.len() * 8,
+                }
+            } else {
+                PublicKeyAlgorithm::Unknown
             };
         }
         if let Some(algorithm) = pq_algorithms::lookup(self.algorithm.algorithm) {
@@ -407,6 +420,23 @@ mod tests {
                 assert_eq!(key_bits, 456);
             }
             other => panic!("expected EdDsa, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn wrong_length_eddsa_keys_collapse_to_unknown() {
+        // RFC 8410 §3 fixes Ed25519 keys at 32 bytes and Ed448 keys at 57
+        // bytes; anything else is not a valid key for that OID.
+        match parse_spki(&synthetic_spki(oid::OID_ED25519, 31)) {
+            PublicKeyAlgorithm::Unknown => {}
+            other => panic!(
+                "expected Unknown for a 31-byte Ed25519 key, got {:?}",
+                other
+            ),
+        }
+        match parse_spki(&synthetic_spki(oid::OID_ED448, 56)) {
+            PublicKeyAlgorithm::Unknown => {}
+            other => panic!("expected Unknown for a 56-byte Ed448 key, got {:?}", other),
         }
     }
 

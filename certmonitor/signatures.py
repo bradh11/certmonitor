@@ -124,18 +124,38 @@ def _verify_pss(
 _EDDSA_CURVES = {ED25519: ("Ed25519", 64), ED448: ("Ed448", 114)}
 
 
-def _eddsa_challenge(curve: str, r: bytes, public_key: bytes, tbs: bytes) -> bytes:
-    """The challenge the group equation needs, `H(R || A || M)`.
+def _ed25519_challenge(r: bytes, public_key: bytes, tbs: bytes) -> bytes:
+    """RFC 8032 §5.1.7 step 2: SHA-512 over `R || A || M`."""
+    return hashlib.sha512(r + public_key + tbs).digest()
 
-    Ed25519 hashes with SHA-512 (RFC 8032 §5.1.7 step 2). Ed448 hashes with
-    SHAKE256 to 114 octets over the `dom4(0, "")` prefix §5.2.7 step 2
-    prescribes, which for PureEdDSA with an empty context is the string
+
+def _ed448_challenge(r: bytes, public_key: bytes, tbs: bytes) -> bytes:
+    """RFC 8032 §5.2.7 step 2: SHAKE256 to 114 octets over `dom4(0, "") || R || A || M`.
+
+    For PureEdDSA with an empty context, `dom4(0, "")` is the string
     `SigEd448` followed by two zero octets.
     """
-    if curve == "Ed25519":
-        return hashlib.sha512(r + public_key + tbs).digest()
     prefix = b"SigEd448" + bytes([0, 0])
     return hashlib.shake_256(prefix + r + public_key + tbs).digest(114)
+
+
+# One entry per curve in `_EDDSA_CURVES`. Looking the curve up here, rather
+# than branching on it, means a curve added to that table without a
+# matching entry here raises immediately instead of silently hashing under
+# another curve's rule.
+_EDDSA_CHALLENGES: dict[str, Callable[[bytes, bytes, bytes], bytes]] = {
+    "Ed25519": _ed25519_challenge,
+    "Ed448": _ed448_challenge,
+}
+
+
+def _eddsa_challenge(curve: str, r: bytes, public_key: bytes, tbs: bytes) -> bytes:
+    """The challenge the group equation needs, `H(R || A || M)`."""
+    try:
+        challenge = _EDDSA_CHALLENGES[curve]
+    except KeyError:
+        raise ValueError(f"unsupported EdDSA curve {curve}") from None
+    return challenge(r, public_key, tbs)
 
 
 def _verify_eddsa(
