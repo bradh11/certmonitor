@@ -14,8 +14,9 @@ rename the headers to emoji form when cutting a release.
 
 ### Added
 - `revocation`: `max_age_hours` argument.
-- `key_info`: Ed25519 and Ed448 keys are recognized (`algorithm: "Ed25519"` or `"Ed448"`) and judged strong, instead of `unknown` and failing closed. Signature verification for EdDSA is still unsupported.
+- `key_info`: Ed25519 and Ed448 keys are recognized (`algorithm: "Ed25519"` or `"Ed448"`) and judged strong, instead of `unknown` and failing closed.
 - `CertMonitor.collection_error`: `None` after a successful collection, else `{"error", "message"}`.
+- `revocation`: OCSP responses, CRLs, responder certificates, and issuer bindings signed with RSASSA-PSS, ECDSA over P-521, Ed25519, or Ed448 are now verified in-house, alongside RSA PKCS#1 v1.5 and ECDSA over P-256 and P-384. Scheme dispatch and the padding checks live in `certmonitor.signatures`; `certinfo` gains `rsa_pss_encoded_message`, `rsa_pss_parameters`, and `eddsa_verify`, and reports `signature_algorithm_params` and (via `parse_spki`) `key_bits`.
 
 ### Changed
 - TBD
@@ -24,6 +25,7 @@ rename the headers to emoji form when cutting a release.
 - `revocation`: the issuer certificate must verify the leaf's signature before it is trusted; a certificate that merely shares the issuer's name (from the chain or the `caIssuers` pointer) is rejected, and when the leaf's algorithm cannot be checked every answer built on it is capped at `unsupported`.
 - `revocation`: OCSP answers must match the whole CertID (hash algorithm, issuer name hash, issuer key hash, serial), and the cache is keyed the same way.
 - `revocation`: OCSP responses without `nextUpdate` are refused once `thisUpdate` is older than `max_age_hours` (default 24), any response older than ten days is refused, and cache lifetime is anchored to `thisUpdate` so a re-fetched historical response gets no new lease.
+- `key_info`: an Ed25519 or Ed448 key whose encoding is not 32 or 57 bytes is reported as `unknown` and fails closed.
 - `revocation`: answers whose signature failed verification are no longer cached.
 - `revocation`: the CRL is verified in-house against the bound issuer and the collected certificate's serial is looked up directly; the extra OpenSSL handshake, which could attribute another certificate's revocation to the snapshot, is gone. CRL answers now carry `verification` and `verification_error` like OCSP answers, and a failed CRL signature reports `CRLInvalidSignature`.
 - `revocation`: CRL answers report `MissingIssuer` when no chain or `caIssuers` certificate signed the leaf (the CRL method now needs the issuer certificate, as OCSP always did), `CRLIssuerMismatch` when the CRL names another issuer, and `CRLNotYetValid` or `CRLStale` outside its validity window. The OpenSSL-era `verify_code` field and the `CRLVerificationFailed` and `SnapshotMismatch` CRL error codes are gone, as are `RevocationEvidence(crl_check=...)` and `certmonitor.revocation.serial_bytes()`.
