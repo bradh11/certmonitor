@@ -412,6 +412,11 @@ pub fn crl_info_dict<'py>(py: Python<'py>, crl: &Crl<'_>) -> PyResult<Bound<'py,
                 "only_contains_attribute_certs",
                 idp.only_contains_attribute_certs,
             )?;
+            scope.set_item(
+                "distribution_point_uris",
+                idp.distribution_point_uris.clone(),
+            )?;
+            scope.set_item("names_other_locations", idp.names_other_locations)?;
             d.set_item("issuing_distribution_point", scope)?;
         }
         None => d.set_item("issuing_distribution_point", py.None())?,

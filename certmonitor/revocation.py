@@ -32,6 +32,7 @@ import threading
 import time
 from datetime import datetime, timezone
 from typing import Any
+from urllib.parse import urlsplit
 
 from certmonitor import certinfo
 from certmonitor.protocol_handlers import http
@@ -572,13 +573,17 @@ def fetch_crl(
 # --- evidence ------------------------------------------------------------------------
 
 
-def _crl_scope_problem(info: dict[str, Any]) -> str | None:
+def _crl_scope_problem(info: dict[str, Any], url: str) -> str | None:
     """Why this CRL cannot answer for an end-entity certificate, or `None`.
 
     A delta CRL lists only changes since a base CRL, and an issuing
     distribution point can narrow a CRL to some reasons, to CA or attribute
     certificates, or to another issuer's certificates (RFC 5280 §5.2.4 and
-    §5.2.5). A serial missing from such a list proves nothing.
+    §5.2.5). A serial missing from such a list proves nothing. When the
+    issuing distribution point names a location, RFC 5280 §6.3.3 step (b)(1)
+    requires that location to be the one the certificate points to; since
+    CertMonitor only ever fetches the URL taken from the certificate, that
+    means the CRL's own named location must be `url`.
     """
     if info.get("delta_crl_indicator"):
         return "the CRL is a delta CRL that lists only changes since a base CRL"
@@ -593,7 +598,32 @@ def _crl_scope_problem(info: dict[str, Any]) -> str | None:
         return "the CRL covers only CA certificates"
     if scope.get("only_contains_attribute_certs"):
         return "the CRL covers only attribute certificates"
+    uris = scope.get("distribution_point_uris") or []
+    if uris or scope.get("names_other_locations"):
+        if any(_same_location(uri, url) for uri in uris):
+            return None
+        if uris:
+            return (
+                "the CRL's issuing distribution point names "
+                f"{', '.join(uris)}, not the location it was fetched from "
+                "(RFC 5280 section 6.3.3)"
+            )
+        return (
+            "the CRL's issuing distribution point names only locations that are "
+            "not URLs, so it cannot be matched to the location it was fetched from"
+        )
     return None
+
+
+def _same_location(left: str, right: str) -> bool:
+    """Whether two URLs name the same resource; scheme and host compare case-insensitively."""
+    a, b = urlsplit(left), urlsplit(right)
+    return (
+        a.scheme.lower() == b.scheme.lower()
+        and (a.netloc or "").lower() == (b.netloc or "").lower()
+        and a.path == b.path
+        and a.query == b.query
+    )
 
 
 class RevocationEvidence:
@@ -791,7 +821,7 @@ class RevocationEvidence:
                 ),
             )
             return answer
-        scope_problem = _crl_scope_problem(info)
+        scope_problem = _crl_scope_problem(info, url)
         if scope_problem is not None:
             answer.update(
                 status="error",

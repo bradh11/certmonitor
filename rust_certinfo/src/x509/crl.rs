@@ -57,13 +57,19 @@ pub struct Crl<'a> {
 
 /// The scope narrowing an issuing distribution point declares (RFC 5280 §5.2.5).
 /// Every flag defaults to false when the extension omits it.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct IssuingDistributionPoint {
     pub only_contains_user_certs: bool,
     pub only_contains_ca_certs: bool,
     pub only_some_reasons: bool,
     pub indirect_crl: bool,
     pub only_contains_attribute_certs: bool,
+    /// Every `uniformResourceIdentifier` in the distribution point's `fullName`.
+    pub distribution_point_uris: Vec<String>,
+    /// The distribution point names something that is not a URI (a directory
+    /// name, or a name relative to the CRL issuer), which CertMonitor cannot
+    /// compare with the URL it fetched from.
+    pub names_other_locations: bool,
 }
 
 impl<'a> Crl<'a> {
@@ -212,11 +218,42 @@ impl<'a> Crl<'a> {
                 0x83 => idp.only_some_reasons = true,
                 0x84 => idp.indirect_crl = flag,
                 0x85 => idp.only_contains_attribute_certs = flag,
-                _ => {} // [0] distributionPoint and anything unknown
+                0xa0 => parse_distribution_point_name(item.value, &mut idp)?,
+                _ => {} // anything unknown
             }
         }
         Ok(Some(idp))
     }
+}
+
+/// DistributionPointName ::= CHOICE {
+///     fullName                [0] GeneralNames,
+///     nameRelativeToCRLIssuer [1] RelativeDistinguishedName }
+/// GeneralName uniformResourceIdentifier is [6] IMPLICIT IA5String.
+fn parse_distribution_point_name(
+    body: &[u8],
+    idp: &mut IssuingDistributionPoint,
+) -> Result<(), ParseError> {
+    let mut reader = DerReader::new(body);
+    while !reader.is_empty() {
+        let choice = reader.read_tlv()?;
+        match choice.tag {
+            0xa0 => {
+                let mut names = DerReader::new(choice.value);
+                while !names.is_empty() {
+                    let name = names.read_tlv()?;
+                    if name.tag == 0x86 {
+                        idp.distribution_point_uris
+                            .push(String::from_utf8_lossy(name.value).into_owned());
+                    } else {
+                        idp.names_other_locations = true;
+                    }
+                }
+            }
+            _ => idp.names_other_locations = true, // [1] nameRelativeToCRLIssuer
+        }
+    }
+    Ok(())
 }
 
 fn strip_leading_zeros(bytes: &[u8]) -> &[u8] {
@@ -385,5 +422,46 @@ mod tests {
         assert!(idp.only_some_reasons);
         assert!(idp.indirect_crl);
         assert!(!idp.only_contains_attribute_certs);
+        assert!(idp.distribution_point_uris.is_empty());
+        assert!(!idp.names_other_locations);
+    }
+
+    /// distributionPoint [0] EXPLICIT DistributionPointName, whose fullName
+    /// [0] holds two URIs and a directoryName (tag 0xa4, body immaterial).
+    #[test]
+    fn distribution_point_full_name_reports_uris_and_other_locations() {
+        let mut full_name = tlv(0x86, b"http://a.test/x.crl");
+        full_name.extend(tlv(0x86, b"http://b.test/x.crl"));
+        full_name.extend(tlv(0xa4, &tlv(tag::TAG_SEQUENCE, &[])));
+        let choice = tlv(0xa0, &full_name);
+        let idp_body = tlv(0xa0, &choice);
+        let der = crl_with_extensions(&[ext(
+            OID_ISSUING_DISTRIBUTION_POINT,
+            &tlv(tag::TAG_SEQUENCE, &idp_body),
+        )]);
+        let parsed = Crl::from_der(&der).unwrap();
+        let idp = parsed.issuing_distribution_point().unwrap().unwrap();
+        assert_eq!(
+            idp.distribution_point_uris,
+            vec!["http://a.test/x.crl", "http://b.test/x.crl"]
+        );
+        assert!(idp.names_other_locations);
+    }
+
+    /// distributionPoint [0] EXPLICIT DistributionPointName, holding
+    /// nameRelativeToCRLIssuer [1] (a SET, body immaterial) instead of a
+    /// fullName.
+    #[test]
+    fn distribution_point_name_relative_to_issuer_reports_no_uris() {
+        let choice = tlv(0xa1, &tlv(tag::TAG_SET, &[]));
+        let idp_body = tlv(0xa0, &choice);
+        let der = crl_with_extensions(&[ext(
+            OID_ISSUING_DISTRIBUTION_POINT,
+            &tlv(tag::TAG_SEQUENCE, &idp_body),
+        )]);
+        let parsed = Crl::from_der(&der).unwrap();
+        let idp = parsed.issuing_distribution_point().unwrap().unwrap();
+        assert!(idp.distribution_point_uris.is_empty());
+        assert!(idp.names_other_locations);
     }
 }

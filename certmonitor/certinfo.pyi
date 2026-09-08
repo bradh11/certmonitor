@@ -76,8 +76,11 @@ def crl_info(der_data: bytes) -> dict[str, Any]:
     lists only changes since a base CRL) and `issuing_distribution_point`,
     a dict of the bool keys `only_contains_user_certs`,
     `only_contains_ca_certs`, `only_some_reasons`, `indirect_crl`, and
-    `only_contains_attribute_certs`, or `None` when the CRL carries no
-    issuing distribution point.
+    `only_contains_attribute_certs`, the list `distribution_point_uris`
+    (every `uniformResourceIdentifier` the distribution point names), and
+    the bool `names_other_locations` (true when the distribution point
+    names something that is not a URI, such as a directory name), or
+    `None` when the CRL carries no issuing distribution point.
     """
     ...
 
