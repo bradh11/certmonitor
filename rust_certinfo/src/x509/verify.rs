@@ -75,8 +75,9 @@ fn curve_for(curve_oid: Oid<'_>) -> Result<ecdsa::Curve, VerifyError> {
     match curve_oid.as_bytes() {
         bytes if bytes == oid::OID_SECP256R1 => Ok(ecdsa::Curve::P256),
         bytes if bytes == oid::OID_SECP384R1 => Ok(ecdsa::Curve::P384),
+        bytes if bytes == oid::OID_SECP521R1 => Ok(ecdsa::Curve::P521),
         _ => Err(VerifyError::Unsupported(format!(
-            "EC curve {} (only P-256 and P-384 are supported)",
+            "EC curve {} (only P-256, P-384, and P-521 are supported)",
             curve_oid.to_id_string()
         ))),
     }

@@ -78,6 +78,7 @@ def test_vector_files_are_complete():
         "ecdsa_secp256r1_sha256_test.json",
         "ecdsa_secp256r1_sha512_test.json",
         "ecdsa_secp384r1_sha384_test.json",
+        "ecdsa_secp521r1_sha512_test.json",
         "rsa_signature_2048_sha256_test.json",
         "rsa_signature_2048_sha512_test.json",
         "rsa_signature_3072_sha384_test.json",

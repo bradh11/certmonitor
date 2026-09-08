@@ -63,6 +63,11 @@ SCHEMES = {
         "sha384",
         "1.2.840.10045.4.3.3",
     ),
+    "p521-sha512": (
+        ["-algorithm", "EC", "-pkeyopt", "ec_paramgen_curve:P-521"],
+        "sha512",
+        "1.2.840.10045.4.3.4",
+    ),
 }
 
 
