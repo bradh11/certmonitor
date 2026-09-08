@@ -287,7 +287,8 @@ def check_ocsp(
 
     The answer's `status` is `good`, `revoked`, or `unknown` when the
     responder answered about this certificate, and `error` otherwise, with
-    `reason` saying why. Answers are cached until their `nextUpdate`.
+    `reason` saying why. Verified answers are cached until their `nextUpdate`;
+    failed or unverifiable ones are fetched again next time.
     """
     now = time.time() if now is None else now
     request, expected = build_ocsp_request(leaf_der, issuer_der)
@@ -312,7 +313,7 @@ def check_ocsp(
         binding_problem=binding_problem,
         max_age=max_age,
     )
-    if answer["status"] in ("good", "revoked", "unknown") and _still_current(
+    if answer.get("verification") == VERIFIED and _still_current(
         answer.get("_next_update"), now
     ):
         OCSP_CACHE.put(

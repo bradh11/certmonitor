@@ -429,6 +429,20 @@ def test_tampered_ocsp_response_is_unusable_evidence(pki, monkeypatch):
     assert both["methods"]["ocsp"]["verification"] == "failed"
 
 
+def test_failed_verification_is_not_cached(pki, monkeypatch):
+    leaf = ssl.PEM_cert_to_DER_cert((pki.directory / "good.pem").read_text())
+    issuer = ssl.PEM_cert_to_DER_cert(pki.ca_pem.read_text())
+    real_fetch = http.fetch
+    monkeypatch.setattr(http, "fetch", _flipping_fetch(pki, real_fetch))
+    bad = revocation.check_ocsp(leaf, issuer, pki.ocsp_url, timeout=5)
+    assert bad["verification"] == "failed"
+    monkeypatch.setattr(http, "fetch", real_fetch)
+    good = revocation.check_ocsp(leaf, issuer, pki.ocsp_url, timeout=5)
+    assert good["verification"] == "verified" and good["cached"] is False
+    again = revocation.check_ocsp(leaf, issuer, pki.ocsp_url, timeout=5)
+    assert again["cached"] is True
+
+
 def test_ocsp_good_passes_when_unverified_answers_are_accepted(pki, monkeypatch):
     # An algorithm CertMonitor cannot check leaves the answer unverified but not
     # disproven; accept_unverified takes the responder's word for that case.
