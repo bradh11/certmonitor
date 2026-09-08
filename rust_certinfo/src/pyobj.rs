@@ -400,6 +400,22 @@ pub fn crl_info_dict<'py>(py: Python<'py>, crl: &Crl<'_>) -> PyResult<Bound<'py,
     d.set_item("revoked_count", crl.revoked_count().map_err(to_py_err)?)?;
     d.set_item("tbs_cert_list", PyBytes::new(py, crl.tbs_cert_list))?;
     d.set_item("signature", PyBytes::new(py, crl.signature))?;
+    d.set_item("delta_crl_indicator", crl.is_delta().map_err(to_py_err)?)?;
+    match crl.issuing_distribution_point().map_err(to_py_err)? {
+        Some(idp) => {
+            let scope = PyDict::new(py);
+            scope.set_item("only_contains_user_certs", idp.only_contains_user_certs)?;
+            scope.set_item("only_contains_ca_certs", idp.only_contains_ca_certs)?;
+            scope.set_item("only_some_reasons", idp.only_some_reasons)?;
+            scope.set_item("indirect_crl", idp.indirect_crl)?;
+            scope.set_item(
+                "only_contains_attribute_certs",
+                idp.only_contains_attribute_certs,
+            )?;
+            d.set_item("issuing_distribution_point", scope)?;
+        }
+        None => d.set_item("issuing_distribution_point", py.None())?,
+    }
     Ok(d)
 }
 

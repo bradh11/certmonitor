@@ -197,6 +197,30 @@ class RevocationPKI:
         self.run("ca", "-config", "ca.cnf", "-gencrl", "-out", "ca.crl.pem")
         self.run("crl", "-in", "ca.crl.pem", "-outform", "DER", "-out", "ca.crl")
 
+    def publish_partitioned_crl(self) -> str:
+        """A CRL scoped to keyCompromise only, served at `/partitioned.crl`."""
+        target = self.directory / "partitioned.crl"
+        if not target.exists():
+            (self.directory / "idp.cnf").write_text(
+                (self.directory / "ca.cnf").read_text()
+                + "[ idp_crl ]\nissuingDistributionPoint = critical, @idp\n"
+                + "[ idp ]\nonlysomereasons = keyCompromise\n"
+            )
+            self.run(
+                "ca", "-config", "idp.cnf", "-gencrl", "-crlexts", "idp_crl",
+                "-out", "partitioned.crl.pem",
+            )  # fmt: skip
+            self.run(
+                "crl",
+                "-in",
+                "partitioned.crl.pem",
+                "-outform",
+                "DER",
+                "-out",
+                "partitioned.crl",
+            )
+        return f"http://127.0.0.1:{self.crl_port}/partitioned.crl"
+
     def _publish(self) -> None:
         pki = self
 
@@ -205,7 +229,7 @@ class RevocationPKI:
                 pki.crl_requests.append(self.path)
                 route = self.path.split("?", 1)[0]
                 path = pki.directory / route.lstrip("/")
-                if route == "/ca.crl":
+                if route in ("/ca.crl", "/partitioned.crl"):
                     body, kind = path.read_bytes(), "application/pkix-crl"
                 elif route == "/ca.pem":
                     body, kind = path.read_bytes(), "application/x-pem-file"
@@ -829,6 +853,80 @@ def test_crl_without_next_update_keeps_a_one_hour_lease(pki, monkeypatch):
     assert first[2] is False
     second = revocation.fetch_crl(pki.crl_url, timeout=5)
     assert second[2] is True
+
+
+def test_crl_info_reports_scope_extensions(pki):
+    full = certinfo.crl_info((pki.directory / "ca.crl").read_bytes())
+    assert full["delta_crl_indicator"] is False
+    assert full["issuing_distribution_point"] is None
+    pki.publish_partitioned_crl()
+    partitioned = certinfo.crl_info((pki.directory / "partitioned.crl").read_bytes())
+    assert partitioned["issuing_distribution_point"]["only_some_reasons"] is True
+    assert partitioned["issuing_distribution_point"]["indirect_crl"] is False
+
+
+def _evidence_for_crl(pki, name: str, url: str) -> revocation.RevocationEvidence:
+    leaf = ssl.PEM_cert_to_DER_cert((pki.directory / f"{name}.pem").read_text())
+    issuer = ssl.PEM_cert_to_DER_cert(pki.ca_pem.read_text())
+    return revocation.RevocationEvidence(
+        leaf_der=leaf,
+        chain_der=[leaf, issuer],
+        cert_info={"crlDistributionPoints": [url]},
+        timeout=5,
+    )
+
+
+def test_partitioned_crl_is_refused_not_read_as_good(pki):
+    url = pki.publish_partitioned_crl()
+    answer = _evidence_for_crl(pki, "good", url).crl()
+    assert answer["status"] == "error", answer
+    assert answer["error"] == "CRLScopeUnsupported"
+    assert "some revocation reasons" in answer["reason"]
+
+
+def test_delta_crl_is_refused(pki, monkeypatch):
+    real_info = certinfo.crl_info
+
+    def as_delta(der):
+        info = real_info(der)
+        info["delta_crl_indicator"] = True
+        return info
+
+    monkeypatch.setattr(certinfo, "crl_info", as_delta)
+    answer = _evidence_for_crl(pki, "good", pki.crl_url).crl()
+    assert answer["error"] == "CRLScopeUnsupported" and "delta" in answer["reason"]
+
+
+def test_crl_without_next_update_expires_after_ten_days(pki, monkeypatch):
+    real_info = certinfo.crl_info
+
+    def old_and_open_ended(der):
+        info = real_info(der)
+        info["next_update"] = None
+        info["this_update"] -= 11 * 86400
+        return info
+
+    monkeypatch.setattr(certinfo, "crl_info", old_and_open_ended)
+    answer = _evidence_for_crl(pki, "good", pki.crl_url).crl()
+    assert answer["error"] == "CRLStale" and "10 days" in answer["reason"]
+
+
+def test_out_of_scope_crl_falls_through_to_the_next_distribution_point(pki):
+    url = pki.publish_partitioned_crl()
+    leaf = ssl.PEM_cert_to_DER_cert((pki.directory / "good.pem").read_text())
+    issuer = ssl.PEM_cert_to_DER_cert(pki.ca_pem.read_text())
+    evidence = revocation.RevocationEvidence(
+        leaf_der=leaf,
+        chain_der=[leaf, issuer],
+        cert_info={
+            "crlDistributionPoints": [url, pki.crl_url],
+            "OCSP": [pki.ocsp_url],
+        },
+        timeout=5,
+    )
+    answer = evidence.crl()
+    assert answer["status"] == "good", answer
+    assert answer["url"] == pki.crl_url
 
 
 # --- evidence details ------------------------------------------------------------

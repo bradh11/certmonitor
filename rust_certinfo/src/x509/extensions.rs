@@ -59,7 +59,7 @@ impl<'a> Extensions<'a> {
     }
 
     /// Find a single extension by raw OID bytes. Returns the first match.
-    fn find(&self, oid_bytes: &[u8]) -> Result<Option<Extension<'a>>, ParseError> {
+    pub(crate) fn find(&self, oid_bytes: &[u8]) -> Result<Option<Extension<'a>>, ParseError> {
         for ext in self.iter() {
             let ext = ext?;
             if ext.oid.as_bytes() == oid_bytes {
