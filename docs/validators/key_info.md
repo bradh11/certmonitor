@@ -2,7 +2,7 @@
 
 The `key_info` validator judges the strength of the certificate's public key, per algorithm family:
 
-- **RSA**: modulus must be at least 2048 bits.
+- **RSA** (`rsaEncryption`, and `rsassaPss` for a key encoded with `id-RSASSA-PSS` per [RFC 4055 section 1.2](https://www.rfc-editor.org/rfc/rfc4055.html#section-1.2)): modulus must be at least 2048 bits.
 - **EC**: curve must be one of `secp256r1`, `secp384r1`, `secp521r1`.
 - **Post-quantum** (ML-DSA, SLH-DSA, composite ML-DSA): strong by algorithm identity; the FIPS 204/205 parameter sets have no weak sizes or curves. The recognized set comes from the Rust registry via `certinfo.pq_algorithms()`.
 - **EdDSA** (Ed25519, Ed448): always strong; the algorithm fixes the parameters, so there is no size or curve to check.

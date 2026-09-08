@@ -14,9 +14,32 @@ from pathlib import Path
 import pytest
 
 from certmonitor import certinfo, signatures
-from tests.support import pss_params
+from tests.support import der, pss_params
 
 VECTORS = Path(__file__).resolve().parent / "fixtures" / "wycheproof"
+
+# `AlgorithmIdentifier { rsaEncryption, NULL }`, the whole 15-byte TLV every
+# RSA SubjectPublicKeyInfo in the vectors carries, and the id-RSASSA-PSS OID
+# that replaces it below.
+RSA_ENCRYPTION_ALGORITHM_IDENTIFIER = bytes.fromhex("300d06092a864886f70d0101010500")
+OID_RSASSA_PSS = bytes.fromhex("2a864886f70d01010a")
+# The restrictions an id-RSASSA-PSS key carries in the tests below: SHA-256,
+# MGF1-SHA-256, and a 32-byte salt.
+KEY_PSS_PARAMS = pss_params("sha256", "sha256", 32)
+
+
+def pss_keyed_spki(rsa_spki_der: bytes, params: bytes) -> bytes:
+    """`rsa_spki_der` with its AlgorithmIdentifier rewritten to id-RSASSA-PSS.
+
+    RFC 4055 §1.2 lets a CA encode an RSA key this way, with `params` as the
+    optional `RSASSA-PSS-params`. The subjectPublicKey is the same
+    RSAPublicKey either way, so it is carried over untouched.
+    """
+    at = rsa_spki_der.index(RSA_ENCRYPTION_ALGORITHM_IDENTIFIER)
+    bit_string = rsa_spki_der[at + len(RSA_ENCRYPTION_ALGORITHM_IDENTIFIER) :]
+    algorithm = der(0x30, der(0x06, OID_RSASSA_PSS) + params)
+    return der(0x30, algorithm + bit_string)
+
 
 # A 2049-bit RSA key, so that modBits is 1 mod 8 and emLen is one octet
 # shorter than the modulus. Produced offline in pure Python (Miller-Rabin
@@ -176,6 +199,64 @@ def test_parse_spki_reports_the_key_type_and_its_bits():
     assert info["algorithm"] == "Ed25519"
     assert info["curve"] is None
     assert info["key_bits"] == ED25519_SPKI[-32:]
+
+
+def test_parse_spki_reports_an_rsassa_pss_key_and_its_parameters(rsa_spki):
+    # RFC 4055 §1.2: the same RSA key, named by id-RSASSA-PSS and carrying
+    # the parameters that restrict it.
+    info = certinfo.parse_spki(pss_keyed_spki(rsa_spki, KEY_PSS_PARAMS))
+    assert info["algorithm"] == "rsassaPss"
+    assert info["size"] == 2048
+    assert info["algorithm_params"] == KEY_PSS_PARAMS
+    # rsaEncryption's parameters are NULL, which `parse_spki` reports as
+    # absent, so an unrestricted key is plainly distinguishable.
+    plain = certinfo.parse_spki(rsa_spki)
+    assert plain["algorithm"] == "rsaEncryption"
+    assert plain["algorithm_params"] is None
+
+
+def test_pss_signature_parameters_must_satisfy_the_keys_restrictions(rsa_spki):
+    # RFC 4055 §3.3: with the key's parameters present, a signature may only
+    # use the same hash and MGF hash and a salt at least as long.
+    spki = pss_keyed_spki(rsa_spki, KEY_PSS_PARAMS)
+    for hash_name, mgf_hash, salt_length in (
+        ("sha384", "sha384", 48),
+        ("sha256", "sha384", 32),
+        ("sha256", "sha256", 31),
+    ):
+        outcome, why = signatures.verify(
+            spki,
+            signatures.RSASSA_PSS,
+            pss_params(hash_name, mgf_hash, salt_length),
+            b"tbs",
+            b"\x00" * 256,
+        )
+        assert outcome == signatures.FAILED
+        assert "RSASSA-PSS restrictions" in why
+
+
+def test_pss_signature_may_use_a_longer_salt_than_the_key_requires(rsa_spki):
+    # The salt length is a floor, not an equality, so a 64-byte salt gets
+    # past the restriction check and is judged on its padding alone.
+    spki = pss_keyed_spki(rsa_spki, KEY_PSS_PARAMS)
+    outcome, why = signatures.verify(
+        spki,
+        signatures.RSASSA_PSS,
+        pss_params("sha256", "sha256", 64),
+        b"tbs",
+        b"\x00" * 256,
+    )
+    assert outcome == signatures.FAILED
+    assert "RSASSA-PSS restrictions" not in why
+
+
+def test_pkcs1_v15_under_an_rsassa_pss_key_is_refused(rsa_spki):
+    # RFC 4055 §3.3 again, from the other side: the Rust verifier will not
+    # check a PKCS#1 v1.5 signature under a key restricted to PSS.
+    spki = pss_keyed_spki(rsa_spki, KEY_PSS_PARAMS)
+    digest = hashlib.sha256(b"tbs").digest()
+    with pytest.raises(ValueError, match="^unsupported"):
+        certinfo.verify_signature("1.2.840.113549.1.1.11", digest, b"\x00" * 256, spki)
 
 
 def test_parse_spki_rejects_bytes_that_are_not_a_subject_public_key_info():

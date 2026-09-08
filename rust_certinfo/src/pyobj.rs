@@ -88,8 +88,20 @@ pub fn key_info_dict<'py>(
 ) -> PyResult<Bound<'py, PyDict>> {
     let dict = PyDict::new(py);
     match spki.parsed() {
-        PublicKeyAlgorithm::Rsa { modulus_bits } => {
-            dict.set_item("algorithm", "rsaEncryption")?;
+        PublicKeyAlgorithm::Rsa {
+            modulus_bits,
+            pss_only,
+        } => {
+            // An RSA key encoded with id-RSASSA-PSS (RFC 4055 §1.2) is
+            // reported under its own name so consumers can see the RFC
+            // 4055 §3.3 usage restriction; `size` is the modulus bit
+            // length either way, and the same RSA floor applies.
+            let algorithm = if pss_only {
+                "rsassaPss"
+            } else {
+                "rsaEncryption"
+            };
+            dict.set_item("algorithm", algorithm)?;
             dict.set_item("size", modulus_bits)?;
             dict.set_item("curve", py.None())?;
         }

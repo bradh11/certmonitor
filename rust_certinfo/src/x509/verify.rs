@@ -50,6 +50,15 @@ pub fn verify_signature(
     let spki = SubjectPublicKeyInfo::parse(&mut reader)
         .map_err(|_| VerifyError::Malformed("SubjectPublicKeyInfo"))?;
     match (kind, spki.parsed()) {
+        // Every RSA algorithm in `signature_algorithm` is RSASSA-PKCS1-v1_5,
+        // and RFC 4055 §3.3 says a key whose algorithm is id-RSASSA-PSS
+        // must only be used with RSASSA-PSS, so such a key cannot answer
+        // for one of these signatures.
+        (SignatureKind::Rsa, PublicKeyAlgorithm::Rsa { pss_only: true, .. }) => {
+            Err(VerifyError::Unsupported(
+                "PKCS#1 v1.5 signature under an RSASSA-PSS key (RFC 4055 section 3.3)".into(),
+            ))
+        }
         (SignatureKind::Rsa, PublicKeyAlgorithm::Rsa { .. }) => {
             let key = rsa::RsaPublicKey::from_der(spki.subject_public_key)?;
             rsa::verify(&key, hash, digest, signature)
@@ -132,6 +141,42 @@ mod tests {
         assert!(
             verify_signature(sha256_rsa, &hex(DIGEST256), &hex(RSA_SIG), &[0x30, 0x00]).is_err()
         );
+    }
+
+    /// The RSA-2048 test SPKI with its algorithm OID rewritten from
+    /// rsaEncryption to id-RSASSA-PSS. The two OIDs differ only in their
+    /// last arc (1.2.840.113549.1.1.1 against .10), so the encoding is the
+    /// same length and the rest of the SubjectPublicKeyInfo is untouched.
+    fn pss_keyed_spki() -> Vec<u8> {
+        let mut der = hex(RSA_SPKI);
+        let rsa_encryption = oid::OID_RSA_ENCRYPTION;
+        let at = der
+            .windows(rsa_encryption.len())
+            .position(|w| w == rsa_encryption)
+            .expect("rsaEncryption OID in the test SPKI");
+        der[at + rsa_encryption.len() - 1] = 0x0a;
+        der
+    }
+
+    #[test]
+    fn pkcs1_v15_under_an_rsassa_pss_key_is_unsupported() {
+        // RFC 4055 §3.3: a key whose algorithm is id-RSASSA-PSS may only
+        // be used with RSASSA-PSS signatures, so the same signature that
+        // verifies under the rsaEncryption-keyed SPKI is refused here.
+        let spki = pss_keyed_spki();
+        let err = verify_signature(
+            "1.2.840.113549.1.1.11",
+            &hex(DIGEST256),
+            &hex(RSA_SIG),
+            &spki,
+        )
+        .unwrap_err();
+        match err {
+            VerifyError::Unsupported(why) => {
+                assert!(why.contains("RSASSA-PSS key"), "unexpected reason {why}");
+            }
+            other => panic!("expected Unsupported, got {other:?}"),
+        }
     }
 
     #[test]

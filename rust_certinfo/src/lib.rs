@@ -292,12 +292,15 @@ mod py {
 
     /// Parse a bare DER SubjectPublicKeyInfo into
     /// `{"algorithm": str, "size": int, "curve": str | None,
-    /// "key_bits": bytes}`. The first three keys are exactly what
-    /// `parse_public_key_info` reports, which takes a whole certificate;
-    /// this takes the SubjectPublicKeyInfo on its own, which is what a
-    /// signature check has in hand, and adds the raw `subjectPublicKey`
-    /// bits. Raises `ValueError` when the SubjectPublicKeyInfo does not
-    /// parse.
+    /// "key_bits": bytes, "algorithm_params": bytes | None}`. The first
+    /// three keys are exactly what `parse_public_key_info` reports, which
+    /// takes a whole certificate; this takes the SubjectPublicKeyInfo on
+    /// its own, which is what a signature check has in hand, and adds the
+    /// raw `subjectPublicKey` bits along with the raw
+    /// `AlgorithmIdentifier.parameters` TLV (`None` when absent or NULL),
+    /// which is where an id-RSASSA-PSS key carries the restrictions RFC
+    /// 4055 §3.3 puts on it. Raises `ValueError` when the
+    /// SubjectPublicKeyInfo does not parse.
     #[pyfunction]
     pub(super) fn parse_spki(py: Python<'_>, spki_der: Vec<u8>) -> PyResult<Py<PyAny>> {
         let mut reader = crate::der::DerReader::new(&spki_der);
@@ -306,6 +309,10 @@ mod py {
         })?;
         let dict = pyobj::key_info_dict(py, &spki)?;
         dict.set_item("key_bits", PyBytes::new(py, spki.subject_public_key))?;
+        match spki.algorithm.parameters {
+            Some(params) => dict.set_item("algorithm_params", PyBytes::new(py, params))?,
+            None => dict.set_item("algorithm_params", py.None())?,
+        }
         Ok(dict.into())
     }
 

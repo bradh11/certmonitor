@@ -116,8 +116,12 @@ def verify_signature(
 def parse_spki(spki_der: bytes) -> dict[str, Any]:
     """Parse a bare DER SubjectPublicKeyInfo into `algorithm`, `size`,
     `curve` (the same three keys `parse_public_key_info` reports for a whole
-    certificate) and `key_bits`, the raw `subjectPublicKey` bits. Raises
-    `ValueError` when the SubjectPublicKeyInfo does not parse.
+    certificate), `key_bits`, the raw `subjectPublicKey` bits, and
+    `algorithm_params`, the raw `AlgorithmIdentifier.parameters` TLV or
+    `None` when absent or NULL. An `id-RSASSA-PSS` key (RFC 4055 section 1.2)
+    reports `algorithm` as `rsassaPss` and carries its usage restrictions in
+    `algorithm_params`. Raises `ValueError` when the SubjectPublicKeyInfo
+    does not parse.
     """
     ...
 

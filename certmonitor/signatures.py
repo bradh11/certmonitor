@@ -76,13 +76,37 @@ def _mgf1(seed: bytes, length: int, hash_name: str) -> bytes:
 def _verify_pss(
     spki: bytes, params: bytes | None, tbs: bytes, signature: bytes
 ) -> tuple[str, str | None]:
-    """RSASSA-PSS-VERIFY (RFC 8017 §8.1.2) with EMSA-PSS-VERIFY (§9.1.2)."""
+    """RSASSA-PSS-VERIFY (RFC 8017 §8.1.2) with EMSA-PSS-VERIFY (§9.1.2).
+
+    A signer's key may be encoded with algorithm `id-RSASSA-PSS` (RFC 4055
+    §1.2) and carry its own `RSASSA-PSS-params`. RFC 4055 §3.3 then limits
+    the key to signatures that use the same hash and mask generation
+    function and a salt at least as long as the key's, which is checked here
+    before the padding is unwrapped.
+    """
     try:
         options = certinfo.rsa_pss_parameters(params)  # type: ignore[attr-defined]
+        key = certinfo.parse_spki(spki)  # type: ignore[attr-defined]
+        # Only an id-RSASSA-PSS key's parameters are RSASSA-PSS-params: an
+        # EC key carries its curve in that field, and rsaEncryption's NULL
+        # parameters read as absent, so neither restricts anything.
+        restrictions = None
+        if key["algorithm"] == "rsassaPss" and key["algorithm_params"] is not None:
+            restrictions = certinfo.rsa_pss_parameters(key["algorithm_params"])  # type: ignore[attr-defined]
         em, mod_bits = certinfo.rsa_pss_encoded_message(signature, spki)  # type: ignore[attr-defined]
     except ValueError as exc:
         outcome = UNSUPPORTED if str(exc).startswith("unsupported") else FAILED
         return outcome, str(exc)
+    if restrictions is not None and (
+        options["hash"] != restrictions["hash"]
+        or options["mgf_hash"] != restrictions["mgf_hash"]
+        or options["salt_length"] < restrictions["salt_length"]
+    ):
+        return (
+            FAILED,
+            "signature parameters do not match the key's RSASSA-PSS "
+            "restrictions (RFC 4055 section 3.3)",
+        )
     hash_name, mgf_hash, salt_length = (
         options["hash"],
         options["mgf_hash"],

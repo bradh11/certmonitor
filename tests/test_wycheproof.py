@@ -16,8 +16,12 @@ through `certmonitor.signatures.verify`, which is where the PSS padding is
 implemented. Two of the PSS files exist to pin the parameters RFC 8017 §8.1
 lets a signer choose independently of the message hash: one names SHA-1 as the
 MGF1 hash where the message hash is SHA-256, the other a zero-length salt where
-the digest is 32 bytes. EdDSA vectors go through `signatures.verify` too, since
-that is where the challenge hash is computed.
+the digest is 32 bytes. A third, `rsa_pss_2048_sha256_mgf1_32_params_test.json`,
+carries the same parameters in the key itself: its `publicKeyDer` names
+`id-RSASSA-PSS` (RFC 4055 §1.2) with `RSASSA-PSS-params`, so verifying it
+exercises both that key encoding and the RFC 4055 §3.3 check that the
+signature's parameters satisfy the key's. EdDSA vectors go through
+`signatures.verify` too, since that is where the challenge hash is computed.
 """
 
 from __future__ import annotations
@@ -126,6 +130,7 @@ def test_vector_files_are_complete():
         "ed25519_test.json",
         "ed448_test.json",
         "rsa_pss_2048_sha256_mgf1_0_test.json",
+        "rsa_pss_2048_sha256_mgf1_32_params_test.json",
         "rsa_pss_2048_sha256_mgf1_32_test.json",
         "rsa_pss_2048_sha256_mgf1sha1_20_test.json",
         "rsa_pss_2048_sha384_mgf1_48_test.json",
