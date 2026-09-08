@@ -197,18 +197,21 @@ class RevocationPKI:
         self.run("ca", "-config", "ca.cnf", "-gencrl", "-out", "ca.crl.pem")
         self.run("crl", "-in", "ca.crl.pem", "-outform", "DER", "-out", "ca.crl")
 
-    def publish_crl_with_idp(self, name: str, idp_lines: str) -> str:
-        """Publish a CRL whose issuing distribution point is `idp_lines`, served at `/{name}.crl`."""
+    def publish_crl(self, name: str, crl_ext_lines: str) -> str:
+        """Publish a CRL carrying the extensions `crl_ext_lines` describes, served at `/{name}.crl`.
+
+        `crl_ext_lines` is the body of an OpenSSL extension section, and may
+        define further sections it refers to.
+        """
         target = self.directory / f"{name}.crl"
         if not target.exists():
             (self.directory / f"{name}.cnf").write_text(
                 (self.directory / "ca.cnf").read_text()
-                + "[ idp_crl ]\nissuingDistributionPoint = critical, @idp\n"
-                + "[ idp ]\n"
-                + idp_lines
+                + "[ extra_crl ]\n"
+                + crl_ext_lines
             )
             self.run(
-                "ca", "-config", f"{name}.cnf", "-gencrl", "-crlexts", "idp_crl",
+                "ca", "-config", f"{name}.cnf", "-gencrl", "-crlexts", "extra_crl",
                 "-out", f"{name}.crl.pem",
             )  # fmt: skip
             self.run(
@@ -222,10 +225,21 @@ class RevocationPKI:
             )
         return f"http://127.0.0.1:{self.crl_port}/{name}.crl"
 
+    def publish_crl_with_idp(self, name: str, idp_lines: str) -> str:
+        """Publish a CRL whose issuing distribution point is `idp_lines`."""
+        return self.publish_crl(
+            name,
+            "issuingDistributionPoint = critical, @idp\n[ idp ]\n" + idp_lines,
+        )
+
     def publish_partitioned_crl(self) -> str:
         return self.publish_crl_with_idp(
             "partitioned", "onlysomereasons = keyCompromise\n"
         )
+
+    def publish_crl_with_unknown_critical_extension(self) -> str:
+        """A CRL carrying critical extension 1.2.3.4, which nothing can process."""
+        return self.publish_crl("weird", "1.2.3.4 = critical, ASN1:NULL\n")
 
     def _publish(self) -> None:
         pki = self
@@ -1005,10 +1019,37 @@ def test_crl_without_next_update_keeps_a_one_hour_lease(pki, monkeypatch):
         return info
 
     monkeypatch.setattr(certinfo, "crl_info", without_next_update)
-    first = revocation.fetch_crl(pki.crl_url, timeout=5)
-    assert first[2] is False
-    second = revocation.fetch_crl(pki.crl_url, timeout=5)
-    assert second[2] is True
+    first = _evidence_for_crl(pki, "good", pki.crl_url).crl()
+    assert first["verification"] == "verified" and first["cached"] is False
+    second = _evidence_for_crl(pki, "good", pki.crl_url).crl()
+    assert second["cached"] is True
+
+
+def test_an_old_crl_with_a_valid_next_update_is_cached(pki, monkeypatch):
+    # RFC 5280 puts no age limit on a CRL that is still inside its validity
+    # window, and neither does the acceptance check, so the cache must not
+    # apply the OCSP ten-day ceiling and drop it on every check.
+    real_info = certinfo.crl_info
+
+    def issued_two_weeks_ago_valid_for_two_more(der):
+        info = real_info(der)
+        info["this_update"] -= 15 * 86400
+        info["next_update"] += 15 * 86400
+        return info
+
+    monkeypatch.setattr(certinfo, "crl_info", issued_two_weeks_ago_valid_for_two_more)
+    first = _evidence_for_crl(pki, "good", pki.crl_url).crl()
+    assert first["verification"] == "verified" and first["cached"] is False
+    second = _evidence_for_crl(pki, "good", pki.crl_url).crl()
+    assert second["verification"] == "verified" and second["cached"] is True
+    # Still never longer than a day, and never past nextUpdate.
+    now = time.time()
+    der, info, _ = revocation.fetch_crl(pki.crl_url, timeout=5, now=now)
+    revocation.remember_crl("http://crl.test/far", der, info, now=now)
+    assert revocation.CRL_CACHE._expiry("http://crl.test/far") == now + 86400
+    soon = {**info, "next_update": int(now) + 60}
+    revocation.remember_crl("http://crl.test/soon", der, soon, now=now)
+    assert revocation.CRL_CACHE._expiry("http://crl.test/soon") == int(now) + 60
 
 
 def test_crl_info_reports_scope_extensions(pki):
@@ -1019,6 +1060,113 @@ def test_crl_info_reports_scope_extensions(pki):
     partitioned = certinfo.crl_info((pki.directory / "partitioned.crl").read_bytes())
     assert partitioned["issuing_distribution_point"]["only_some_reasons"] is True
     assert partitioned["issuing_distribution_point"]["indirect_crl"] is False
+
+
+def test_certificate_signature_parts_reports_key_usage(pki):
+    ca = certinfo.certificate_signature_parts(
+        ssl.PEM_cert_to_DER_cert(pki.ca_pem.read_text())
+    )
+    assert ca["key_usage"] == ["key_cert_sign", "crl_sign"]
+    leaf = certinfo.certificate_signature_parts(
+        ssl.PEM_cert_to_DER_cert((pki.directory / "good.pem").read_text())
+    )
+    assert leaf["key_usage"] == ["digital_signature", "key_encipherment"]
+    responder = certinfo.certificate_signature_parts(
+        ssl.PEM_cert_to_DER_cert((pki.directory / "responder.pem").read_text())
+    )
+    assert responder["key_usage"] == ["digital_signature"]
+
+
+def test_crl_info_reports_unsupported_critical_extensions(pki):
+    plain = certinfo.crl_info((pki.directory / "ca.crl").read_bytes())
+    assert plain["unsupported_critical_extensions"] == []
+    # The issuing distribution point is critical by definition and is
+    # processed, so it is not an obstacle.
+    pki.publish_partitioned_crl()
+    partitioned = certinfo.crl_info((pki.directory / "partitioned.crl").read_bytes())
+    assert partitioned["unsupported_critical_extensions"] == []
+    pki.publish_crl_with_unknown_critical_extension()
+    weird = certinfo.crl_info((pki.directory / "weird.crl").read_bytes())
+    assert weird["unsupported_critical_extensions"] == ["1.2.3.4"]
+
+
+def test_crl_with_an_unknown_critical_extension_is_refused(pki):
+    url = pki.publish_crl_with_unknown_critical_extension()
+    answer = _evidence_for_crl(pki, "good", url).crl()
+    assert answer["status"] == "error", answer
+    assert answer["error"] == "CRLUnsupportedCriticalExtension"
+    assert "1.2.3.4" in answer["reason"] and "RFC 5280" in answer["reason"]
+    assert answer["signature_verified"] is False
+    assert "verification" not in answer
+    # The next distribution point is consulted, as for any other refusal.
+    leaf = ssl.PEM_cert_to_DER_cert((pki.directory / "good.pem").read_text())
+    issuer = ssl.PEM_cert_to_DER_cert(pki.ca_pem.read_text())
+    evidence = revocation.RevocationEvidence(
+        leaf_der=leaf,
+        chain_der=[leaf, issuer],
+        cert_info={"crlDistributionPoints": [url, pki.crl_url]},
+        timeout=5,
+    )
+    fallback = evidence.crl()
+    assert fallback["verification"] == "verified" and fallback["url"] == pki.crl_url
+
+
+def test_crl_from_an_issuer_without_crl_sign_is_refused(pki, monkeypatch):
+    issuer = ssl.PEM_cert_to_DER_cert(pki.ca_pem.read_text())
+    real_parts = certinfo.certificate_signature_parts
+
+    def make_issuer_key_usage(usage):
+        def parts(der):
+            found = real_parts(der)
+            if der == issuer:
+                found["key_usage"] = usage
+            return found
+
+        return parts
+
+    monkeypatch.setattr(
+        certinfo,
+        "certificate_signature_parts",
+        make_issuer_key_usage(["digital_signature", "key_cert_sign"]),
+    )
+    answer = _evidence_for_crl(pki, "good", pki.crl_url).crl()
+    assert answer["status"] == "error", answer
+    assert answer["error"] == "CRLSignerNotAuthorized"
+    assert "cRLSign" in answer["reason"]
+    assert "verification" not in answer
+    # A refused CRL is not cached, and an issuer with no keyUsage extension
+    # at all is under no such restriction (RFC 5280 section 6.3.3 step (f)).
+    monkeypatch.setattr(
+        certinfo, "certificate_signature_parts", make_issuer_key_usage(None)
+    )
+    relaxed = _evidence_for_crl(pki, "good", pki.crl_url).crl()
+    assert relaxed["verification"] == "verified" and relaxed["cached"] is False
+
+
+def test_rejected_crl_is_not_cached(pki, monkeypatch):
+    real_fetch = http.fetch
+    fetches = []
+
+    def flip_the_first_signature_byte_once(url, **kwargs):
+        body = real_fetch(url, **kwargs)
+        fetches.append(url)
+        if url != pki.crl_url or len(fetches) > 1:
+            return body
+        body = bytearray(body)
+        signature = certinfo.crl_info(bytes(body))["signature"]
+        body[body.find(signature)] ^= 0x01
+        return bytes(body)
+
+    monkeypatch.setattr(http, "fetch", flip_the_first_signature_byte_once)
+    first = _evidence_for_crl(pki, "good", pki.crl_url).crl()
+    assert first["verification"] == "failed" and first["cached"] is False
+    # The corrupted copy was not kept: the next check fetches again and the
+    # server's now-correct CRL is verified and cached.
+    second = _evidence_for_crl(pki, "good", pki.crl_url).crl()
+    assert second["verification"] == "verified" and second["cached"] is False
+    third = _evidence_for_crl(pki, "good", pki.crl_url).crl()
+    assert third["verification"] == "verified" and third["cached"] is True
+    assert len(fetches) == 2
 
 
 def _evidence_for_crl(pki, name: str, url: str) -> revocation.RevocationEvidence:
@@ -1391,6 +1539,9 @@ def test_pem_crls_are_accepted(pki, monkeypatch):
     der, info, cached = revocation.fetch_crl("http://crl.test/ca.crl", timeout=1)
     assert der == (pki.directory / "ca.crl").read_bytes()
     assert info["revoked_count"] == 1 and cached is False
+    # Fetching remembers nothing; the caller does, once the signature checks.
+    assert revocation.fetch_crl("http://crl.test/ca.crl", timeout=1)[2] is False
+    revocation.remember_crl("http://crl.test/ca.crl", der, info)
     assert revocation.fetch_crl("http://crl.test/ca.crl", timeout=1)[2] is True
 
 
@@ -1808,9 +1959,15 @@ def test_cached_answers_never_outlive_next_update(pki):
     refreshed = revocation.check_ocsp(leaf, issuer, pki.ocsp_url, timeout=5, now=now)
     assert refreshed["cached"] is False
 
-    # A CRL past its nextUpdate is fetched again rather than reused.
+    # A CRL past its nextUpdate is fetched again rather than reused, and
+    # one that is already past it is not remembered in the first place.
     der, info, cached = revocation.fetch_crl(pki.crl_url, timeout=5, now=now)
     assert cached is False
+    revocation.remember_crl(
+        pki.crl_url, der, {**info, "next_update": int(now) - 1}, now=now
+    )
+    assert revocation.fetch_crl(pki.crl_url, timeout=5, now=now)[2] is False
+    revocation.remember_crl(pki.crl_url, der, info, now=now)
     assert revocation.fetch_crl(pki.crl_url, timeout=5, now=now + 1)[2] is True
     revocation.CRL_CACHE.put(
         pki.crl_url, (der, {**info, "next_update": int(now) - 1}), expires_at=now + 3600
