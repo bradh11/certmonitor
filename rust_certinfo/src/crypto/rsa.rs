@@ -215,14 +215,33 @@ fn hash_alg_from_oid(oid: crate::der::Oid<'_>) -> Result<HashAlg, VerifyError> {
 }
 
 /// Decode a DER INTEGER's value bytes as a small unsigned integer. RSASSA-
-/// PSS `saltLength` and `trailerField` are always tiny in practice.
+/// PSS `saltLength` and `trailerField` are always tiny in practice, so a
+/// value that does not fit in a `u64`, or is negative, is rejected outright
+/// rather than silently truncated.
 fn small_uint(value: &[u8]) -> Result<u64, VerifyError> {
-    value
+    const ERR: VerifyError = VerifyError::Malformed("PSS parameter integer");
+    if value.is_empty() {
+        return Err(ERR);
+    }
+    // A leading 0x00 is a sign byte (present only so the next byte's high
+    // bit isn't mistaken for a sign) unless it is the whole value, i.e. 0.
+    let (had_sign_byte, digits) = match value {
+        [0x00, rest @ ..] if !rest.is_empty() => (true, rest),
+        _ => (false, value),
+    };
+    if digits.len() > 8 {
+        return Err(ERR);
+    }
+    if !had_sign_byte && digits[0] & 0x80 != 0 {
+        return Err(ERR);
+    }
+    digits
         .iter()
         .try_fold(0u64, |acc, &b| {
-            acc.checked_shl(8).and_then(|v| v.checked_add(u64::from(b)))
+            acc.checked_mul(256)
+                .and_then(|v| v.checked_add(u64::from(b)))
         })
-        .ok_or(VerifyError::Malformed("PSS parameter integer"))
+        .ok_or(ERR)
 }
 
 impl PssParameters {
@@ -279,6 +298,9 @@ impl PssParameters {
                     mgf.algorithm.to_id_string()
                 )));
             }
+            // RFC 4055 §2.1 always carries the hash AlgorithmIdentifier inside
+            // MGF1's parameters, so an absent one is a malformed encoding, not
+            // a default to fall back on.
             let mgf_params = mgf
                 .parameters
                 .ok_or(VerifyError::Malformed("PSS maskGenAlgorithm parameters"))?;
@@ -423,6 +445,9 @@ mod tests {
         assert_eq!(defaults.hash, HashAlg::Sha1);
         assert_eq!(defaults.mgf_hash, HashAlg::Sha1);
         assert_eq!(defaults.salt_length, 20);
+        // An explicit, empty SEQUENCE also carries only the RFC 4055 defaults.
+        let empty = PssParameters::parse(Some(&hex("3000"))).unwrap();
+        assert_eq!(empty, defaults);
         // SEQUENCE { [0] sha256, [1] mgf1(sha256), [2] 32 }
         let params = hex(
             "3034a00f300d06096086480165030402010500a11c301a06092a864886f70d010108300d06096086480165030402010500a203020120",
@@ -432,6 +457,64 @@ mod tests {
         assert_eq!(parsed.mgf_hash, HashAlg::Sha256);
         assert_eq!(parsed.salt_length, 32);
         assert_eq!(parsed.trailer_field, 1);
+    }
+
+    #[test]
+    fn small_uint_rejects_overflow_and_negative_values() {
+        // [3] INTEGER 01 00 00 00 00 00 00 00 01 (2^64 + 1): too wide for a u64.
+        let value = hex("010000000000000001");
+        assert_eq!(
+            small_uint(&value).unwrap_err(),
+            VerifyError::Malformed("PSS parameter integer")
+        );
+        // [2] INTEGER ff: the high bit with no 0x00 sign byte means -1.
+        let value = hex("ff");
+        assert_eq!(
+            small_uint(&value).unwrap_err(),
+            VerifyError::Malformed("PSS parameter integer")
+        );
+        // [2] INTEGER 00 20: a sign byte ahead of a positive value.
+        assert_eq!(small_uint(&hex("0020")).unwrap(), 32);
+        // An empty value has no digits to fold.
+        assert_eq!(
+            small_uint(&[]).unwrap_err(),
+            VerifyError::Malformed("PSS parameter integer")
+        );
+        // The minimal DER encoding of zero.
+        assert_eq!(small_uint(&hex("00")).unwrap(), 0);
+    }
+
+    #[test]
+    fn pss_parameters_reject_integer_overflow() {
+        // saltLength [2] INTEGER 01 00 00 00 00 00 00 00 01 (2^64 + 1).
+        let params = hex("300da20b0209010000000000000001");
+        assert_eq!(
+            PssParameters::parse(Some(&params)).unwrap_err(),
+            VerifyError::Malformed("PSS parameter integer")
+        );
+        // trailerField [3] INTEGER ff: the high bit with no sign byte is -1,
+        // not a valid trailerField.
+        let params = hex("3005a3030201ff");
+        assert_eq!(
+            PssParameters::parse(Some(&params)).unwrap_err(),
+            VerifyError::Malformed("PSS parameter integer")
+        );
+    }
+
+    #[test]
+    fn pss_parameters_unsupported_paths() {
+        // maskGenAlgorithm naming something other than MGF1.
+        let params = hex("3011a10f300d06092a864886f70d0101070500");
+        let err = PssParameters::parse(Some(&params)).unwrap_err();
+        assert!(matches!(err, VerifyError::Unsupported(_)), "{err:?}");
+        // hashAlgorithm sha3-256, which RFC 4055 does not name for PSS.
+        let params = hex("3011a00f300d06096086480165030402080500");
+        let err = PssParameters::parse(Some(&params)).unwrap_err();
+        assert!(matches!(err, VerifyError::Unsupported(_)), "{err:?}");
+        // trailerField 2: RFC 4055 defines only trailerFieldBC (1).
+        let params = hex("3005a303020102");
+        let err = PssParameters::parse(Some(&params)).unwrap_err();
+        assert!(matches!(err, VerifyError::Unsupported(_)), "{err:?}");
     }
 
     #[test]

@@ -1535,6 +1535,9 @@ def _parsed_ocsp(pki, signer="ca"):
 
 def test_verify_ocsp_response_rejects_unauthorized_responders(pki):
     parsed, issuer, key_hash = _parsed_ocsp(pki, signer="responder")
+    # sha256WithRSAEncryption carries NULL parameters, reported as None.
+    assert "signature_algorithm_params" in parsed
+    assert parsed["signature_algorithm_params"] is None
     now = time.time()
     assert revocation.verify_ocsp_response(parsed, issuer, key_hash, now) == (
         "verified",
