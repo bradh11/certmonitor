@@ -526,6 +526,50 @@ def test_ocsp_evidence_is_cached_even_when_this_leafs_binding_is_weak(pki):
     assert second["cached"] is True and second["verification"] == "verified"
 
 
+def test_cached_ocsp_evidence_expires_with_the_responder_certificate(pki, monkeypatch):
+    # A delegated responder's signature is evidence only while its
+    # certificate is valid (RFC 6960 section 4.2.2.2). A fresh fetch checks
+    # that; the cache must not keep the answer past it.
+    leaf = ssl.PEM_cert_to_DER_cert((pki.directory / "good.pem").read_text())
+    issuer = ssl.PEM_cert_to_DER_cert(pki.ca_pem.read_text())
+    responder = ssl.PEM_cert_to_DER_cert((pki.directory / "responder.pem").read_text())
+    real_parts = certinfo.certificate_signature_parts
+    now = time.time()
+
+    def responder_valid_for_ten_more_minutes(der):
+        found = real_parts(der)
+        if der == responder:
+            found["not_after"] = int(now) + 600
+        return found
+
+    monkeypatch.setattr(
+        certinfo, "certificate_signature_parts", responder_valid_for_ten_more_minutes
+    )
+
+    def ask(at):
+        return revocation.check_ocsp(
+            leaf,
+            issuer,
+            pki.ocsp_url,
+            timeout=5,
+            now=at,
+            issuer_binding=revocation.VERIFIED,
+        )
+
+    pki.signer = "responder"
+    try:
+        first = ask(now)
+        assert first["verification"] == "verified" and first["cached"] is False
+        assert first["responder_name"]["commonName"] == "responder.test"
+        assert ask(now + 599)["cached"] is True
+        later = ask(now + 601)
+    finally:
+        pki.signer = "ca"
+    assert later["cached"] is False
+    assert later["verification"] == "failed"
+    assert "not currently valid" in later["verification_error"]
+
+
 def test_cached_ocsp_answer_is_not_served_past_ten_days(pki, monkeypatch):
     leaf = ssl.PEM_cert_to_DER_cert((pki.directory / "good.pem").read_text())
     issuer = ssl.PEM_cert_to_DER_cert(pki.ca_pem.read_text())
@@ -614,11 +658,12 @@ def test_unverifiable_ocsp_falls_through_to_the_verified_crl(pki, monkeypatch):
     # through the same primitive, so a global patch would leave it unproven too.
     monkeypatch.setattr(
         revocation,
-        "verify_ocsp_response",
+        "_verify_ocsp_signer",
         MagicMock(
             return_value=(
                 revocation.UNSUPPORTED,
                 "unsupported signature algorithm test",
+                None,
             )
         ),
     )
@@ -672,11 +717,12 @@ def test_unverifiable_revoked_is_an_error_unless_accepted(pki, monkeypatch):
     # through the same primitive, so a global patch would leave it unproven too.
     monkeypatch.setattr(
         revocation,
-        "verify_ocsp_response",
+        "_verify_ocsp_signer",
         MagicMock(
             return_value=(
                 revocation.UNSUPPORTED,
                 "unsupported signature algorithm test",
+                None,
             )
         ),
     )

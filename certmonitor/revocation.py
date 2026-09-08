@@ -326,9 +326,10 @@ def check_ocsp(
     responder answered about this certificate, and `error` otherwise, with
     `reason` saying why. What is cached is the responder's evidence: an
     answer whose signature verified under the issuer, kept until its
-    `nextUpdate`, never longer than a day, and never past `thisUpdate` plus
-    ten days; an answer with no `nextUpdate` is kept for at most an hour and
-    never past `thisUpdate` plus `max_age`. Failed or unverifiable answers
+    `nextUpdate`, never longer than a day, never past `thisUpdate` plus ten
+    days, and never past the `notAfter` of a delegated responder certificate
+    that signed it; an answer with no `nextUpdate` is kept for at most an
+    hour and never past `thisUpdate` plus `max_age`. Failed or unverifiable answers
     are fetched again next time. Every answer, cached or fresh, is then
     capped by how well this call's leaf is bound to the issuer
     (`issuer_binding`), so a cache hit never inherits an earlier caller's
@@ -349,6 +350,7 @@ def check_ocsp(
             cached["_this_update"], cached.get("_next_update"), now, max_age
         )
         is None
+        and (cached.get("_valid_until") is None or cached["_valid_until"] > now)
     ):
         return _bound_answer(cached, issuer_binding, binding_problem, cached=True)
     answer = _ask_ocsp(
@@ -362,13 +364,15 @@ def check_ocsp(
         max_age=max_age,
     )
     if answer.get("verification") == VERIFIED:
-        OCSP_CACHE.put(
-            key,
-            answer,
-            _expiry_for(
-                answer["_this_update"], answer.get("_next_update"), now, max_age
-            ),
+        expires_at = _expiry_for(
+            answer["_this_update"], answer.get("_next_update"), now, max_age
         )
+        if answer.get("_valid_until") is not None:
+            # A delegated responder's signature is only evidence while its
+            # certificate is valid (RFC 6960 §4.2.2.2), so the cache cannot
+            # outlive that either.
+            expires_at = min(expires_at, float(answer["_valid_until"]))
+        OCSP_CACHE.put(key, answer, expires_at)
     return _bound_answer(answer, issuer_binding, binding_problem, cached=False)
 
 
@@ -458,7 +462,7 @@ def _ask_ocsp(
         error, reason = freshness_problem
         answer.update(status="error", error=error, reason=reason)
         return answer
-    outcome, problem = verify_ocsp_response(
+    outcome, problem, valid_until = _verify_ocsp_signer(
         parsed, issuer_der, expected["issuer_key_hash"], now
     )
     answer["signature_verified"] = outcome == VERIFIED
@@ -476,6 +480,7 @@ def _ask_ocsp(
         responder_name=parsed["responder_name"],
         _next_update=single["next_update"],
         _this_update=single["this_update"],
+        _valid_until=valid_until,
     )
     return answer
 
@@ -505,19 +510,32 @@ def verify_ocsp_response(
     signature is wrong or the signer is not authorized. A failed response is
     not evidence of anything and must not be trusted either way.
     """
+    outcome, problem, _ = _verify_ocsp_signer(parsed, issuer_der, issuer_key_hash, now)
+    return outcome, problem
+
+
+def _verify_ocsp_signer(
+    parsed: dict[str, Any], issuer_der: bytes, issuer_key_hash: str, now: float
+) -> tuple[str, str | None, int | None]:
+    """`verify_ocsp_response`, plus when the signer stops being one.
+
+    The third value is the delegated responder certificate's `notAfter`,
+    after which its signature is no longer evidence and a cached answer must
+    not be reused; `None` when the issuer signed the response itself.
+    """
     issuer = certinfo.certificate_signature_parts(issuer_der)  # type: ignore[attr-defined]
     algorithm = parsed["signature_algorithm"]
     tbs = parsed["tbs_response_data"]
     signature = parsed["signature"]
     if not tbs or not signature or algorithm is None:
-        return FAILED, "response carries no signature"
+        return FAILED, "response carries no signature", None
 
     def names_issuer(name_der: bytes | None, key_hash: str | None) -> bool:
         return name_der == issuer["subject_der"] or key_hash == issuer_key_hash
 
     params = parsed["signature_algorithm_params"]
     if names_issuer(parsed["responder_name_der"], parsed["responder_key_hash"]):
-        return _signed_by(issuer["spki"], algorithm, tbs, signature, params)
+        return (*_signed_by(issuer["spki"], algorithm, tbs, signature, params), None)
 
     for cert_der in parsed["certs"]:
         try:
@@ -536,14 +554,16 @@ def verify_ocsp_response(
             return (
                 FAILED,
                 "responder certificate was not issued by the certificate's CA",
+                None,
             )
         if _OID_OCSP_SIGNING not in responder["extended_key_usage"]:
             return (
                 FAILED,
                 "responder certificate lacks the OCSP signing extended key usage",
+                None,
             )
         if not responder["not_before"] <= now <= responder["not_after"]:
-            return FAILED, "responder certificate is not currently valid"
+            return FAILED, "responder certificate is not currently valid", None
         outcome, problem = _signed_by(
             issuer["spki"],
             responder["signature_algorithm"],
@@ -552,9 +572,16 @@ def verify_ocsp_response(
             responder["signature_algorithm_params"],
         )
         if outcome != VERIFIED:
-            return outcome, f"responder certificate: {problem}"
-        return _signed_by(responder["spki"], algorithm, tbs, signature, params)
-    return FAILED, "response is not signed by the issuer or an authorized responder"
+            return outcome, f"responder certificate: {problem}", None
+        outcome, problem = _signed_by(
+            responder["spki"], algorithm, tbs, signature, params
+        )
+        return outcome, problem, int(responder["not_after"])
+    return (
+        FAILED,
+        "response is not signed by the issuer or an authorized responder",
+        None,
+    )
 
 
 # --- CRL -----------------------------------------------------------------------------
