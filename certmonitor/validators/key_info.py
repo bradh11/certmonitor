@@ -27,7 +27,7 @@ _PQ_ALGORITHM_NAMES: frozenset[str] = frozenset(
 
 # RFC 8410 EdDSA algorithms. Each name has exactly one parameter set, so
 # there is no weak size or curve to check.
-_EDDSA_ALGORITHM_NAMES = frozenset({"Ed25519", "Ed448"})
+_EDDSA_ALGORITHM_NAMES: frozenset[str] = frozenset({"Ed25519", "Ed448"})
 
 
 class KeyInfoValidator(BaseCertValidator):

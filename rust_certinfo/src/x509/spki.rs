@@ -52,7 +52,7 @@ pub enum PublicKeyAlgorithm<'a> {
         key_bits: usize,
     },
     /// Ed25519 or Ed448 (RFC 8410). Strength is fixed by the algorithm;
-    /// `key_bits` is the raw subjectPublicKey length for information.
+    /// `key_bits` is the raw subjectPublicKey bit length for information.
     EdDsa {
         name: &'static str,
         key_bits: usize,
