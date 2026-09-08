@@ -407,6 +407,16 @@ def test_replies_with_too_many_lines_are_refused():
         starttls._read_reply(wire)
 
 
+def test_an_exhausted_budget_stops_the_next_socket_call():
+    # Once the deadline has passed nothing more is read or written; the
+    # socket is not even given a timeout.
+    wire = starttls._Wire(FakeSocket(), 0.0)
+    with pytest.raises(TimeoutError, match="ran out of time"):
+        wire.recv(1)
+    with pytest.raises(TimeoutError, match="ran out of time"):
+        wire.sendall(b"x")
+
+
 def test_imap_untagged_lines_before_the_reply_are_capped():
     wire = starttls._Wire(_EndlessLines(b"* OK still thinking\r\n"), None)
     with pytest.raises(starttls.StartTLSError, match="too many untagged lines"):
