@@ -1932,9 +1932,14 @@ def test_cached_answers_never_outlive_next_update(pki):
     refreshed = revocation.check_ocsp(leaf, issuer, pki.ocsp_url, timeout=5, now=now)
     assert refreshed["cached"] is False
 
-    # A CRL past its nextUpdate is fetched again rather than reused.
+    # A CRL past its nextUpdate is fetched again rather than reused, and
+    # one that is already past it is not remembered in the first place.
     der, info, cached = revocation.fetch_crl(pki.crl_url, timeout=5, now=now)
     assert cached is False
+    revocation.remember_crl(
+        pki.crl_url, der, {**info, "next_update": int(now) - 1}, now=now
+    )
+    assert revocation.fetch_crl(pki.crl_url, timeout=5, now=now)[2] is False
     revocation.remember_crl(pki.crl_url, der, info, now=now)
     assert revocation.fetch_crl(pki.crl_url, timeout=5, now=now + 1)[2] is True
     revocation.CRL_CACHE.put(
