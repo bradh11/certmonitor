@@ -56,7 +56,7 @@ The default three run out of the box. The opt-in validators are registered and r
 - [PqKeyExchange](pq_key_exchange.md): Reports PQ capability observed under a separate, unauthenticated TLS probe offer.
 - [PqChain](pq_chain.md): Reports the post-quantum posture of every certificate in the presented chain.
 - [PqSignature](pq_signature.md): Judges the leaf certificate's post-quantum posture (key and signature algorithm).
-- [Revocation](revocation.md): Checks OCSP responders and CRL distribution points for a revoked certificate, with CRL answers verified by OpenSSL.
+- [Revocation](revocation.md): Checks OCSP responders and CRL distribution points for a revoked certificate, both verified in-house.
 
 ## What the output looks like
 
