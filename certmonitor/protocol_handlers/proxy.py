@@ -13,7 +13,7 @@ import ipaddress
 import socket
 import struct
 from typing import NamedTuple
-from urllib.parse import unquote, urlunsplit, urlsplit
+from urllib.parse import unquote, urlsplit, urlunsplit
 
 SCHEMES = ("http", "socks5", "socks5h")
 _LINE_LIMIT = 4096
