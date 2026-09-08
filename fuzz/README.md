@@ -29,6 +29,8 @@ default `python` feature on and get the full PyO3 surface.
 | `parse_crl` | `Crl::from_der`, `revoked_count`, `lookup` | a panic parsing or searching a CRL |
 | `verify_signature` | arbitrary signatures against real keys, and arbitrary keys against a real signature | a panic in signature or key parsing, or in the big-integer arithmetic |
 | `bigint_divrem` | two arbitrary integers | a **wrong answer**: the division identity or a modular power failed, which would mean a wrong signature verdict |
+| `parse_pss_parameters` | `PssParameters::parse`, the RSASSA-PSS-params decoder | a panic parsing the PSS hash, MGF1, and salt length parameters |
+| `eddsa_decode_point` | arbitrary bytes as an Ed25519 or Ed448 public key | a panic in the Edwards point decoder or the group arithmetic |
 
 Run one with `make fuzz FUZZ_TARGET=verify_signature`, or all of them
 with `make fuzz-all` (60 seconds each by default).

@@ -52,8 +52,10 @@ help:
 
 # Install the package in development mode (Python + Rust)
 develop:
+	# Release profile: the tests exercise big-integer arithmetic that runs
+	# about ten times slower in a debug build.
 	uv pip install -e .
-	uv run maturin develop
+	uv run maturin develop --release
 
 # Build the wheel (Python + Rust)
 wheel:

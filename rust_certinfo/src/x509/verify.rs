@@ -50,6 +50,17 @@ pub fn verify_signature(
     let spki = SubjectPublicKeyInfo::parse(&mut reader)
         .map_err(|_| VerifyError::Malformed("SubjectPublicKeyInfo"))?;
     match (kind, spki.parsed()) {
+        // Every RSA algorithm in `signature_algorithm` is RSASSA-PKCS1-v1_5,
+        // and RFC 4055 §3.3 says a key whose algorithm is id-RSASSA-PSS
+        // must only be used with RSASSA-PSS, so such a key cannot answer
+        // for one of these signatures. This is a policy violation by the
+        // signer, not an algorithm we lack support for, so it is a hard
+        // failure rather than something `accept_unverified` can rescue.
+        (SignatureKind::Rsa, PublicKeyAlgorithm::Rsa { pss_only: true, .. }) => {
+            Err(VerifyError::Malformed(
+                "PKCS#1 v1.5 signature under an RSASSA-PSS key (RFC 4055 section 3.3)",
+            ))
+        }
         (SignatureKind::Rsa, PublicKeyAlgorithm::Rsa { .. }) => {
             let key = rsa::RsaPublicKey::from_der(spki.subject_public_key)?;
             rsa::verify(&key, hash, digest, signature)
@@ -63,7 +74,7 @@ pub fn verify_signature(
             format!("post-quantum signature verification ({})", algorithm.name),
         )),
         (_, PublicKeyAlgorithm::EdDsa { name, .. }) => Err(VerifyError::Unsupported(format!(
-            "{name} signature verification"
+            "{name} signatures are checked through eddsa_verify, not verify_signature"
         ))),
         _ => Err(VerifyError::Unsupported(
             "signature algorithm does not match the key type".into(),
@@ -75,8 +86,9 @@ fn curve_for(curve_oid: Oid<'_>) -> Result<ecdsa::Curve, VerifyError> {
     match curve_oid.as_bytes() {
         bytes if bytes == oid::OID_SECP256R1 => Ok(ecdsa::Curve::P256),
         bytes if bytes == oid::OID_SECP384R1 => Ok(ecdsa::Curve::P384),
+        bytes if bytes == oid::OID_SECP521R1 => Ok(ecdsa::Curve::P521),
         _ => Err(VerifyError::Unsupported(format!(
-            "EC curve {} (only P-256 and P-384 are supported)",
+            "EC curve {} (only P-256, P-384, and P-521 are supported)",
             curve_oid.to_id_string()
         ))),
     }
@@ -131,6 +143,48 @@ mod tests {
         assert!(
             verify_signature(sha256_rsa, &hex(DIGEST256), &hex(RSA_SIG), &[0x30, 0x00]).is_err()
         );
+    }
+
+    /// The RSA-2048 test SPKI with its algorithm OID rewritten from
+    /// rsaEncryption to id-RSASSA-PSS. The two OIDs differ only in their
+    /// last arc (1.2.840.113549.1.1.1 against .10), so the encoding is the
+    /// same length and the rest of the SubjectPublicKeyInfo is untouched.
+    fn pss_keyed_spki() -> Vec<u8> {
+        let mut der = hex(RSA_SPKI);
+        let rsa_encryption = oid::OID_RSA_ENCRYPTION;
+        let at = der
+            .windows(rsa_encryption.len())
+            .position(|w| w == rsa_encryption)
+            .expect("rsaEncryption OID in the test SPKI");
+        der[at + rsa_encryption.len() - 1] = 0x0a;
+        der
+    }
+
+    #[test]
+    fn pkcs1_v15_under_an_rsassa_pss_key_is_malformed() {
+        // RFC 4055 §3.3: a key whose algorithm is id-RSASSA-PSS may only
+        // be used with RSASSA-PSS signatures, so the same signature that
+        // verifies under the rsaEncryption-keyed SPKI is refused here. This
+        // is a policy violation by the signer, so it is a hard failure
+        // rather than an unsupported algorithm.
+        let spki = pss_keyed_spki();
+        let err = verify_signature(
+            "1.2.840.113549.1.1.11",
+            &hex(DIGEST256),
+            &hex(RSA_SIG),
+            &spki,
+        )
+        .unwrap_err();
+        assert!(
+            matches!(err, VerifyError::Malformed(_)),
+            "expected Malformed, got {err:?}"
+        );
+        match err {
+            VerifyError::Malformed(why) => {
+                assert!(why.contains("RSASSA-PSS key"), "unexpected reason {why}");
+            }
+            _ => unreachable!(),
+        }
     }
 
     #[test]

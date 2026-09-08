@@ -19,7 +19,7 @@ from .validators._utils import parse_not_after, parse_not_before
 SEVERITIES = ("info", "notice", "warning")
 
 # Key sizes below which a change to that algorithm counts as weakening.
-_KEY_FLOORS = {"rsaEncryption": 2048, "ecPublicKey": 256}
+_KEY_FLOORS = {"rsaEncryption": 2048, "rsassaPss": 2048, "ecPublicKey": 256}
 
 
 def _certificate(snapshot: dict[str, Any]) -> dict[str, Any]:

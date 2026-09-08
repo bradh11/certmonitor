@@ -180,10 +180,28 @@ fn parse_basic_constraints(value: &[u8]) -> Result<BasicConstraints, ParseError>
     if let Some(tag::TAG_INTEGER) = inner.peek_tag() {
         let val = inner.expect(tag::TAG_INTEGER)?;
         // Decode small unsigned integer; cert path length is always small.
-        let n = val
+        // A leading 0x00 is a sign byte unless it is the whole value, i.e. 0.
+        let (had_sign_byte, digits) = match val {
+            [0x00, rest @ ..] if !rest.is_empty() => (true, rest),
+            _ => (false, val),
+        };
+        if digits.is_empty() || digits.len() > 8 {
+            return Err(ParseError::IntegerOverflow);
+        }
+        if !had_sign_byte && digits[0] & 0x80 != 0 {
+            return Err(ParseError::IntegerOverflow);
+        }
+        if had_sign_byte && digits[0] == 0x00 {
+            // Two leading zero octets: DER (X.690 §8.3.2) allows the sign
+            // byte only when the next octet's high bit is set, so this is a
+            // padded re-encoding of a smaller value.
+            return Err(ParseError::IntegerOverflow);
+        }
+        let n = digits
             .iter()
             .try_fold(0u64, |acc, &b| {
-                acc.checked_shl(8).and_then(|v| v.checked_add(b as u64))
+                acc.checked_mul(256)
+                    .and_then(|v| v.checked_add(u64::from(b)))
             })
             .ok_or(ParseError::IntegerOverflow)?;
         bc.path_len = Some(n.try_into().map_err(|_| ParseError::IntegerOverflow)?);
@@ -256,6 +274,42 @@ mod tests {
         let bc = parse_basic_constraints(&value).unwrap();
         assert!(bc.ca);
         assert_eq!(bc.path_len, Some(3));
+    }
+
+    #[test]
+    fn basic_constraints_rejects_oversized_path_len() {
+        // SEQUENCE { INTEGER 01 00 00 00 00 00 00 00 01 } (2^64 + 1): too
+        // wide to fit the path length in a `u64`.
+        let mut value = vec![tag::TAG_SEQUENCE, 0x0b, tag::TAG_INTEGER, 0x09, 0x01];
+        value.extend(vec![0x00u8; 7]);
+        value.push(0x01);
+        assert_eq!(
+            parse_basic_constraints(&value).unwrap_err(),
+            ParseError::IntegerOverflow
+        );
+    }
+
+    #[test]
+    fn basic_constraints_rejects_non_minimal_path_len() {
+        // SEQUENCE { INTEGER 00 00 20 }: a second leading zero octet, which
+        // X.690 §8.3.2 forbids because the first one alone already encodes 32.
+        let value = [
+            tag::TAG_SEQUENCE,
+            0x05,
+            tag::TAG_INTEGER,
+            0x03,
+            0x00,
+            0x00,
+            0x20,
+        ];
+        assert_eq!(
+            parse_basic_constraints(&value).unwrap_err(),
+            ParseError::IntegerOverflow
+        );
+        // SEQUENCE { INTEGER 00 80 }: the sign byte the same rule requires,
+        // since 0x80's high bit would otherwise read as negative.
+        let value = [tag::TAG_SEQUENCE, 0x04, tag::TAG_INTEGER, 0x02, 0x00, 0x80];
+        assert_eq!(parse_basic_constraints(&value).unwrap().path_len, Some(128));
     }
 
     #[test]

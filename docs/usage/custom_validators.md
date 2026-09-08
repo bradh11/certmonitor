@@ -51,7 +51,7 @@ class MinKeySizeValidator(BaseCertValidator):
         key_info = cert.get("public_key_info", {})
         key_type = key_info.get("algorithm")
         key_size = key_info.get("size")
-        is_valid = key_type == "rsaEncryption" and isinstance(key_size, int) and key_size >= min_size
+        is_valid = key_type in ("rsaEncryption", "rsassaPss") and isinstance(key_size, int) and key_size >= min_size
         result: MinKeySizeResult = {
             "is_valid": is_valid,
             "key_type": key_type,
@@ -66,6 +66,8 @@ class MinKeySizeValidator(BaseCertValidator):
 ```
 
 This is an RSA-only policy, so EC and PQ keys also fail this particular check. Bit lengths are not comparable across algorithm families; use the built-in [KeyInfo](../validators/key_info.md) validator for its per-family rules.
+
+`rsaEncryption` and `rsassaPss` are both RSA: they name the same key type under two different `AlgorithmIdentifier` OIDs, the plain `id-rsaEncryption` and the RFC 4055 `id-RSASSA-PSS` used when the key is restricted to RSASSA-PSS signatures, so a size policy for RSA keys needs to accept both.
 
 Notice the pattern. `min_size` is keyword-only (it sits after the `*`), annotated, and has a default. And `reason` is only added when the check fails, which is exactly what the result contract asks for.
 

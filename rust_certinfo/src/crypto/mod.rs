@@ -7,11 +7,15 @@
 // real OpenSSL output are there to catch.
 //
 //   bigint.rs, unsigned big integers (multiply, divide, modular power)
-//   rsa.rs   , RSASSA-PKCS1-v1_5 verification (RFC 8017 §8.2.2)
-//   ecdsa.rs , ECDSA verification over P-256 and P-384 (FIPS 186-4)
+//   rsa.rs   , RSASSA-PKCS1-v1_5 verification (RFC 8017 §8.2.2), the RSAVP1
+//              primitive and PSS encoded message (§5.2.2, §8.1.2), and
+//              RSASSA-PSS-params parsing (RFC 4055 §3.1)
+//   ecdsa.rs , ECDSA verification over P-256, P-384, and P-521 (FIPS 186-4)
+//   eddsa.rs , Ed25519 and Ed448 verification (RFC 8032 §5.1, §5.2)
 
 pub mod bigint;
 pub mod ecdsa;
+pub mod eddsa;
 pub mod rsa;
 #[cfg(test)]
 pub mod test_vectors;

@@ -88,8 +88,20 @@ pub fn key_info_dict<'py>(
 ) -> PyResult<Bound<'py, PyDict>> {
     let dict = PyDict::new(py);
     match spki.parsed() {
-        PublicKeyAlgorithm::Rsa { modulus_bits } => {
-            dict.set_item("algorithm", "rsaEncryption")?;
+        PublicKeyAlgorithm::Rsa {
+            modulus_bits,
+            pss_only,
+        } => {
+            // An RSA key encoded with id-RSASSA-PSS (RFC 4055 §1.2) is
+            // reported under its own name so consumers can see the RFC
+            // 4055 §3.3 usage restriction; `size` is the modulus bit
+            // length either way, and the same RSA floor applies.
+            let algorithm = if pss_only {
+                "rsassaPss"
+            } else {
+                "rsaEncryption"
+            };
+            dict.set_item("algorithm", algorithm)?;
             dict.set_item("size", modulus_bits)?;
             dict.set_item("curve", py.None())?;
         }
@@ -344,6 +356,13 @@ pub fn ocsp_response_dict<'py>(
             .signature_algorithm
             .map(|a| a.algorithm.to_id_string()),
     )?;
+    d.set_item(
+        "signature_algorithm_params",
+        response
+            .signature_algorithm
+            .and_then(|a| a.parameters)
+            .map(|p| PyBytes::new(py, p)),
+    )?;
     d.set_item("signature", response.signature.map(|s| PyBytes::new(py, s)))?;
     d.set_item(
         "tbs_response_data",
@@ -396,6 +415,12 @@ pub fn crl_info_dict<'py>(py: Python<'py>, crl: &Crl<'_>) -> PyResult<Bound<'py,
     d.set_item(
         "signature_algorithm",
         crl.signature_algorithm.algorithm.to_id_string(),
+    )?;
+    d.set_item(
+        "signature_algorithm_params",
+        crl.signature_algorithm
+            .parameters
+            .map(|p| PyBytes::new(py, p)),
     )?;
     d.set_item("revoked_count", crl.revoked_count().map_err(to_py_err)?)?;
     d.set_item("tbs_cert_list", PyBytes::new(py, crl.tbs_cert_list))?;
@@ -463,6 +488,12 @@ pub fn certificate_signature_parts_dict<'py>(
     d.set_item(
         "signature_algorithm",
         cert.signature_algorithm.algorithm.to_id_string(),
+    )?;
+    d.set_item(
+        "signature_algorithm_params",
+        cert.signature_algorithm
+            .parameters
+            .map(|p| PyBytes::new(py, p)),
     )?;
     d.set_item("spki", PyBytes::new(py, cert.spki.raw))?;
     d.set_item("key_bits", PyBytes::new(py, cert.spki.subject_public_key))?;

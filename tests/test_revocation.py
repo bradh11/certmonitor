@@ -665,7 +665,9 @@ def test_unverifiable_issuer_binding_caps_ocsp_at_unsupported(pki, monkeypatch):
     # only name-matched, so even a correctly signed OCSP answer is not proof.
     real_hash = certinfo.signature_hash
     leaf = ssl.PEM_cert_to_DER_cert((pki.directory / "good.pem").read_text())
-    leaf_algorithm = certinfo.certificate_signature_parts(leaf)["signature_algorithm"]
+    leaf_parts = certinfo.certificate_signature_parts(leaf)
+    leaf_algorithm = leaf_parts["signature_algorithm"]
+    assert "signature_algorithm_params" in leaf_parts
     calls = {"n": 0}
 
     def unsupported_for_the_leaf_only(algorithm):
@@ -1251,6 +1253,8 @@ def test_crl_lookup_and_info_through_the_parser(pki):
     info = certinfo.crl_info(der)
     assert info["issuer"]["commonName"] == "CertMonitor Revocation CA"
     assert info["next_update"] > info["this_update"]
+    # sha256WithRSAEncryption carries NULL parameters, reported as None.
+    assert info["signature_algorithm_params"] is None
     revoked = ssl.PEM_cert_to_DER_cert((pki.directory / "revoked.pem").read_text())
     serial = certinfo.ocsp_cert_id_inputs(
         revoked, ssl.PEM_cert_to_DER_cert(pki.ca_pem.read_text())
@@ -1531,6 +1535,9 @@ def _parsed_ocsp(pki, signer="ca"):
 
 def test_verify_ocsp_response_rejects_unauthorized_responders(pki):
     parsed, issuer, key_hash = _parsed_ocsp(pki, signer="responder")
+    # sha256WithRSAEncryption carries NULL parameters, reported as None.
+    assert "signature_algorithm_params" in parsed
+    assert parsed["signature_algorithm_params"] is None
     now = time.time()
     assert revocation.verify_ocsp_response(parsed, issuer, key_hash, now) == (
         "verified",
@@ -1597,8 +1604,12 @@ def test_signature_primitives_surface_errors(pki):
         certinfo.verify_signature("1.2.840.113549.1.1.11", b"short", b"sig", spki)
     outcome, why = revocation._signed_by(spki, "1.2.840.113549.1.1.11", b"tbs", b"sig")
     assert outcome == "failed" and why == "signature does not verify"
+    # Either Edwards OID over an RSA key is a key-type mismatch, not a bad
+    # signature.
     outcome, why = revocation._signed_by(spki, "1.3.101.112", b"tbs", b"sig")
-    assert outcome == "unsupported" and "unsupported signature algorithm" in why
+    assert outcome == "unsupported" and "does not match the key type" in why
+    outcome, why = revocation._signed_by(spki, "1.3.101.113", b"tbs", b"sig")
+    assert outcome == "unsupported" and "does not match the key type" in why
     ec_spki = ssl.PEM_cert_to_DER_cert((pki.directory / "good.pem").read_text())
     ec_spki = certinfo.certificate_signature_parts(ec_spki)["spki"]
     outcome, why = revocation._signed_by(ec_spki, "1.2.840.10045.4.3.2", b"tbs", b"sig")

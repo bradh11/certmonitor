@@ -29,6 +29,12 @@ _PQ_ALGORITHM_NAMES: frozenset[str] = frozenset(
 # there is no weak size or curve to check.
 _EDDSA_ALGORITHM_NAMES: frozenset[str] = frozenset({"Ed25519", "Ed448"})
 
+# The two ways an RSA public key is encoded: rsaEncryption, and
+# `id-RSASSA-PSS` (RFC 4055 section 1.2), which names the same RSA key and
+# restricts it to RSASSA-PSS signatures. Both are the same modulus, so both
+# are judged by the same size floor.
+_RSA_ALGORITHM_NAMES: tuple[str, ...] = ("rsaEncryption", "rsassaPss")
+
 
 class KeyInfoValidator(BaseCertValidator):
     """
@@ -36,7 +42,9 @@ class KeyInfoValidator(BaseCertValidator):
 
     Judges key strength per algorithm family:
 
-    - **RSA**: modulus must be at least 2048 bits.
+    - **RSA** (`rsaEncryption`, and `rsassaPss` for a key encoded with
+      `id-RSASSA-PSS` per RFC 4055 section 1.2): modulus must be at least
+      2048 bits.
     - **EC**: curve must be one of secp256r1 / secp384r1 / secp521r1
       (the parser reports the curve by short name; unrecognized curves
       come through as an OID dotted string and are treated as not strong).
@@ -162,7 +170,7 @@ class KeyInfoValidator(BaseCertValidator):
         """
         if strength is None:
             return f"Cannot determine key strength for algorithm {key_type!r}."
-        if "rsaEncryption" in key_type:
+        if any(name in key_type for name in _RSA_ALGORITHM_NAMES):
             return f"RSA key size {key_size} is below the 2048-bit minimum."
         if "ecPublicKey" in key_type:
             return (
@@ -178,12 +186,13 @@ class KeyInfoValidator(BaseCertValidator):
         Checks if the key is strong enough based on its type, size, and curve.
 
         Post-quantum algorithms (any name in the Rust registry exposed by
-        `certinfo.pq_algorithms()`) are always strong; RSA requires a
-        modulus of at least 2048 bits; EC requires a strong named curve.
+        `certinfo.pq_algorithms()`) are always strong; RSA, under either
+        encoding in `_RSA_ALGORITHM_NAMES`, requires a modulus of at least
+        2048 bits; EC requires a strong named curve.
 
         Args:
             key_type (str): The key algorithm name (e.g. `"rsaEncryption"`,
-                `"ecPublicKey"`, `"ml-dsa-65"`).
+                `"rsassaPss"`, `"ecPublicKey"`, `"ml-dsa-65"`).
             key_size (int): The size of the key. Ignored for PQ algorithms.
             curve (str): The curve of the key (EC only).
 
@@ -200,7 +209,7 @@ class KeyInfoValidator(BaseCertValidator):
         if key_type in _EDDSA_ALGORITHM_NAMES:
             # RFC 8410 keys have one parameter set each and no weak sizes.
             return True
-        if "rsaEncryption" in key_type:
+        if any(name in key_type for name in _RSA_ALGORITHM_NAMES):
             if key_size is None:
                 return None
             return key_size >= 2048

@@ -94,6 +94,11 @@ impl<'a> Oid<'a> {
 /// 1.2.840.113549.1.1.1, rsaEncryption
 pub const OID_RSA_ENCRYPTION: &[u8] = &[0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x01];
 
+/// 1.2.840.113549.1.1.10, id-RSASSA-PSS. RFC 4055 §1.2 lets a CA name this
+/// OID as a public key's algorithm, with optional `RSASSA-PSS-params`; RFC
+/// 4055 §3.3 then restricts the key to RSASSA-PSS signatures.
+pub const OID_RSASSA_PSS: &[u8] = &[0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x0a];
+
 /// 1.2.840.10045.2.1, id-ecPublicKey
 pub const OID_EC_PUBLIC_KEY: &[u8] = &[0x2a, 0x86, 0x48, 0xce, 0x3d, 0x02, 0x01];
 
@@ -164,6 +169,11 @@ mod tests {
     #[test]
     fn rsa_encryption() {
         roundtrip(OID_RSA_ENCRYPTION, "1.2.840.113549.1.1.1");
+    }
+
+    #[test]
+    fn rsassa_pss() {
+        roundtrip(OID_RSASSA_PSS, "1.2.840.113549.1.1.10");
     }
 
     #[test]

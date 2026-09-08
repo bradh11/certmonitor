@@ -68,6 +68,38 @@ class TestKeyInfoValidator:
         assert result["key_size"] == 512
         assert result["is_valid"] is False
 
+    def test_rsassa_pss_key_uses_the_rsa_floor(self):
+        """An id-RSASSA-PSS key (RFC 4055) is an RSA key of the same size."""
+        validator = KeyInfoValidator()
+        strong = validator.validate(
+            {
+                "public_key_info": {
+                    "algorithm": "rsassaPss",
+                    "size": 2048,
+                    "curve": None,
+                }
+            },
+            "example.com",
+            443,
+        )
+        assert strong["key_type"] == "rsassaPss"
+        assert strong["key_size"] == 2048
+        assert strong["is_valid"] is True
+
+        weak = validator.validate(
+            {
+                "public_key_info": {
+                    "algorithm": "rsassaPss",
+                    "size": 1024,
+                    "curve": None,
+                }
+            },
+            "example.com",
+            443,
+        )
+        assert weak["is_valid"] is False
+        assert weak["reason"] == "RSA key size 1024 is below the 2048-bit minimum."
+
     def test_ec_strong_curve_p256(self):
         """Test validation of a strong EC key with secp256r1 curve."""
         cert = {

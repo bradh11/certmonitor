@@ -73,3 +73,17 @@ path = "fuzz_targets/bigint_divrem.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "parse_pss_parameters"
+path = "fuzz_targets/parse_pss_parameters.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "eddsa_decode_point"
+path = "fuzz_targets/eddsa_decode_point.rs"
+test = false
+doc = false
+bench = false
