@@ -474,7 +474,7 @@ def test_default_order_stops_at_a_verified_ocsp_answer(pki):
 def test_unverifiable_ocsp_falls_through_to_the_verified_crl(pki, monkeypatch):
     # An algorithm CertMonitor cannot verify leaves OCSP unproven; the CRL settles it.
     # The stub targets OCSP's own verifier rather than certinfo.signature_hash:
-    # the CRL is signed with the same algorithm in this PKI and now goes
+    # the CRL is signed with the same algorithm in this PKI and goes
     # through the same primitive, so a global patch would leave it unproven too.
     monkeypatch.setattr(
         revocation,
@@ -532,7 +532,7 @@ def test_forged_revoked_is_discarded_not_acted_on(pki, monkeypatch):
 
 def test_unverifiable_revoked_is_an_error_unless_accepted(pki, monkeypatch):
     # The stub targets OCSP's own verifier rather than certinfo.signature_hash:
-    # the CRL is signed with the same algorithm in this PKI and now goes
+    # the CRL is signed with the same algorithm in this PKI and goes
     # through the same primitive, so a global patch would leave it unproven too.
     monkeypatch.setattr(
         revocation,
