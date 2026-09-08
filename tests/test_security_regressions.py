@@ -268,3 +268,11 @@ def test_rsa_key_size_is_not_rounded_up(tmp_path):
     verdict = KeyInfoValidator().validate({"public_key_info": info}, "h", 443)
     assert verdict["is_valid"] is False
     assert "2041" in verdict["reason"]
+
+
+def test_ed25519_keys_are_recognized_and_strong(tmp_path):
+    der = _self_signed(tmp_path, "-newkey", "ed25519")
+    info = certinfo.parse_public_key_info(der)
+    assert info == {"algorithm": "Ed25519", "size": 256, "curve": None}
+    verdict = KeyInfoValidator().validate({"public_key_info": info}, "h", 443)
+    assert verdict["is_valid"] is True

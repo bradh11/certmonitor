@@ -12,7 +12,9 @@
 // algorithms (ML-DSA, SLH-DSA, composite ML-DSA) are recognized via the
 // registry in `crate::pq_algorithms`, for those the OID alone
 // identifies the parameter set, and we report the subjectPublicKey bit
-// length as `key_bits`. Anything else collapses to `Unknown`.
+// length as `key_bits`. Ed25519 and Ed448 (RFC 8410) are likewise
+// identified by OID alone, each has exactly one parameter set. Anything
+// else collapses to `Unknown`.
 
 use crate::der::{oid, tag, DerReader, Oid};
 use crate::error::ParseError;
@@ -47,6 +49,12 @@ pub enum PublicKeyAlgorithm<'a> {
     /// only (e.g. ML-DSA-65 → 15616).
     PostQuantum {
         algorithm: &'static pq_algorithms::PqAlgorithm,
+        key_bits: usize,
+    },
+    /// Ed25519 or Ed448 (RFC 8410). Strength is fixed by the algorithm;
+    /// `key_bits` is the raw subjectPublicKey length for information.
+    EdDsa {
+        name: &'static str,
         key_bits: usize,
     },
     Unknown,
@@ -94,6 +102,18 @@ impl<'a> SubjectPublicKeyInfo<'a> {
         }
         if alg_bytes == oid::OID_EC_PUBLIC_KEY {
             return parse_ec(self);
+        }
+        if alg_bytes == oid::OID_ED25519 {
+            return PublicKeyAlgorithm::EdDsa {
+                name: "Ed25519",
+                key_bits: self.subject_public_key.len() * 8,
+            };
+        }
+        if alg_bytes == oid::OID_ED448 {
+            return PublicKeyAlgorithm::EdDsa {
+                name: "Ed448",
+                key_bits: self.subject_public_key.len() * 8,
+            };
         }
         if let Some(algorithm) = pq_algorithms::lookup(self.algorithm.algorithm) {
             return PublicKeyAlgorithm::PostQuantum {
@@ -369,6 +389,24 @@ mod tests {
                 }
                 other => panic!("expected PostQuantum for {}, got {:?}", entry.name, other),
             }
+        }
+    }
+
+    #[test]
+    fn ed25519_and_ed448_are_classified() {
+        match parse_spki(&synthetic_spki(oid::OID_ED25519, 32)) {
+            PublicKeyAlgorithm::EdDsa { name, key_bits } => {
+                assert_eq!(name, "Ed25519");
+                assert_eq!(key_bits, 256);
+            }
+            other => panic!("expected EdDsa, got {:?}", other),
+        }
+        match parse_spki(&synthetic_spki(oid::OID_ED448, 57)) {
+            PublicKeyAlgorithm::EdDsa { name, key_bits } => {
+                assert_eq!(name, "Ed448");
+                assert_eq!(key_bits, 456);
+            }
+            other => panic!("expected EdDsa, got {:?}", other),
         }
     }
 

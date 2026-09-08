@@ -25,6 +25,10 @@ _PQ_ALGORITHM_NAMES: frozenset[str] = frozenset(
     for alg in certinfo.pq_algorithms()  # type: ignore[attr-defined]
 )
 
+# RFC 8410 EdDSA algorithms. Each name has exactly one parameter set, so
+# there is no weak size or curve to check.
+_EDDSA_ALGORITHM_NAMES = frozenset({"Ed25519", "Ed448"})
+
 
 class KeyInfoValidator(BaseCertValidator):
     """
@@ -41,6 +45,8 @@ class KeyInfoValidator(BaseCertValidator):
       the FIPS 204/205 parameter sets have no weak sizes or curves. The
       recognized set comes from the Rust registry exposed via
       `certinfo.pq_algorithms()`.
+    - **EdDSA** (Ed25519, Ed448): always strong; the algorithm fixes the
+      parameters.
 
     Per the result envelope, `is_valid` is always a strict `bool`. When
     strength cannot be determined (unrecognized algorithm, or a missing
@@ -190,6 +196,9 @@ class KeyInfoValidator(BaseCertValidator):
             # Post-quantum strength is judged by algorithm identity: the
             # FIPS 204/205 parameter sets and the composite variants have
             # no weak sizes or curves to check.
+            return True
+        if key_type in _EDDSA_ALGORITHM_NAMES:
+            # RFC 8410 keys have one parameter set each and no weak sizes.
             return True
         if "rsaEncryption" in key_type:
             if key_size is None:
