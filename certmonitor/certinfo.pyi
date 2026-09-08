@@ -72,7 +72,15 @@ def crl_info(der_data: bytes) -> dict[str, Any]:
     """A DER CRL's `issuer` (and its raw DER as `issuer_der`), `this_update`,
     `next_update` (unix seconds or None), `signature_algorithm`,
     `revoked_count`, and the signed bytes (`tbs_cert_list`) with their
-    `signature`.
+    `signature`. Also reports `delta_crl_indicator` (`True` when the CRL
+    lists only changes since a base CRL) and `issuing_distribution_point`,
+    a dict of the bool keys `only_contains_user_certs`,
+    `only_contains_ca_certs`, `only_some_reasons`, `indirect_crl`, and
+    `only_contains_attribute_certs`, the list `distribution_point_uris`
+    (every `uniformResourceIdentifier` the distribution point names), and
+    the bool `names_other_locations` (true when the distribution point
+    names something that is not a URI, such as a directory name), or
+    `None` when the CRL carries no issuing distribution point.
     """
     ...
 

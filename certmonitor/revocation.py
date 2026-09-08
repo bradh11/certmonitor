@@ -32,6 +32,7 @@ import threading
 import time
 from datetime import datetime, timezone
 from typing import Any
+from urllib.parse import urlsplit
 
 from certmonitor import certinfo
 from certmonitor.protocol_handlers import http
@@ -48,7 +49,7 @@ _CACHE_CEILING_SECONDS = 24 * 60 * 60
 _DEFAULT_TTL_SECONDS = 60 * 60
 _CACHE_LIMIT = 256
 _OCSP_MAX_AGE_SECONDS = 24 * 60 * 60
-_OCSP_MAX_LIFETIME_SECONDS = 10 * 24 * 60 * 60
+_MAX_LIFETIME_SECONDS = 10 * 24 * 60 * 60
 
 VERIFIED = "verified"
 UNSUPPORTED = "unsupported"
@@ -398,7 +399,7 @@ def _ask_ocsp(
             ),
         )
         return answer
-    if age > _OCSP_MAX_LIFETIME_SECONDS:
+    if age > _MAX_LIFETIME_SECONDS:
         answer.update(
             status="error",
             error="OCSPStale",
@@ -570,6 +571,60 @@ def fetch_crl(
 
 
 # --- evidence ------------------------------------------------------------------------
+
+
+def _crl_scope_problem(info: dict[str, Any], url: str) -> str | None:
+    """Why this CRL cannot answer for an end-entity certificate, or `None`.
+
+    A delta CRL lists only changes since a base CRL, and an issuing
+    distribution point can narrow a CRL to some reasons, to CA or attribute
+    certificates, or to another issuer's certificates (RFC 5280 §5.2.4 and
+    §5.2.5). A serial missing from such a list proves nothing. When the
+    issuing distribution point names a location, RFC 5280 §6.3.3 step (b)(1)
+    requires that location to be the one the certificate points to; since
+    CertMonitor only ever fetches the URL taken from the certificate, that
+    means the CRL's own named location must be `url`.
+    """
+    if info.get("delta_crl_indicator"):
+        return "the CRL is a delta CRL that lists only changes since a base CRL"
+    scope = info.get("issuing_distribution_point")
+    if not scope:
+        return None
+    if scope.get("indirect_crl"):
+        return "the CRL is an indirect CRL issued on behalf of another CA"
+    if scope.get("only_some_reasons"):
+        return "the CRL covers only some revocation reasons"
+    if scope.get("only_contains_ca_certs"):
+        return "the CRL covers only CA certificates"
+    if scope.get("only_contains_attribute_certs"):
+        return "the CRL covers only attribute certificates"
+    uris = scope.get("distribution_point_uris") or []
+    if uris or scope.get("names_other_locations"):
+        if any(_same_location(uri, url) for uri in uris):
+            return None
+        if uris:
+            return (
+                "the CRL's issuing distribution point names "
+                f"{', '.join(uris)}, not the location it was fetched from "
+                "(RFC 5280 section 6.3.3)"
+            )
+        return (
+            "the CRL's issuing distribution point names only locations that are "
+            "not URLs, so it cannot be matched to the location it was fetched from "
+            "(RFC 5280 section 6.3.3)"
+        )
+    return None
+
+
+def _same_location(left: str, right: str) -> bool:
+    """Whether two URLs name the same resource; scheme and host compare case-insensitively, and an empty path counts as `/`."""
+    a, b = urlsplit(left), urlsplit(right)
+    return (
+        a.scheme.lower() == b.scheme.lower()
+        and (a.netloc or "").lower() == (b.netloc or "").lower()
+        and (a.path or "/") == (b.path or "/")
+        and a.query == b.query
+    )
 
 
 class RevocationEvidence:
@@ -752,6 +807,27 @@ class RevocationEvidence:
                 status="error",
                 error="CRLStale",
                 reason=f"CRL expired at {answer['next_update']}",
+            )
+            return answer
+        if (
+            info["next_update"] is None
+            and now - info["this_update"] > _MAX_LIFETIME_SECONDS
+        ):
+            answer.update(
+                status="error",
+                error="CRLStale",
+                reason=(
+                    f"CRL thisUpdate {answer['this_update']} is older than 10 days "
+                    "and carries no nextUpdate"
+                ),
+            )
+            return answer
+        scope_problem = _crl_scope_problem(info, url)
+        if scope_problem is not None:
+            answer.update(
+                status="error",
+                error="CRLScopeUnsupported",
+                reason=f"{scope_problem}; the certificate's status cannot be read from it",
             )
             return answer
         issuer = self.issuer()
