@@ -152,6 +152,10 @@ def scan_hosts(
                 }
                 if monitor.connection_host != host:
                     report["connection_host"] = monitor.connection_host
+                failure = monitor.collection_error
+                if isinstance(failure, dict):
+                    report["error"] = failure["error"]
+                    report["message"] = failure["message"]
                 return report
         except Exception as exc:  # noqa: BLE001
             return {

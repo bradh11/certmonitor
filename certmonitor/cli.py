@@ -151,7 +151,7 @@ def _run_check_job(job: dict[str, Any], args: argparse.Namespace) -> dict[str, A
             )
         with monitor as active:
             results = active.validate(_validator_args(args.arg))
-            return {
+            report = {
                 "target": job["label"],
                 "results": results,
                 "snapshot_at": active.snapshot_at,
@@ -159,6 +159,11 @@ def _run_check_job(job: dict[str, Any], args: argparse.Namespace) -> dict[str, A
                 "certificate": active.cert_info,
                 "public_key_info": active.public_key_info,
             }
+            failure = active.collection_error
+            if isinstance(failure, dict):
+                report["error"] = failure["error"]
+                report["message"] = failure["message"]
+            return report
     except Exception as exc:  # noqa: BLE001  (one bad target must not stop the run)
         return {
             "target": job["label"],
@@ -187,7 +192,8 @@ def _print_report(reports: list[dict[str, Any]], out: Any) -> None:
         print(f"{report['target']}{suffix}", file=out)
         if "error" in report:
             print(f"  ERROR  {report['error']}: {report['message']}", file=out)
-            continue
+            if not report.get("results"):
+                continue
         for name, result in report["results"].items():
             label = STATUS_LABELS.get(result.get("status", ""), "?")
             print(f"  {label:<5}  {name:<18} {_summary(name, result)}", file=out)

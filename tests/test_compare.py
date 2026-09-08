@@ -323,3 +323,46 @@ def test_errored_scans_are_reported_not_compared():
         "previous": "ConnectionError: refused",
         "current": "ConnectionError",
     }
+
+
+def test_collection_failure_inside_results_is_a_scan_error():
+    good = snapshot()
+    failed = {
+        "target": "a.test:443",
+        "results": {
+            "expiration": {
+                "is_valid": False,
+                "status": "error",
+                "error": "ConnectionRefusedError",
+                "reason": "Certificate-based validation could not be performed: refused",
+            },
+            "hostname": {"is_valid": False, "status": "error", "reason": "same"},
+        },
+        "snapshot_at": None,
+        "fingerprint_sha256": None,
+        "certificate": None,
+        "public_key_info": None,
+    }
+    report = compare_snapshots(good, failed)
+    assert report["scan_error"]["current"].startswith("ConnectionRefusedError")
+    assert (
+        len(report["findings"]) == 1
+        and "could not be observed" in report["findings"][0]
+    )
+    assert (
+        "issuer" not in report and "sans" not in report and report["replaced"] is False
+    )
+
+
+def test_explicit_collection_error_beside_results_is_a_scan_error():
+    good = snapshot()
+    failed = {
+        "host": "a.test",
+        "port": 443,
+        "results": {"expiration": {"status": "error", "error": "MissingCertificate"}},
+        "error": "ConnectionRefusedError",
+        "message": "refused",
+        "certificate": None,
+    }
+    report = compare_snapshots(good, failed)
+    assert report["scan_error"] == {"current": "ConnectionRefusedError: refused"}

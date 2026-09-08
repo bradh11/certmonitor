@@ -26,6 +26,7 @@ def _fake_monitor(monkeypatch, validate):
     mock = MagicMock()
     mock.return_value.__enter__.return_value.validate.side_effect = validate
     mock.return_value.__enter__.return_value.snapshot_at = "2026-09-05T00:00:00+00:00"
+    mock.return_value.__enter__.return_value.collection_error = None
     monkeypatch.setattr(scanning, "CertMonitor", mock)
     return mock
 
@@ -169,3 +170,14 @@ def test_error_reports_never_serialize_the_endpoint_dict(monkeypatch):
     assert all("error" in r for r in results)
     assert "SECRET" not in json.dumps(results)
     assert [r["host"] for r in results] == ["<endpoint without host>", "x.test"]
+
+
+def test_collection_failure_is_a_top_level_report_error(monkeypatch):
+    mock = _fake_monitor(monkeypatch, no_results)
+    mock.return_value.__enter__.return_value.collection_error = {
+        "error": "TimeoutError",
+        "message": "timed out",
+    }
+    [report] = list(scan_hosts(["slow.test"]))
+    assert report["error"] == "TimeoutError" and report["message"] == "timed out"
+    assert report["results"] == {}

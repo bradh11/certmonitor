@@ -31,12 +31,38 @@ def _certificate(snapshot: dict[str, Any]) -> dict[str, Any]:
     return snapshot
 
 
+def _has_certificate(certificate: dict[str, Any]) -> bool:
+    return bool(
+        certificate.get("serialNumber")
+        or certificate.get("fingerprint_sha256")
+        or certificate.get("notAfter")
+    )
+
+
 def _scan_error(snapshot: dict[str, Any]) -> str | None:
-    """`"Error: message"` when the snapshot is a failed scan, else `None`."""
-    if not isinstance(snapshot.get("error"), str) or snapshot.get("results"):
+    """`"Error: message"` when the snapshot observed no certificate, else `None`.
+
+    A failed scan looks two ways: a top-level `error` (the monitor raised, or
+    reported a collection failure), or per-check results that are all errors
+    beside an empty certificate (an older snapshot from before the top-level
+    field existed).
+    """
+    if _has_certificate(_certificate(snapshot)):
         return None
-    message = snapshot.get("message")
-    return f"{snapshot['error']}: {message}" if message else str(snapshot["error"])
+    error = snapshot.get("error")
+    if isinstance(error, str):
+        message = snapshot.get("message")
+        return f"{error}: {message}" if message else error
+    results = _results(snapshot)
+    if results and all((r or {}).get("status") == "error" for r in results.values()):
+        first = next(iter(results.values())) or {}
+        cause = (
+            first.get("reason")
+            or first.get("message")
+            or "no certificate was collected"
+        )
+        return f"{first.get('error') or 'CollectionFailed'}: {cause}"
+    return None
 
 
 def _results(snapshot: dict[str, Any]) -> dict[str, Any]:
