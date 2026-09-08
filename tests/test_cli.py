@@ -370,3 +370,26 @@ def test_collection_failure_is_a_top_level_report_error(monkeypatch):
         report["error"] == "ConnectionRefusedError" and report["message"] == "refused"
     )
     assert report["results"]["expiration"]["status"] == "error"
+
+
+def test_human_report_lists_checks_after_a_collection_error(monkeypatch):
+    fake = MagicMock()
+    active = fake.return_value.__enter__.return_value
+    active.validate.return_value = {
+        "expiration": {
+            "status": "error",
+            "error": "ConnectionRefusedError",
+            "reason": "Certificate-based validation could not be performed: refused",
+        }
+    }
+    active.snapshot_at = None
+    active.fingerprint_sha256 = None
+    active.cert_info = None
+    active.public_key_info = None
+    active.collection_error = {"error": "ConnectionRefusedError", "message": "refused"}
+    monkeypatch.setattr(cli, "CertMonitor", fake)
+    code, out = run(["check", "down.test"])
+    assert code == 1
+    lines = out.splitlines()
+    assert lines[1].strip() == "ERROR  ConnectionRefusedError: refused"
+    assert lines[2].lstrip().startswith("ERROR  expiration")

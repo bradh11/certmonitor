@@ -39,7 +39,7 @@ Any observation shape works: an entry from `certmonitor check --json`, a `scan_h
 | `subject` | The subject changed | notice |
 | `key` | Algorithm or size changed | notice, warning if weaker |
 | `status_changes` | A validator's `status` changed, or a validator appeared or disappeared between the runs | warning if it now fails or errors, notice otherwise |
-| `scan_error` | Either snapshot is a failed scan (it carries `error` and no results) | warning if the current scan failed, notice if only the previous one did |
+| `scan_error` | Either snapshot observed no certificate: a top-level `error` (with or without `results`), or, for older snapshots, results that are all `status: "error"` beside an empty certificate | warning if the current scan failed, notice if only the previous one did |
 
 `severity` is the worst of the above, `changed` is false when nothing differs, and `replaced` is true when the fingerprint (or, failing that, the serial number) differs. A replacement whose only other effect is a later expiry is called out as a routine renewal.
 
