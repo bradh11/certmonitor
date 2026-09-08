@@ -665,7 +665,9 @@ def test_unverifiable_issuer_binding_caps_ocsp_at_unsupported(pki, monkeypatch):
     # only name-matched, so even a correctly signed OCSP answer is not proof.
     real_hash = certinfo.signature_hash
     leaf = ssl.PEM_cert_to_DER_cert((pki.directory / "good.pem").read_text())
-    leaf_algorithm = certinfo.certificate_signature_parts(leaf)["signature_algorithm"]
+    leaf_parts = certinfo.certificate_signature_parts(leaf)
+    leaf_algorithm = leaf_parts["signature_algorithm"]
+    assert "signature_algorithm_params" in leaf_parts
     calls = {"n": 0}
 
     def unsupported_for_the_leaf_only(algorithm):
@@ -1251,6 +1253,8 @@ def test_crl_lookup_and_info_through_the_parser(pki):
     info = certinfo.crl_info(der)
     assert info["issuer"]["commonName"] == "CertMonitor Revocation CA"
     assert info["next_update"] > info["this_update"]
+    # sha256WithRSAEncryption carries NULL parameters, reported as None.
+    assert info["signature_algorithm_params"] is None
     revoked = ssl.PEM_cert_to_DER_cert((pki.directory / "revoked.pem").read_text())
     serial = certinfo.ocsp_cert_id_inputs(
         revoked, ssl.PEM_cert_to_DER_cert(pki.ca_pem.read_text())

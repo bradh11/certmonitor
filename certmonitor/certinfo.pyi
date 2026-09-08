@@ -51,7 +51,9 @@ def parse_ocsp_response(der_data: bytes) -> dict[str, Any]:
 
     Returns `response_status`, `responder_name` (with `responder_name_der`) or
     `responder_key_hash`,
-    `produced_at` (unix seconds), `signature_algorithm`, `signature`,
+    `produced_at` (unix seconds), `signature_algorithm`,
+    `signature_algorithm_params` (the raw DER parameters, or `None` when
+    absent or NULL, e.g. for RSASSA-PSS), `signature`,
     `tbs_response_data` (the signed bytes), `certs` (attached responder
     certificates as DER), and `responses`: one dict per certificate with
     `cert_id`, `status` (good, revoked, unknown), `this_update`,
@@ -71,6 +73,8 @@ def ocsp_cert_id_inputs(leaf_der: bytes, issuer_der: bytes) -> dict[str, bytes] 
 def crl_info(der_data: bytes) -> dict[str, Any]:
     """A DER CRL's `issuer` (and its raw DER as `issuer_der`), `this_update`,
     `next_update` (unix seconds or None), `signature_algorithm`,
+    `signature_algorithm_params` (the raw DER parameters, or `None` when
+    absent or NULL, e.g. for RSASSA-PSS),
     `revoked_count`, and the signed bytes (`tbs_cert_list`) with their
     `signature`. Also reports `delta_crl_indicator` (`True` when the CRL
     lists only changes since a base CRL) and `issuing_distribution_point`,
@@ -111,8 +115,35 @@ def verify_signature(
 
 def certificate_signature_parts(der_data: bytes) -> dict[str, Any]:
     """The pieces needed to verify a certificate's own signature and to use it
-    as a signer: `tbs`, `signature`, `signature_algorithm`, `spki`, `key_bits`,
+    as a signer: `tbs`, `signature`, `signature_algorithm`,
+    `signature_algorithm_params` (the raw DER parameters, or `None` when
+    absent or NULL, e.g. for RSASSA-PSS), `spki`, `key_bits`,
     `subject`, `subject_der`, `issuer_der`, `not_before`, `not_after` (unix
     seconds), and `extended_key_usage` (OIDs in dotted form).
+    """
+    ...
+
+def rsa_public_operation(signature: bytes, spki_der: bytes) -> bytes:
+    """Compute `signature^e mod n` (RFC 8017 §5.2.2 RSAVP1, followed by
+    I2OSP) as exactly `k` bytes, where `k` is the modulus size in bytes.
+    `spki_der` is a DER SubjectPublicKeyInfo naming an RSA key. This is the
+    raw public-key operation with no padding scheme applied; a caller
+    checking a PKCS#1 v1.5 signature should use `verify_signature` instead,
+    but RSASSA-PSS padding is checked in Python, using this primitive.
+    Raises `ValueError` when the key is not RSA or is outside the
+    supported bounds, when `signature` is not exactly `k` bytes long, or
+    when the signature integer is not less than the modulus.
+    """
+    ...
+
+def rsa_pss_parameters(params_der: bytes | None) -> dict[str, Any]:
+    """Parse `RSASSA-PSS-params` (RFC 4055 §3.1) into `hash` and `mgf_hash`
+    (`hashlib` names), `salt_length` (int), and `trailer_field` (int).
+    `None` means the AlgorithmIdentifier carried no parameters, which
+    yields the RFC 4055 defaults: `sha1` for both hashes, a 20-byte salt,
+    and trailer field 1. Raises `ValueError` when the mask generation
+    function is not MGF1 (RFC 4055 §A.2.3), when a named hash is not one
+    of SHA-1, SHA-256, SHA-384, or SHA-512, or when the trailer field is
+    not 1 (the only value RFC 4055 defines).
     """
     ...

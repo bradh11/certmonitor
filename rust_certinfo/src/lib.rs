@@ -213,9 +213,10 @@ mod py {
     }
 
     /// The pieces needed to verify a certificate's signature and to use it
-    /// as a signer: `tbs`, `signature`, `signature_algorithm`, `spki`,
-    /// `key_bits`, `subject`, `subject_der`, `issuer_der`, `not_before`,
-    /// `not_after`, and `extended_key_usage`.
+    /// as a signer: `tbs`, `signature`, `signature_algorithm`,
+    /// `signature_algorithm_params`, `spki`, `key_bits`, `subject`,
+    /// `subject_der`, `issuer_der`, `not_before`, `not_after`, and
+    /// `extended_key_usage`.
     #[pyfunction]
     pub(super) fn certificate_signature_parts(
         py: Python<'_>,
@@ -223,6 +224,58 @@ mod py {
     ) -> PyResult<Py<PyAny>> {
         let cert = Certificate::from_der(&der_data).map_err(to_py_err)?;
         Ok(pyobj::certificate_signature_parts_dict(py, &cert)?.into())
+    }
+
+    /// `signature^e mod n` as a modulus-sized byte string, for padding
+    /// schemes checked in Python (RSASSA-PSS). Raises ValueError when the
+    /// key is not RSA, is outside the supported bounds, or the signature
+    /// is the wrong length or out of range.
+    #[pyfunction]
+    pub(super) fn rsa_public_operation(
+        py: Python<'_>,
+        signature: Vec<u8>,
+        spki_der: Vec<u8>,
+    ) -> PyResult<Py<PyAny>> {
+        let bytes = py
+            .detach(|| {
+                let mut reader = crate::der::DerReader::new(&spki_der);
+                let spki = crate::x509::spki::SubjectPublicKeyInfo::parse(&mut reader)
+                    .map_err(|_| crate::crypto::VerifyError::Malformed("SubjectPublicKeyInfo"))?;
+                match spki.parsed() {
+                    crate::x509::spki::PublicKeyAlgorithm::Rsa { .. } => {
+                        let key =
+                            crate::crypto::rsa::RsaPublicKey::from_der(spki.subject_public_key)?;
+                        crate::crypto::rsa::public_operation(&key, &signature)
+                    }
+                    _ => Err(crate::crypto::VerifyError::Unsupported(
+                        "non-RSA key for RSA public operation".to_string(),
+                    )),
+                }
+            })
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+        Ok(PyBytes::new(py, &bytes).into())
+    }
+
+    /// Parse RSASSA-PSS-params (RFC 4055) into hashlib names and lengths:
+    /// `hash`, `mgf_hash`, `salt_length`, and `trailer_field`. `None`
+    /// parameters yield the RFC 4055 defaults (SHA-1, MGF1 with SHA-1, a
+    /// 20-byte salt, trailer field 1). Raises `ValueError` for a mask
+    /// generation function other than MGF1 or a hash outside SHA-1,
+    /// SHA-256, SHA-384, and SHA-512.
+    #[pyfunction]
+    pub(super) fn rsa_pss_parameters(
+        py: Python<'_>,
+        params_der: Option<Vec<u8>>,
+    ) -> PyResult<Py<PyAny>> {
+        let params = py
+            .detach(|| crate::crypto::rsa::PssParameters::parse(params_der.as_deref()))
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+        let d = PyDict::new(py);
+        d.set_item("hash", params.hash.name())?;
+        d.set_item("mgf_hash", params.mgf_hash.name())?;
+        d.set_item("salt_length", params.salt_length)?;
+        d.set_item("trailer_field", params.trailer_field)?;
+        Ok(d.into())
     }
 
     #[pymodule]
@@ -240,6 +293,8 @@ mod py {
         m.add_function(wrap_pyfunction!(signature_hash, m)?)?;
         m.add_function(wrap_pyfunction!(verify_signature, m)?)?;
         m.add_function(wrap_pyfunction!(certificate_signature_parts, m)?)?;
+        m.add_function(wrap_pyfunction!(rsa_public_operation, m)?)?;
+        m.add_function(wrap_pyfunction!(rsa_pss_parameters, m)?)?;
         Ok(())
     }
 }

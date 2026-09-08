@@ -9,6 +9,7 @@
 use crate::crypto::bigint::BigUint;
 use crate::crypto::VerifyError;
 use crate::der::{tag, DerReader};
+use crate::x509::algorithm::AlgorithmIdentifier;
 
 /// The hash algorithms PKCS#1 v1.5 signatures may name in DigestInfo.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -119,6 +120,23 @@ impl RsaPublicKey {
     }
 }
 
+/// `s^e mod n` as a `k`-byte string (RFC 8017 §5.2.2 RSAVP1 followed by
+/// I2OSP), for schemes whose padding is checked by the caller (RSASSA-PSS
+/// in Python; PKCS#1 v1.5 `verify` below checks its own padding).
+pub fn public_operation(key: &RsaPublicKey, signature: &[u8]) -> Result<Vec<u8>, VerifyError> {
+    let k = key.size();
+    if signature.len() != k {
+        return Err(VerifyError::Malformed("RSA signature length"));
+    }
+    let s = BigUint::from_be_bytes(signature);
+    if s >= key.modulus {
+        return Err(VerifyError::Malformed("RSA signature out of range"));
+    }
+    s.mod_pow(&key.exponent, &key.modulus)
+        .to_be_bytes(k)
+        .ok_or(VerifyError::Malformed("RSA public operation width"))
+}
+
 /// Verify `signature` over `digest` (already hashed with `hash`).
 pub fn verify(
     key: &RsaPublicKey,
@@ -130,15 +148,10 @@ pub fn verify(
         return Err(VerifyError::Malformed("digest length"));
     }
     let k = key.size();
-    if signature.len() != k {
-        return Ok(false);
-    }
-    let s = BigUint::from_be_bytes(signature);
-    if s >= key.modulus {
-        return Ok(false);
-    }
-    let Some(encoded) = s.mod_pow(&key.exponent, &key.modulus).to_be_bytes(k) else {
-        return Ok(false);
+    let encoded = match public_operation(key, signature) {
+        Ok(bytes) => bytes,
+        Err(VerifyError::Malformed(_)) => return Ok(false),
+        Err(err) => return Err(err),
     };
 
     // EMSA-PKCS1-v1_5: 00 01 PS 00 T, with PS at least eight 0xff bytes.
@@ -158,6 +171,164 @@ pub fn verify(
     expected.push(0x00);
     expected.extend_from_slice(&t);
     Ok(expected == encoded)
+}
+
+/// RSASSA-PSS-params (RFC 4055 §3.1) with the defaults the RFC specifies:
+///
+/// ```text
+/// RSASSA-PSS-params ::= SEQUENCE {
+///     hashAlgorithm     [0] HashAlgorithm    DEFAULT sha1Identifier,
+///     maskGenAlgorithm  [1] MaskGenAlgorithm DEFAULT mgf1SHA1Identifier,
+///     saltLength        [2] INTEGER          DEFAULT 20,
+///     trailerField      [3] TrailerField     DEFAULT trailerFieldBC
+/// }
+/// ```
+///
+/// Only MGF1 (RFC 4055 §A.2.3) is supported as `maskGenAlgorithm`, and only
+/// SHA-1, SHA-256, SHA-384, and SHA-512 (§2.1) as either hash. `salt_length`
+/// and `trailer_field` are the plain integer values; a `trailerField` other
+/// than 1 (`trailerFieldBC`, the only value RFC 4055 defines) is
+/// unsupported.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PssParameters {
+    pub hash: HashAlg,
+    pub mgf_hash: HashAlg,
+    pub salt_length: usize,
+    pub trailer_field: u8,
+}
+
+/// id-mgf1 (1.2.840.113549.1.1.8), the only maskGenAlgorithm RFC 4055
+/// defines for RSASSA-PSS.
+const OID_MGF1: &[u8] = &[0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x08];
+
+/// Map a HashAlgorithm's OID (RFC 4055 §2.1) to a [`HashAlg`].
+fn hash_alg_from_oid(oid: crate::der::Oid<'_>) -> Result<HashAlg, VerifyError> {
+    match oid.to_id_string().as_str() {
+        "1.3.14.3.2.26" => Ok(HashAlg::Sha1),
+        "2.16.840.1.101.3.4.2.1" => Ok(HashAlg::Sha256),
+        "2.16.840.1.101.3.4.2.2" => Ok(HashAlg::Sha384),
+        "2.16.840.1.101.3.4.2.3" => Ok(HashAlg::Sha512),
+        other => Err(VerifyError::Unsupported(format!(
+            "PSS hash algorithm {other}"
+        ))),
+    }
+}
+
+/// Decode a DER INTEGER's value bytes as a small unsigned integer. RSASSA-
+/// PSS `saltLength` and `trailerField` are always tiny in practice.
+fn small_uint(value: &[u8]) -> Result<u64, VerifyError> {
+    value
+        .iter()
+        .try_fold(0u64, |acc, &b| {
+            acc.checked_shl(8).and_then(|v| v.checked_add(u64::from(b)))
+        })
+        .ok_or(VerifyError::Malformed("PSS parameter integer"))
+}
+
+impl PssParameters {
+    /// RFC 4055 §3.1 defaults: SHA-1 for both hashes, a 20-byte salt, and
+    /// the only defined trailer field value.
+    fn defaults() -> Self {
+        Self {
+            hash: HashAlg::Sha1,
+            mgf_hash: HashAlg::Sha1,
+            salt_length: 20,
+            trailer_field: 1,
+        }
+    }
+
+    /// Parse `RSASSA-PSS-params`, or the RFC 4055 defaults when `params`
+    /// is `None` (an AlgorithmIdentifier with absent or NULL parameters).
+    pub fn parse(params: Option<&[u8]>) -> Result<Self, VerifyError> {
+        let Some(raw) = params else {
+            return Ok(Self::defaults());
+        };
+        let mut top = DerReader::new(raw);
+        let mut seq = top
+            .expect_constructed(tag::TAG_SEQUENCE)
+            .map_err(|_| VerifyError::Malformed("RSASSA-PSS-params"))?;
+        top.end()
+            .map_err(|_| VerifyError::Malformed("RSASSA-PSS-params"))?;
+
+        let mut result = Self::defaults();
+
+        if let Some(0xa0) = seq.peek_tag() {
+            let mut wrapper = seq
+                .expect_constructed(0xa0)
+                .map_err(|_| VerifyError::Malformed("PSS hashAlgorithm"))?;
+            let alg = AlgorithmIdentifier::parse(&mut wrapper)
+                .map_err(|_| VerifyError::Malformed("PSS hashAlgorithm"))?;
+            wrapper
+                .end()
+                .map_err(|_| VerifyError::Malformed("PSS hashAlgorithm"))?;
+            result.hash = hash_alg_from_oid(alg.algorithm)?;
+        }
+
+        if let Some(0xa1) = seq.peek_tag() {
+            let mut wrapper = seq
+                .expect_constructed(0xa1)
+                .map_err(|_| VerifyError::Malformed("PSS maskGenAlgorithm"))?;
+            let mgf = AlgorithmIdentifier::parse(&mut wrapper)
+                .map_err(|_| VerifyError::Malformed("PSS maskGenAlgorithm"))?;
+            wrapper
+                .end()
+                .map_err(|_| VerifyError::Malformed("PSS maskGenAlgorithm"))?;
+            if mgf.algorithm.as_bytes() != OID_MGF1 {
+                return Err(VerifyError::Unsupported(format!(
+                    "PSS mask generation function {}",
+                    mgf.algorithm.to_id_string()
+                )));
+            }
+            let mgf_params = mgf
+                .parameters
+                .ok_or(VerifyError::Malformed("PSS maskGenAlgorithm parameters"))?;
+            let mut mgf_reader = DerReader::new(mgf_params);
+            let mgf_hash_alg = AlgorithmIdentifier::parse(&mut mgf_reader)
+                .map_err(|_| VerifyError::Malformed("PSS MGF1 hashAlgorithm"))?;
+            mgf_reader
+                .end()
+                .map_err(|_| VerifyError::Malformed("PSS MGF1 hashAlgorithm"))?;
+            result.mgf_hash = hash_alg_from_oid(mgf_hash_alg.algorithm)?;
+        }
+
+        if let Some(0xa2) = seq.peek_tag() {
+            let mut wrapper = seq
+                .expect_constructed(0xa2)
+                .map_err(|_| VerifyError::Malformed("PSS saltLength"))?;
+            let value = wrapper
+                .expect(tag::TAG_INTEGER)
+                .map_err(|_| VerifyError::Malformed("PSS saltLength"))?;
+            wrapper
+                .end()
+                .map_err(|_| VerifyError::Malformed("PSS saltLength"))?;
+            result.salt_length = small_uint(value)?
+                .try_into()
+                .map_err(|_| VerifyError::Malformed("PSS saltLength"))?;
+        }
+
+        if let Some(0xa3) = seq.peek_tag() {
+            let mut wrapper = seq
+                .expect_constructed(0xa3)
+                .map_err(|_| VerifyError::Malformed("PSS trailerField"))?;
+            let value = wrapper
+                .expect(tag::TAG_INTEGER)
+                .map_err(|_| VerifyError::Malformed("PSS trailerField"))?;
+            wrapper
+                .end()
+                .map_err(|_| VerifyError::Malformed("PSS trailerField"))?;
+            let trailer_field = small_uint(value)?;
+            if trailer_field != 1 {
+                return Err(VerifyError::Unsupported(format!(
+                    "PSS trailer field {trailer_field}"
+                )));
+            }
+            result.trailer_field = 1;
+        }
+
+        seq.end()
+            .map_err(|_| VerifyError::Malformed("RSASSA-PSS-params"))?;
+        Ok(result)
+    }
 }
 
 #[cfg(test)]
@@ -233,6 +404,34 @@ mod tests {
         let mut body = tlv(tag::TAG_INTEGER, modulus);
         body.extend(tlv(tag::TAG_INTEGER, exponent));
         tlv(tag::TAG_SEQUENCE, &body)
+    }
+
+    #[test]
+    fn public_operation_recovers_the_encoded_message() {
+        let key = key();
+        let em = public_operation(&key, &hex(RSA_SIG)).unwrap();
+        assert_eq!(em.len(), 256);
+        assert_eq!(&em[..2], &[0x00, 0x01]); // PKCS#1 v1.5 block type
+        assert!(public_operation(&key, &hex(RSA_SIG)[1..]).is_err());
+        let too_big = vec![0xff; 256];
+        assert!(public_operation(&key, &too_big).is_err());
+    }
+
+    #[test]
+    fn pss_parameters_defaults_and_explicit_values() {
+        let defaults = PssParameters::parse(None).unwrap();
+        assert_eq!(defaults.hash, HashAlg::Sha1);
+        assert_eq!(defaults.mgf_hash, HashAlg::Sha1);
+        assert_eq!(defaults.salt_length, 20);
+        // SEQUENCE { [0] sha256, [1] mgf1(sha256), [2] 32 }
+        let params = hex(
+            "3034a00f300d06096086480165030402010500a11c301a06092a864886f70d010108300d06096086480165030402010500a203020120",
+        );
+        let parsed = PssParameters::parse(Some(&params)).unwrap();
+        assert_eq!(parsed.hash, HashAlg::Sha256);
+        assert_eq!(parsed.mgf_hash, HashAlg::Sha256);
+        assert_eq!(parsed.salt_length, 32);
+        assert_eq!(parsed.trailer_field, 1);
     }
 
     #[test]

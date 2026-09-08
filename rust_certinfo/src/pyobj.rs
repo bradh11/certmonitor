@@ -344,6 +344,13 @@ pub fn ocsp_response_dict<'py>(
             .signature_algorithm
             .map(|a| a.algorithm.to_id_string()),
     )?;
+    d.set_item(
+        "signature_algorithm_params",
+        response
+            .signature_algorithm
+            .and_then(|a| a.parameters)
+            .map(|p| PyBytes::new(py, p)),
+    )?;
     d.set_item("signature", response.signature.map(|s| PyBytes::new(py, s)))?;
     d.set_item(
         "tbs_response_data",
@@ -396,6 +403,12 @@ pub fn crl_info_dict<'py>(py: Python<'py>, crl: &Crl<'_>) -> PyResult<Bound<'py,
     d.set_item(
         "signature_algorithm",
         crl.signature_algorithm.algorithm.to_id_string(),
+    )?;
+    d.set_item(
+        "signature_algorithm_params",
+        crl.signature_algorithm
+            .parameters
+            .map(|p| PyBytes::new(py, p)),
     )?;
     d.set_item("revoked_count", crl.revoked_count().map_err(to_py_err)?)?;
     d.set_item("tbs_cert_list", PyBytes::new(py, crl.tbs_cert_list))?;
@@ -463,6 +476,12 @@ pub fn certificate_signature_parts_dict<'py>(
     d.set_item(
         "signature_algorithm",
         cert.signature_algorithm.algorithm.to_id_string(),
+    )?;
+    d.set_item(
+        "signature_algorithm_params",
+        cert.signature_algorithm
+            .parameters
+            .map(|p| PyBytes::new(py, p)),
     )?;
     d.set_item("spki", PyBytes::new(py, cert.spki.raw))?;
     d.set_item("key_bits", PyBytes::new(py, cert.spki.subject_public_key))?;
