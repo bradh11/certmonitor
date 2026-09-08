@@ -194,6 +194,17 @@ def test_pss_verifies_under_a_modulus_whose_bit_length_is_one_mod_eight():
     )
 
 
+def test_pss_rejects_a_salt_the_encoded_message_cannot_hold(rsa_spki):
+    # RFC 8017 §9.1.2 step 3: emLen must be at least hLen + sLen + 2. A
+    # 2048-bit key gives a 256-octet EM, so a 300-octet salt with SHA-256
+    # cannot fit, whatever the signature bytes are.
+    params = pss_params("sha256", "sha256", 300)
+    outcome, why = signatures.verify(
+        rsa_spki, signatures.RSASSA_PSS, params, b"tbs", b"\x00" * 256
+    )
+    assert (outcome, why) == (signatures.FAILED, "PSS encoded message too short")
+
+
 def test_parse_spki_reports_the_key_type_and_its_bits():
     info = certinfo.parse_spki(ED25519_SPKI)
     assert info["algorithm"] == "Ed25519"
