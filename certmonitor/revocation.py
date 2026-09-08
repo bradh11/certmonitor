@@ -10,9 +10,11 @@ DER parser, which also verifies the responder's signature (RSA PKCS#1 v1.5
 and ECDSA over P-256 and P-384). A response signed by the issuing CA, or by
 a delegated responder certificate the CA issued for OCSP signing, carries
 `signature_verified: True`; anything else says why in `verification_error`.
-CRLs are fetched here and judged by OpenSSL: the monitor loads the CRL into
-a verifying TLS context, so a `good` or `revoked` CRL answer is backed by
-OpenSSL's signature and validity checks.
+CRLs are fetched here and verified the same way: the CRL must name the
+leaf's issuer and carry that issuer's signature, and only then is the
+collected certificate's serial looked up in it. No second connection is
+opened for either method, so an answer can only describe the certificate
+that was collected.
 
 Fetched CRLs and OCSP answers are cached process-wide until their
 `nextUpdate`, so a fleet scan downloads each CA's CRL once. A monitor built
@@ -26,7 +28,6 @@ import base64
 import hashlib
 import threading
 import time
-from collections.abc import Callable
 from datetime import datetime, timezone
 from typing import Any
 
@@ -46,8 +47,6 @@ _DEFAULT_TTL_SECONDS = 60 * 60
 _CACHE_LIMIT = 256
 _OCSP_MAX_AGE_SECONDS = 24 * 60 * 60
 _OCSP_MAX_LIFETIME_SECONDS = 10 * 24 * 60 * 60
-
-CrlCheck = Callable[[bytes], dict[str, Any]]
 
 VERIFIED = "verified"
 UNSUPPORTED = "unsupported"
@@ -582,7 +581,6 @@ class RevocationEvidence:
         cert_info: dict[str, Any],
         timeout: float,
         proxy: ProxyConfig | None = None,
-        crl_check: CrlCheck | None = None,
         offline: bool = False,
     ) -> None:
         self.leaf_der = leaf_der
@@ -591,7 +589,6 @@ class RevocationEvidence:
         self.cert_info = cert_info
         self.timeout = timeout
         self.proxy = proxy
-        self.crl_check = crl_check
         self.ocsp_max_age: float = _OCSP_MAX_AGE_SECONDS
         self.ocsp_urls = http_urls(cert_info.get("OCSP"))
         self.crl_urls = http_urls(cert_info.get("crlDistributionPoints"))
@@ -704,8 +701,6 @@ class RevocationEvidence:
                     "reason": "the certificate carries no CRL distribution point",
                 },
             )
-        if self.crl_check is None:
-            return self._remember("crl", self._offline("crl"))
         last: dict[str, Any] = {}
         for url in self.crl_urls:
             last = self._check_one_crl(url)
@@ -714,10 +709,17 @@ class RevocationEvidence:
         return self._remember("crl", last)
 
     def _check_one_crl(self, url: str) -> dict[str, Any]:
+        """Fetch one CRL, verify it against the bound issuer, and look the leaf up.
+
+        The CRL must name the leaf's issuer and be signed by the issuer's key;
+        only then is its list consulted for the collected certificate's serial.
+        No second connection is opened, so the verdict can only ever describe
+        the certificate that was collected.
+        """
         answer: dict[str, Any] = {
             "method": "crl",
             "url": url,
-            "signature_verified": True,
+            "signature_verified": False,
         }
         try:
             der, info, cached = fetch_crl(url, timeout=self.timeout, proxy=self.proxy)
@@ -730,21 +732,60 @@ class RevocationEvidence:
             next_update=format_time(info["next_update"]),
             revoked_count=info["revoked_count"],
         )
-        assert self.crl_check is not None
-        verdict = self.crl_check(der)
-        answer.update(verdict)
-        if verdict.get("status") == "revoked":
-            serial = self.cert_info.get("serialNumber")
-            entry = (
-                certinfo.crl_lookup(der, serial_bytes(serial))  # type: ignore[attr-defined]
-                if serial
-                else None
+        now = time.time()
+        if info["this_update"] > now + 300:
+            answer.update(
+                status="error",
+                error="CRLNotYetValid",
+                reason=f"CRL thisUpdate {answer['this_update']} is in the future",
             )
-            if entry is not None:
-                answer.update(
-                    revocation_time=format_time(entry["revocation_time"]),
-                    revocation_reason=entry["revocation_reason"],
-                )
+            return answer
+        if info["next_update"] is not None and info["next_update"] < now:
+            answer.update(
+                status="error",
+                error="CRLStale",
+                reason=f"CRL expired at {answer['next_update']}",
+            )
+            return answer
+        issuer = self.issuer()
+        if issuer is None:
+            answer.update(
+                status="error",
+                error="MissingIssuer",
+                reason=self._issuer_error or "issuer certificate unavailable",
+            )
+            return answer
+        parts = certinfo.certificate_signature_parts(issuer)  # type: ignore[attr-defined]
+        if info["issuer_der"] != parts["subject_der"]:
+            answer.update(
+                status="error",
+                error="CRLIssuerMismatch",
+                reason="the CRL was not issued by the certificate's CA",
+            )
+            return answer
+        outcome, problem = _signed_by(
+            parts["spki"],
+            info["signature_algorithm"],
+            info["tbs_cert_list"],
+            info["signature"],
+        )
+        outcome, problem = _bound_by_issuer(
+            outcome, problem, self._issuer_binding, self._binding_problem
+        )
+        answer["signature_verified"] = outcome == VERIFIED
+        answer["verification"] = outcome
+        if problem is not None:
+            answer["verification_error"] = problem
+        serial = certinfo.ocsp_cert_id_inputs(self.leaf_der, issuer)["serial_number"]  # type: ignore[attr-defined]
+        entry = certinfo.crl_lookup(der, serial)  # type: ignore[attr-defined]
+        if entry is None:
+            answer["status"] = "good"
+        else:
+            answer.update(
+                status="revoked",
+                revocation_time=format_time(entry["revocation_time"]),
+                revocation_reason=entry["revocation_reason"],
+            )
         return answer
 
     @staticmethod

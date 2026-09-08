@@ -32,10 +32,11 @@ class RevocationValidator(_ValidatorBase):
 
     Each method is tried in order and only a proven answer decides: a
     verified `revoked` fails the check, a verified `good` passes it. CRL
-    answers are proven by OpenSSL, which verifies the CRL's signature and
-    validity while loading it; OCSP answers are proven when the response is
-    signed by the issuing CA or an authorized responder with RSA PKCS#1 v1.5
-    or ECDSA (P-256, P-384). An OCSP response whose signature was checked and
+    answers are proven the same way: the CRL must be signed by the issuing
+    CA and the collected certificate's serial is looked up in it; OCSP
+    answers are proven when the response is signed by the issuing CA or an
+    authorized responder with RSA PKCS#1 v1.5 or ECDSA (P-256, P-384). An
+    OCSP response whose signature was checked and
     is wrong is discarded before its content is read, whatever it claims; if
     no other method answers, the result is an `error` (`OCSPInvalidSignature`).
     An OCSP response that cannot be checked, for example one signed with an
@@ -117,6 +118,7 @@ class RevocationValidator(_ValidatorBase):
             return self._verdict(answer, answers, is_valid=True, status="pass")
         if unverified is not None:
             why = str(unverified.get("verification_error", "unknown reason"))
+            source = str(unverified["method"]).upper()
             if unverified["status"] == "good":
                 return self._verdict(
                     unverified,
@@ -124,9 +126,9 @@ class RevocationValidator(_ValidatorBase):
                     is_valid=True,
                     status="warn",
                     warnings=[
-                        "The OCSP responder reported the certificate as good, but the "
-                        f"response could not be verified ({why}). Set "
-                        "accept_unverified=True to treat it as proof, or enable the crl "
+                        f"The {source} source reported the certificate as good, but the "
+                        f"answer could not be verified ({why}). Set "
+                        "accept_unverified=True to treat it as proof, or enable another "
                         "method for a verified answer."
                     ],
                 )
@@ -135,12 +137,12 @@ class RevocationValidator(_ValidatorBase):
                 answers,
                 is_valid=False,
                 status="error",
-                error="OCSPUnverifiedRevocation",
+                error=f"{source}UnverifiedRevocation",
                 reason=(
-                    "The OCSP responder reported the certificate as revoked, but the "
-                    f"response could not be verified ({why}); the claim was not acted "
-                    "on. Set accept_unverified=True to treat it as proof, or enable the "
-                    "crl method for a verified answer."
+                    f"The {source} source reported the certificate as revoked, but the "
+                    f"answer could not be verified ({why}); the claim was not acted "
+                    "on. Set accept_unverified=True to treat it as proof, or enable "
+                    "another method for a verified answer."
                 ),
             )
         if all(answer["status"] == "unsupported" for answer in answers.values()):
@@ -157,13 +159,19 @@ class RevocationValidator(_ValidatorBase):
                 )
             elif answer["status"] != "good":
                 problems.append(f"{method}: {answer.get('reason', answer['status'])}")
-        failed = any(a.get("verification") == "failed" for a in answers.values())
+        failed = [
+            method
+            for method, answer in answers.items()
+            if answer.get("verification") == "failed"
+        ]
         return self._verdict(
             None,
             answers,
             is_valid=False,
             status="error",
-            error="OCSPInvalidSignature" if failed else "RevocationUnavailable",
+            error=f"{failed[0].upper()}InvalidSignature"
+            if failed
+            else "RevocationUnavailable",
             reason="No revocation source gave a usable answer ("
             + "; ".join(problems)
             + ")",

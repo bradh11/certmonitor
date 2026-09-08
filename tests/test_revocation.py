@@ -342,7 +342,7 @@ def test_revoked_certificate_via_crl_fails_with_the_entry(pki):
     assert result["revocation_reason"] == "key_compromise"
     assert result["revocation_time"]
     assert "revoked" in result["reason"] and "CRL" in result["reason"]
-    assert result["methods"]["crl"]["verify_code"] == 23
+    assert result["methods"]["crl"]["verification"] == "verified"
 
 
 def test_ocsp_good_signed_by_the_ca_is_a_verified_pass(pki):
@@ -472,7 +472,16 @@ def test_default_order_stops_at_a_verified_ocsp_answer(pki):
 
 def test_unverifiable_ocsp_falls_through_to_the_verified_crl(pki, monkeypatch):
     # An algorithm CertMonitor cannot verify leaves OCSP unproven; the CRL settles it.
-    monkeypatch.setattr(certinfo, "signature_hash", MagicMock(return_value=None))
+    monkeypatch.setattr(
+        revocation,
+        "verify_ocsp_response",
+        MagicMock(
+            return_value=(
+                revocation.UNSUPPORTED,
+                "unsupported signature algorithm test",
+            )
+        ),
+    )
     server, options = monitor_for(pki, "good")
     with server, CertMonitor("localhost", server.port, **options) as monitor:
         result = monitor.validate()["revocation"]
@@ -518,7 +527,16 @@ def test_forged_revoked_is_discarded_not_acted_on(pki, monkeypatch):
 
 
 def test_unverifiable_revoked_is_an_error_unless_accepted(pki, monkeypatch):
-    monkeypatch.setattr(certinfo, "signature_hash", MagicMock(return_value=None))
+    monkeypatch.setattr(
+        revocation,
+        "verify_ocsp_response",
+        MagicMock(
+            return_value=(
+                revocation.UNSUPPORTED,
+                "unsupported signature algorithm test",
+            )
+        ),
+    )
     server, options = monitor_for(pki, "revoked")
     with server, CertMonitor("localhost", server.port, **options) as monitor:
         held = monitor.validate({"revocation": {"methods": ["ocsp"]}})["revocation"]
@@ -663,28 +681,76 @@ def test_unknown_method_is_an_argument_error(pki):
     assert "unknown revocation method" in result["reason"]
 
 
-def test_crl_check_reports_openssl_problems_and_mismatches(pki, monkeypatch):
+def test_crl_verdict_is_about_the_collected_certificate_and_needs_no_reconnect(pki):
     server, options = monitor_for(pki, "good")
-    with server, CertMonitor("localhost", server.port, **options) as monitor:
-        monitor.validate({"revocation": {"methods": ["crl"]}})
-        # A CRL from an unrelated CA cannot be checked against this chain.
-        not_a_crl = ssl.PEM_cert_to_DER_cert((pki.directory / "good.pem").read_text())
-        verdict = monitor._check_crl(not_a_crl)  # OpenSSL refuses to load it
-        assert verdict["status"] == "error"
-        # A different leaf behind the same port is a snapshot mismatch.
-        monkeypatch.setattr(monitor, "der", b"someone else")
-        verdict = monitor._check_crl((pki.directory / "ca.crl").read_bytes())
-        assert verdict["error"] == "SnapshotMismatch"
+    with server:
+        monitor = CertMonitor("localhost", server.port, **options)
+        monitor.__enter__()
+    # The server is gone; the CRL is judged against the snapshot alone.
+    result = monitor.validate({"revocation": {"methods": ["crl"]}})["revocation"]
+    monitor.__exit__(None, None, None)
+    assert result["status"] == "pass", result
+    assert result["source"] == "crl"
+    assert result["signature_verified"] is True
+    assert result["methods"]["crl"]["verification"] == "verified"
 
 
-def test_crl_check_reports_connection_failures(pki):
+def test_tampered_crl_is_an_error_not_evidence(pki, monkeypatch):
+    real_fetch = http.fetch
+
+    def flip_a_signature_byte(url, **kwargs):
+        body = real_fetch(url, **kwargs)
+        if url != pki.crl_url:
+            return body
+        body = bytearray(body)
+        signature = certinfo.crl_info(bytes(body))["signature"]
+        body[body.find(signature)] ^= 0x01
+        return bytes(body)
+
+    monkeypatch.setattr(http, "fetch", flip_a_signature_byte)
+    server, options = monitor_for(pki, "revoked")
+    with server, CertMonitor("localhost", server.port, **options) as monitor:
+        result = monitor.validate({"revocation": {"methods": ["crl"]}})["revocation"]
+    assert result["status"] == "error", result
+    assert result["error"] == "CRLInvalidSignature"
+    assert result["methods"]["crl"]["verification"] == "failed"
+
+
+def test_crl_from_another_issuer_is_rejected(pki, monkeypatch):
+    real_info = certinfo.crl_info
+
+    def issued_by_someone_else(der):
+        info = real_info(der)
+        info["issuer_der"] = b"\x30\x00"  # an empty Name, nobody's
+        return info
+
+    monkeypatch.setattr(certinfo, "crl_info", issued_by_someone_else)
     server, options = monitor_for(pki, "good")
     with server, CertMonitor("localhost", server.port, **options) as monitor:
-        monitor.validate({"revocation": {"methods": ["crl"]}})
-        monitor.port = 9  # nothing listens here
-        verdict = monitor._check_crl((pki.directory / "ca.crl").read_bytes())
-    assert verdict["status"] == "error"
-    assert verdict["error"] in ("ConnectionRefusedError", "OSError")
+        result = monitor.validate({"revocation": {"methods": ["crl"]}})["revocation"]
+    assert result["status"] == "error", result
+    assert result["methods"]["crl"]["error"] == "CRLIssuerMismatch"
+
+
+def test_stale_and_future_crls_are_errors(pki, monkeypatch):
+    leaf = ssl.PEM_cert_to_DER_cert((pki.directory / "good.pem").read_text())
+    issuer = ssl.PEM_cert_to_DER_cert(pki.ca_pem.read_text())
+    info = {
+        "crlDistributionPoints": [pki.crl_url],
+        "caIssuers": [f"http://127.0.0.1:{pki.crl_port}/ca.pem"],
+    }
+    far_future = 4_102_444_800  # 2100-01-01
+    evidence = revocation.RevocationEvidence(
+        leaf_der=leaf, chain_der=[leaf, issuer], cert_info=info, timeout=5
+    )
+    monkeypatch.setattr(revocation.time, "time", MagicMock(return_value=far_future))
+    assert evidence.crl()["error"] == "CRLStale"
+    revocation.CRL_CACHE.clear()
+    evidence = revocation.RevocationEvidence(
+        leaf_der=leaf, chain_der=[leaf, issuer], cert_info=info, timeout=5
+    )
+    monkeypatch.setattr(revocation.time, "time", MagicMock(return_value=946_684_800))
+    assert evidence.crl()["error"] == "CRLNotYetValid"
 
 
 # --- evidence details ------------------------------------------------------------
@@ -1080,7 +1146,7 @@ def test_revocation_source_needs_a_collected_certificate():
     assert "could not be performed" in result["reason"]
 
 
-def test_crl_check_with_a_client_certificate_and_a_foreign_trust_store(pki, local_pki):
+def test_crl_check_with_a_client_certificate(pki):
     server, options = monitor_for(
         pki,
         "good",
@@ -1089,17 +1155,13 @@ def test_crl_check_with_a_client_certificate_and_a_foreign_trust_store(pki, loca
     )
     with server, CertMonitor("localhost", server.port, **options) as monitor:
         result = monitor.validate({"revocation": {"methods": ["crl"]}})["revocation"]
-        assert result["status"] == "pass"
-        # Trusting a different CA makes OpenSSL reject the chain before the
-        # CRL is consulted; that is a verification failure, not a revocation.
-        monitor.cafile = str(local_pki / "ca.pem")
-        verdict = monitor._check_crl((pki.directory / "ca.crl").read_bytes())
-    assert verdict["status"] == "error"
-    assert verdict["error"] == "CRLVerificationFailed"
-    assert verdict["verify_code"] != 23
+    # The CRL is judged against the collected chain alone, so presenting a
+    # client certificate to the server does not affect it.
+    assert result["status"] == "pass"
+    assert result["source"] == "crl"
 
 
-def test_evidence_remembers_answers_and_needs_a_crl_checker(pki):
+def test_evidence_remembers_answers_and_reports_a_missing_issuer(pki):
     leaf = ssl.PEM_cert_to_DER_cert((pki.directory / "good.pem").read_text())
     evidence = revocation.RevocationEvidence(
         leaf_der=leaf,
@@ -1111,8 +1173,8 @@ def test_evidence_remembers_answers_and_needs_a_crl_checker(pki):
     assert first["status"] == "unsupported"
     assert evidence.ocsp() is first
     crl = evidence.crl()
-    assert crl["status"] == "unsupported"
-    assert "live connection" in crl["reason"]
+    assert crl["status"] == "error"
+    assert crl["error"] == "MissingIssuer"
     assert evidence.crl() is crl
 
 
