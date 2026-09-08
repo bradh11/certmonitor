@@ -25,6 +25,18 @@ ENDPOINT_OPTIONS = frozenset(
 )
 
 
+def _label(entry: Endpoint) -> str:
+    """A host label for error reports.
+
+    Never the whole endpoint dict: its `proxy` option may carry credentials.
+    """
+    if isinstance(entry, str):
+        return entry
+    if isinstance(entry, dict):
+        return str(entry.get("host") or "<endpoint without host>")
+    return str(entry[0]) if isinstance(entry, tuple) and entry else str(entry)
+
+
 def scan_hosts(
     hosts: Iterable[Endpoint],
     *,
@@ -123,7 +135,7 @@ def scan_hosts(
         return host, entry_port, {}
 
     def scan(entry: Endpoint) -> dict[str, Any]:
-        host, entry_port = (entry if isinstance(entry, str) else str(entry)), port
+        host, entry_port = _label(entry), port
         try:
             host, entry_port, options = describe(entry)
             with CertMonitor(
