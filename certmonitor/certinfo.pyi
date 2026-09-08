@@ -122,9 +122,9 @@ def parse_spki(spki_der: bytes) -> dict[str, Any]:
     ...
 
 def eddsa_verify(curve: str, public_key: bytes, r: bytes, s: bytes, k: bytes) -> bool:
-    """Verify a PureEdDSA signature (RFC 8032 §5.1.7). `curve` is `"Ed25519"`
-    or `"Ed448"`, `public_key` the raw `subjectPublicKey` bits, `r` and `s`
-    the two halves of the signature, and `k` the challenge hash
+    """Verify a PureEdDSA signature (RFC 8032 §5.1.7, §5.2.7). `curve` is
+    `"Ed25519"` or `"Ed448"`, `public_key` the raw `subjectPublicKey` bits,
+    `r` and `s` the two halves of the signature, and `k` the challenge hash
     `H(R || A || M)`, which the caller computes so the hashing stays in
     Python. Returns `False` for a signature that is simply wrong; raises
     `ValueError` for an unknown curve name, for a key, signature half, or

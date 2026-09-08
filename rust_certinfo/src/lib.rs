@@ -260,7 +260,7 @@ mod py {
         Ok((PyBytes::new(py, &em), mod_bits).into_pyobject(py)?.into())
     }
 
-    /// Verify a PureEdDSA signature (RFC 8032 §5.1.7). `curve` is
+    /// Verify a PureEdDSA signature (RFC 8032 §5.1.7, §5.2.7). `curve` is
     /// `"Ed25519"` or `"Ed448"`, `public_key` the raw `subjectPublicKey`
     /// bits, `r` and `s` the two halves of the signature, and `k` the
     /// challenge hash `H(R || A || M)`, which the caller computes so the

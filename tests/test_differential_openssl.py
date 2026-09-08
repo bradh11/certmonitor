@@ -86,6 +86,7 @@ SCHEMES = {
         ["-sigopt", "rsa_padding_mode:pss", "-sigopt", "rsa_pss_saltlen:digest"],
     ),
     "ed25519": (["-algorithm", "ED25519"], None, "1.3.101.112", []),
+    "ed448": (["-algorithm", "ED448"], None, "1.3.101.113", []),
 }
 
 

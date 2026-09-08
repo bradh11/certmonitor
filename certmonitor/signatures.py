@@ -4,9 +4,9 @@ names, the padding checks that are plain byte work, and the hashing.
 Hashing stays in Python (`hashlib`), arithmetic stays in the Rust extension:
 `certinfo.verify_signature` for RSASSA-PKCS1-v1_5 and ECDSA,
 `certinfo.rsa_pss_encoded_message` for RSASSA-PSS (RFC 8017 §9.1.2 is
-checked here), and `certinfo.eddsa_verify` for Ed25519, whose challenge hash
-(RFC 8032 §5.1.7 step 2) is computed here. Ed448 is reported as unsupported
-until it is implemented. Verification only.
+checked here), and `certinfo.eddsa_verify` for Ed25519 and Ed448, whose
+challenge hashes (RFC 8032 §5.1.7 step 2 and §5.2.7 step 2) are computed
+here. Verification only.
 """
 
 from __future__ import annotations
@@ -117,28 +117,49 @@ def _verify_pss(
     return VERIFIED, None
 
 
+# Per RFC 8410 §3 signature OID: the curve name, which is both what
+# `certinfo.parse_spki` reports for a key of that kind and what
+# `certinfo.eddsa_verify` takes, and the signature length RFC 8032 fixes
+# for it (§5.1.6 step 6, §5.2.6 step 6).
+_EDDSA_CURVES = {ED25519: ("Ed25519", 64), ED448: ("Ed448", 114)}
+
+
+def _eddsa_challenge(curve: str, r: bytes, public_key: bytes, tbs: bytes) -> bytes:
+    """The challenge the group equation needs, `H(R || A || M)`.
+
+    Ed25519 hashes with SHA-512 (RFC 8032 §5.1.7 step 2). Ed448 hashes with
+    SHAKE256 to 114 octets over the `dom4(0, "")` prefix §5.2.7 step 2
+    prescribes, which for PureEdDSA with an empty context is the string
+    `SigEd448` followed by two zero octets.
+    """
+    if curve == "Ed25519":
+        return hashlib.sha512(r + public_key + tbs).digest()
+    prefix = b"SigEd448" + bytes([0, 0])
+    return hashlib.shake_256(prefix + r + public_key + tbs).digest(114)
+
+
 def _verify_eddsa(
     spki: bytes, algorithm: str, tbs: bytes, signature: bytes
 ) -> tuple[str, str | None]:
-    """PureEdDSA verification (RFC 8032 §5.1.7): hash here, group equation in Rust.
+    """PureEdDSA verification (RFC 8032 §5.1.7, §5.2.7): hash here, group equation in Rust.
 
-    The signature is `R || S`, and the challenge the group equation needs is
-    `SHA-512(R || A || M)` over the encoded point, the encoded public key,
-    and the whole message, so nothing but the message is pre-hashed.
+    The signature is `R || S` in two equal halves, and the challenge is
+    taken over the encoded point, the encoded public key, and the whole
+    message, so nothing but the message is pre-hashed.
     """
+    curve, signature_length = _EDDSA_CURVES[algorithm]
     try:
         info = certinfo.parse_spki(spki)  # type: ignore[attr-defined]
     except ValueError as exc:
         outcome = UNSUPPORTED if str(exc).startswith("unsupported") else FAILED
         return outcome, str(exc)
-    if algorithm == ED25519:
-        if info["algorithm"] != "Ed25519":
-            return UNSUPPORTED, "signature algorithm does not match the key type"
-        if len(signature) != 64:
-            return FAILED, "malformed Ed25519 signature length"
-        public_key = info["key_bits"]
-        r, s = signature[:32], signature[32:]
-        k = hashlib.sha512(r + public_key + tbs).digest()
-        verifier = certinfo.eddsa_verify  # type: ignore[attr-defined]
-        return _outcome_of(verifier, "Ed25519", public_key, r, s, k)
-    return UNSUPPORTED, f"{algorithm} signature verification"
+    if info["algorithm"] != curve:
+        return UNSUPPORTED, "signature algorithm does not match the key type"
+    if len(signature) != signature_length:
+        return FAILED, f"malformed {curve} signature length"
+    public_key = info["key_bits"]
+    half = signature_length // 2
+    r, s = signature[:half], signature[half:]
+    k = _eddsa_challenge(curve, r, public_key, tbs)
+    verifier = certinfo.eddsa_verify  # type: ignore[attr-defined]
+    return _outcome_of(verifier, curve, public_key, r, s, k)

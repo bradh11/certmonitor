@@ -1,6 +1,6 @@
 """Signature-algorithm primitives exposed by the Rust extension: RSASSA-PSS
 parameter parsing (RFC 4055), the raw RSA public-key operation (RFC 8017
-§5.2.2 RSAVP1), and the Ed25519 group equation (RFC 8032 §5.1.7); and the
+§5.2.2 RSAVP1), and the EdDSA group equation (RFC 8032 §5.1.7, §5.2.7); and the
 scheme dispatch, padding checks, and challenge hashing in
 `certmonitor.signatures` that build on them.
 """
@@ -62,6 +62,29 @@ ED25519_MESSAGE = bytes.fromhex("af82")
 ED25519_SIGNATURE = bytes.fromhex(
     "6291d657deec24024827e69c3abe01a30ce548a284743a445e3680d7db5ac3ac"
     "18ff9b538d16f290ae67f760984dc6594a7c15e9716ed28dc027beceea1ec40a"
+)
+
+# RFC 8032 §7.4 "1 octet", in the same RFC 8410 §4 wrapper.
+ED448_SPKI = bytes.fromhex(
+    "3043300506032b6571033a00"
+    "43ba28f430cdff456ae531545f7ecd0ac834a55d9358c0372bfa0c6c6798c086"
+    "6aea01eb00742802b8438ea4cb82169c235160627b4c3a9480"
+)
+ED448_MESSAGE = bytes.fromhex("03")
+ED448_SIGNATURE = bytes.fromhex(
+    "26b8f91727bd62897af15e41eb43c377efb9c610d48f2335cb0bd0087810f435"
+    "2541b143c4b981b7e18f62de8ccdf633fc1bf037ab7cd779805e0dbcc0aae1cb"
+    "cee1afb2e027df36bc04dcecbf154336c19f0af7e0a6472905e799f1953d2a0f"
+    "f3348ab21aa4adafd1d234441cf807c03a00"
+)
+# The challenge that vector's signature needs, `SHAKE256(dom4(0, "") || R
+# || A || M, 114)`; `signatures.verify` computes it, and the error-contract
+# test below hands it to `certinfo.eddsa_verify` directly.
+ED448_CHALLENGE = bytes.fromhex(
+    "a1e2cb4e8b7dd00631d36979c28c729b5dfed35ed27ba5c351ea2ec9fbfec332"
+    "e6f091cf2e1453d9c9536a2b5b96ee16bbba8b52d597b817f1d949834a77046d"
+    "5e04442877d8c18ff7067ab08e9bbb57013a19555d8227967206ffd4e18ccfc7"
+    "53bc1fb19a07f8a2003019b3ae911634a49f"
 )
 
 
@@ -210,9 +233,73 @@ def test_ed25519_with_a_malformed_signer_key_fails():
     assert outcome == signatures.FAILED and "malformed" in why
 
 
-def test_ed448_is_still_unsupported():
-    # The OID is recognised and routed, the curve is not implemented yet.
+def test_ed448_verifies_an_rfc8032_vector():
+    assert signatures.verify(
+        ED448_SPKI, signatures.ED448, None, ED448_MESSAGE, ED448_SIGNATURE
+    ) == (signatures.VERIFIED, None)
+
+
+def test_ed448_rejects_a_changed_message_and_a_changed_signature():
+    outcome, why = signatures.verify(
+        ED448_SPKI,
+        signatures.ED448,
+        None,
+        ED448_MESSAGE + b"!",
+        ED448_SIGNATURE,
+    )
+    assert (outcome, why) == (signatures.FAILED, "signature does not verify")
+    tampered = bytearray(ED448_SIGNATURE)
+    tampered[0] ^= 1
+    assert (
+        signatures.verify(
+            ED448_SPKI, signatures.ED448, None, ED448_MESSAGE, bytes(tampered)
+        )[0]
+        == signatures.FAILED
+    )
+
+
+def test_ed448_rejects_a_signature_that_is_not_a_hundred_and_fourteen_bytes():
+    outcome, why = signatures.verify(
+        ED448_SPKI,
+        signatures.ED448,
+        None,
+        ED448_MESSAGE,
+        ED448_SIGNATURE + b"\x00",
+    )
+    assert outcome == signatures.FAILED and "signature length" in why
+
+
+def test_each_edwards_oid_needs_its_own_curve():
+    # The two OIDs are separate algorithms (RFC 8410 §3), so an Ed448 key
+    # cannot answer for the Ed25519 OID or the other way round.
+    outcome, why = signatures.verify(
+        ED448_SPKI, signatures.ED25519, None, ED448_MESSAGE, ED448_SIGNATURE
+    )
+    assert outcome == signatures.UNSUPPORTED and "key type" in why
     outcome, why = signatures.verify(
         ED25519_SPKI, signatures.ED448, None, ED25519_MESSAGE, ED25519_SIGNATURE
     )
-    assert outcome == signatures.UNSUPPORTED and signatures.ED448 in why
+    assert outcome == signatures.UNSUPPORTED and "key type" in why
+
+
+def test_eddsa_verify_reports_its_errors():
+    # The three things `certinfo.eddsa_verify` can say about its inputs,
+    # which `signatures.verify` translates but never surfaces verbatim.
+    with pytest.raises(ValueError, match="^unsupported EdDSA curve"):
+        certinfo.eddsa_verify(
+            "X25519", b"\x00" * 32, b"\x00" * 32, b"\x00" * 32, b"\x00" * 64
+        )
+    with pytest.raises(ValueError, match="^malformed"):
+        certinfo.eddsa_verify(
+            "Ed25519", b"\x00" * 31, b"\x00" * 32, b"\x00" * 32, b"\x00" * 64
+        )
+    assert (
+        certinfo.eddsa_verify(
+            "Ed448",
+            ED448_SPKI[-57:],
+            ED448_SIGNATURE[:57],
+            ED448_SIGNATURE[57:],
+            ED448_CHALLENGE,
+        )
+        is True
+    )
