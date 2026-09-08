@@ -321,3 +321,42 @@ class TestRawGettersConnectLazily:
         monitor = CertMonitor("host.test", 22)
         monitor.protocol, monitor.connected, monitor.handler = "ssh", True, MagicMock()
         assert monitor.get_raw_pem()["error"] == "ProtocolError"
+
+
+def test_validator_args_for_unknown_or_disabled_validators_are_errors():
+    from pathlib import Path
+
+    from certmonitor import CertMonitor
+
+    fixtures = Path(__file__).resolve().parents[1] / "fixtures"
+    der = (fixtures / "chain_0.der").read_bytes()
+    with CertMonitor.from_bytes(
+        der, host="www.google.com", enabled_validators=["hostname"]
+    ) as monitor:
+        results = monitor.validate(
+            {"expiratoin": {"warning_days": 90}, "expiration": {"warning_days": 90}}
+        )
+    assert results["expiratoin"]["error"] == "UnknownValidator"
+    assert results["expiratoin"]["status"] == "error"
+    assert results["expiration"]["status"] == "warn"
+    assert results["expiration"]["is_valid"] is True
+    assert "not enabled" in results["expiration"]["warnings"][0]
+    assert results["hostname"]["status"] == "pass"
+
+
+def test_validator_args_for_a_name_already_reported_are_not_reported_twice():
+    from pathlib import Path
+
+    from certmonitor import CertMonitor
+
+    fixtures = Path(__file__).resolve().parents[1] / "fixtures"
+    der = (fixtures / "chain_0.der").read_bytes()
+    with CertMonitor.from_bytes(
+        der, host="www.google.com", enabled_validators=["hostname", "expiratoin"]
+    ) as monitor:
+        results = monitor.validate({"expiratoin": {"warning_days": 90}})
+    assert results["expiratoin"]["error"] == "UnknownValidator"
+    assert (
+        results["expiratoin"]["reason"] == "Validator 'expiratoin' is not implemented."
+    )
+    assert set(results) == {"hostname", "expiratoin"}

@@ -253,11 +253,16 @@ def _self_signed(tmp_path, *key_args: str) -> bytes:
     if openssl is None:
         pytest.skip("OpenSSL CLI required")
     pem = tmp_path / "cert.pem"
-    subprocess.run(
-        [openssl, "req", "-x509", "-nodes", *key_args, "-keyout", str(tmp_path / "k.pem"),
-         "-out", str(pem), "-days", "1", "-subj", "/CN=t"],
-        check=True, capture_output=True,
-    )  # fmt: skip
+    try:
+        subprocess.run(
+            [openssl, "req", "-x509", "-nodes", *key_args, "-keyout", str(tmp_path / "k.pem"),
+             "-out", str(pem), "-days", "1", "-subj", "/CN=t"],
+            check=True, capture_output=True,
+        )  # fmt: skip
+    except subprocess.CalledProcessError as exc:
+        pytest.skip(
+            f"OpenSSL cannot generate this key: {exc.stderr.decode(errors='replace').strip()}"
+        )
     return ssl.PEM_cert_to_DER_cert(pem.read_text())
 
 

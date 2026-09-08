@@ -165,6 +165,31 @@ def test_misspelled_validator_fails_the_run(bundle):
     assert "ERROR  expiraton" in out and "not implemented" in out
 
 
+def test_arg_for_unknown_validator_is_a_usage_error_and_disabled_is_a_warning(
+    bundle, capsys
+):
+    code, _ = run(
+        [
+            "check",
+            "--file",
+            bundle,
+            "--host",
+            LEAF_HOST,
+            "--arg",
+            "expiratoin.warning_days=90",
+        ]
+    )
+    assert code == 2
+    assert "unknown validator 'expiratoin'" in capsys.readouterr().err
+    code, out = run(
+        ["check", "--file", bundle, "--host", LEAF_HOST, "-v", "hostname",
+         "--arg", "expiration.warning_days=90"]
+    )  # fmt: skip
+    assert code == 0  # a warning, not a failure
+    assert "not enabled" in capsys.readouterr().err
+    assert "WARN" in out and "expiration" in out
+
+
 def test_check_requires_a_target(capsys):
     assert main(["check"]) == 2
 
@@ -176,6 +201,7 @@ def test_check_live_targets_use_host_port_and_options(monkeypatch):
         "expiration": {"is_valid": True, "status": "pass", "days_to_expiry": 5}
     }
     monitor.snapshot_at = "now"
+    monitor.collection_error = None
     monkeypatch.setattr(cli, "CertMonitor", fake)
     code, out = run(
         [
@@ -223,6 +249,7 @@ def test_check_one_raising_target_does_not_stop_the_run(monkeypatch):
         monitor.fingerprint_sha256 = None
         monitor.cert_info = {}
         monitor.public_key_info = None
+        monitor.collection_error = None
         return fake
 
     monkeypatch.setattr(cli, "CertMonitor", MagicMock(side_effect=construct))
@@ -298,9 +325,9 @@ def test_human_report_shows_target_errors(monkeypatch):
 
 def test_info_live_target_uses_connection_options(monkeypatch):
     fake = MagicMock()
-    fake.return_value.__enter__.return_value.get_cert_info.return_value = {
-        "subject": {"commonName": "a.test"}
-    }
+    active = fake.return_value.__enter__.return_value
+    active.get_cert_info.return_value = {"subject": {"commonName": "a.test"}}
+    active.collection_error = None
     monkeypatch.setattr(cli, "CertMonitor", fake)
     code, out = run(
         ["info", "a.test:8443", "--timeout", "2", "--server-hostname", "sni.test"]
@@ -318,3 +345,51 @@ def test_summary_renders_missing_fields_as_question_marks():
         == "? days remaining"
     )
     assert cli._summary("unknown_validator", {"is_valid": True}) == ""
+
+
+def test_collection_failure_is_a_top_level_report_error(monkeypatch):
+    fake = MagicMock()
+    active = fake.return_value.__enter__.return_value
+    active.validate.return_value = {
+        "expiration": {
+            "status": "error",
+            "error": "ConnectionRefusedError",
+            "reason": "x",
+        }
+    }
+    active.snapshot_at = None
+    active.fingerprint_sha256 = None
+    active.cert_info = None
+    active.public_key_info = None
+    active.collection_error = {"error": "ConnectionRefusedError", "message": "refused"}
+    monkeypatch.setattr(cli, "CertMonitor", fake)
+    code, out = run(["check", "down.test", "--json"])
+    report = json.loads(out)[0]
+    assert code == 1
+    assert (
+        report["error"] == "ConnectionRefusedError" and report["message"] == "refused"
+    )
+    assert report["results"]["expiration"]["status"] == "error"
+
+
+def test_human_report_lists_checks_after_a_collection_error(monkeypatch):
+    fake = MagicMock()
+    active = fake.return_value.__enter__.return_value
+    active.validate.return_value = {
+        "expiration": {
+            "status": "error",
+            "error": "ConnectionRefusedError",
+            "reason": "Certificate-based validation could not be performed: refused",
+        }
+    }
+    active.snapshot_at = None
+    active.fingerprint_sha256 = None
+    active.cert_info = None
+    active.public_key_info = None
+    active.collection_error = {"error": "ConnectionRefusedError", "message": "refused"}
+    monkeypatch.setattr(cli, "CertMonitor", fake)
+    code, out = run(["check", "down.test"])
+    assert code == 1
+    lines = out.splitlines()
+    assert lines[1].strip() == "ERROR  ConnectionRefusedError: refused"
+    assert lines[2].lstrip().startswith("ERROR  expiration")

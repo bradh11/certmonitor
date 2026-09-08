@@ -10,16 +10,10 @@ CertMonitor takes security seriously. We appreciate your efforts to responsibly 
 
 Instead, please use GitHub's private vulnerability reporting feature:
 
-1. Go to the [Security tab](https://github.com/bradh/certmonitor/security) of this repository
+1. Go to the [Security tab](https://github.com/bradh11/certmonitor/security) of this repository
 2. Click "Report a vulnerability"
 3. Provide detailed information about the vulnerability
 4. We will respond within 48 hours
-
-### 📧 Alternative Reporting
-
-If you cannot use GitHub's private reporting, you can email security issues to:
-- **Email**: [security@certmonitor.dev] (if available)
-- **Subject**: "CertMonitor Security Vulnerability Report"
 
 ## 🛡️ Supported Versions
 
@@ -27,8 +21,8 @@ We provide security updates for the following versions:
 
 | Version | Supported          |
 | ------- | ------------------ |
-| 0.1.x   | ✅ Yes             |
-| < 0.1   | ❌ No              |
+| 0.5.x   | ✅ Yes             |
+| < 0.5   | ❌ No              |
 
 ## ⚡ Response Timeline
 
@@ -94,8 +88,8 @@ CertMonitor adheres to current cryptographic best practices:
 
 Our CI pipeline includes:
 
-- **Bandit**: Python security linter
 - **Bandit**: Python security linting with documented exceptions for security tool functionality
+- **cargo audit**: Rust dependency advisories on every PR and weekly
 - **CodeQL**: Static analysis security testing
 - **Dependabot**: Automated dependency updates
 
@@ -144,7 +138,7 @@ When contributing code, please consider:
 ### Certificate Parsing
 
 - **Rust Extension**: Certificate parsing is handled by a Rust extension for memory safety
-- **ASN.1 Parsing**: Uses well-tested `x509-parser` crate
+- **ASN.1 Parsing**: In-house DER and X.509 parser in `rust_certinfo/`, with no third-party parsing crate; fuzzed weekly (`fuzz/`) and cross-checked against OpenSSL in the test suite
 - **Input Validation**: Robust handling of malformed certificates
 
 ### Network Operations
@@ -182,7 +176,6 @@ For non-sensitive security questions or suggestions:
 
 For sensitive vulnerabilities:
 - Use GitHub's private vulnerability reporting
-- Email security@certmonitor.dev (if available)
 
 ## 🏆 Security Hall of Fame
 

@@ -19,6 +19,7 @@ PROTOCOLS = ("smtp", "imap", "pop3", "ftp", "postgres", "ldap")
 LDAP_STARTTLS_OID = b"1.3.6.1.4.1.1466.20037"
 _POSTGRES_SSL_REQUEST_CODE = 80877103
 _LINE_LIMIT = 4096
+_REPLY_LINE_LIMIT = 64
 
 
 class StartTLSError(OSError):
@@ -199,6 +200,8 @@ def _read_reply(sock: socket.socket) -> tuple[str, list[str]]:
         lines.append(line)
         if len(line) < 4 or line[3] != "-":
             return line[:3], lines
+        if len(lines) >= _REPLY_LINE_LIMIT:
+            raise StartTLSError("STARTTLS reply has too many lines")
 
 
 def _expect(sock: socket.socket, code: str, what: str) -> list[str]:

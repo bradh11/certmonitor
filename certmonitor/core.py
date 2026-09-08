@@ -125,6 +125,7 @@ class CertMonitor:
         self.public_key_der = None
         self.public_key_pem = None
         self.public_key_info: dict[str, Any] | None = None
+        self.collection_error: dict[str, Any] | None = None
         self.validators = VALIDATORS
         self.enabled_validators = (
             enabled_validators
@@ -896,6 +897,9 @@ class CertMonitor:
         Returns:
             dict: A dictionary keyed by validator name, each value being the result of that validator.
 
+        After the call, `collection_error` is `None` when a certificate was collected, or a
+        dict with `error` and `message` when it was not.
+
         Example:
             with CertMonitor("example.com", enabled_validators=["expiration", "weak_cipher"]) as monitor:
                 results = monitor.validate()
@@ -903,6 +907,7 @@ class CertMonitor:
                 print(results["weak_cipher"])
         """
         results: dict[str, Any] = {}
+        self.collection_error = None
 
         # Check for unknown validators
         for requested_validator in self.enabled_validators:
@@ -912,6 +917,33 @@ class CertMonitor:
                     "status": "error",
                     "error": "UnknownValidator",
                     "reason": f"Validator '{requested_validator}' is not implemented.",
+                }
+
+        # Arguments for a validator that will not run are a configuration
+        # mistake, not a no-op: a misspelled name would otherwise leave the
+        # caller believing a threshold was applied.
+        for name in validator_args or {}:
+            if name in results:
+                continue
+            if name not in self.validators:
+                results[name] = {
+                    "is_valid": False,
+                    "status": "error",
+                    "error": "UnknownValidator",
+                    "reason": (
+                        f"validator_args names '{name}', which is not an "
+                        "implemented validator."
+                    ),
+                }
+            elif name not in self.enabled_validators:
+                results[name] = {
+                    "is_valid": True,
+                    "status": "warn",
+                    "warnings": [
+                        f"validator_args names '{name}', which is not enabled, so its "
+                        "arguments were not applied. Add it to enabled_validators or "
+                        "remove them."
+                    ],
                 }
 
         # Active validators: enabled, implemented, and not already flagged
@@ -964,6 +996,21 @@ class CertMonitor:
                 (*resolved, self.host, self.port),
                 validator_args,
             )
+
+        # Surface a failed collection once, at the top level, so reports
+        # and comparisons can tell "no certificate" from "a certificate
+        # that failed its checks".
+        if "cert_data" in source_cache:
+            source = source_cache["cert_data"]
+            if not source or (isinstance(source, dict) and "error" in source):
+                error = source if isinstance(source, dict) else {}
+                self.collection_error = {
+                    "error": str(error.get("error") or "MissingCertificate"),
+                    "message": str(
+                        error.get("message")
+                        or "Certificate data is missing due to a connection or retrieval error."
+                    ),
+                }
 
         for name, result in results.items():
             result.setdefault(
