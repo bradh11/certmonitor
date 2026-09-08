@@ -32,25 +32,31 @@ class RevocationValidator(_ValidatorBase):
 
     Each method is tried in order and only a proven answer decides: a
     verified `revoked` fails the check, a verified `good` passes it. CRL
-    answers are proven by OpenSSL, which verifies the CRL's signature and
-    validity while loading it; OCSP answers are proven when the response is
-    signed by the issuing CA or an authorized responder with RSA PKCS#1 v1.5
-    or ECDSA (P-256, P-384). An OCSP response whose signature was checked and
-    is wrong is discarded before its content is read, whatever it claims; if
-    no other method answers, the result is an `error` (`OCSPInvalidSignature`).
-    An OCSP response that cannot be checked, for example one signed with an
-    algorithm CertMonitor does not implement, is held back: a `good` becomes a
-    warning and a `revoked` becomes an `error` (`OCSPUnverifiedRevocation`)
-    unless a verified method answers or `accept_unverified=True` accepts the
-    responder's word for either verdict.
+    answers are proven the same way: the CRL must be signed by the issuing
+    CA and the collected certificate's serial is looked up in it; OCSP
+    answers are proven when the response is signed by the issuing CA or an
+    authorized responder with RSA (PKCS#1 v1.5 or PSS), ECDSA (P-256, P-384,
+    P-521), or EdDSA (Ed25519, Ed448). An answer whose signature was checked
+    and is wrong is discarded before its content is read, whatever it claims;
+    if no other method answers, the result is an `error`, its code prefixed
+    by the source that failed (`OCSPInvalidSignature` or
+    `CRLInvalidSignature`). An answer that cannot be checked, for example an
+    OCSP response signed with an algorithm CertMonitor does not implement, is
+    held back: a `good` becomes a warning and a `revoked` becomes an `error`
+    (`OCSPUnverifiedRevocation` or `CRLUnverifiedRevocation`) unless a
+    verified method answers or `accept_unverified=True` accepts the source's
+    word for either verdict.
 
     Args:
         methods: Order in which to consult `"ocsp"` and `"crl"`. Defaults
             to OCSP first, then the CRL.
-        accept_unverified: Act on an OCSP answer whose signature could not be
-            checked (unsupported algorithm) as if it were verified: `good`
-            passes and `revoked` fails. Never applies to a signature that was
-            checked and found wrong.
+        accept_unverified: Act on an OCSP or CRL answer whose signature could
+            not be checked (unsupported algorithm) as if it were verified:
+            `good` passes and `revoked` fails. Never applies to a signature
+            that was checked and found wrong.
+        max_age_hours: Oldest `thisUpdate` accepted for an OCSP response that
+            carries no `nextUpdate`, in hours. Responses older than ten days
+            are refused whatever `nextUpdate` says.
 
     Example:
         ```python
@@ -72,6 +78,7 @@ class RevocationValidator(_ValidatorBase):
         *,
         methods: list[str] | None = None,
         accept_unverified: bool = False,
+        max_age_hours: float = 24.0,
     ) -> RevocationResult:
         order = list(methods) if methods else list(_DEFAULT_METHODS)
         unknown = [method for method in order if method not in _DEFAULT_METHODS]
@@ -79,11 +86,15 @@ class RevocationValidator(_ValidatorBase):
             raise ValueError(
                 f"unknown revocation method(s) {', '.join(unknown)}; choose from ocsp, crl"
             )
+        if max_age_hours < 0:
+            raise ValueError("max_age_hours must be zero or positive")
+        evidence.ocsp_max_age = max_age_hours * 3600
         answers: dict[str, dict[str, Any]] = {}
         unverified: dict[str, Any] | None = None
         for method in order:
             answer = dict(evidence.answer(method))
             answer.pop("_next_update", None)
+            answer.pop("_this_update", None)
             answers[method] = answer
             if answer["status"] not in ("good", "revoked"):
                 continue
@@ -109,6 +120,7 @@ class RevocationValidator(_ValidatorBase):
             return self._verdict(answer, answers, is_valid=True, status="pass")
         if unverified is not None:
             why = str(unverified.get("verification_error", "unknown reason"))
+            source = str(unverified["method"]).upper()
             if unverified["status"] == "good":
                 return self._verdict(
                     unverified,
@@ -116,9 +128,9 @@ class RevocationValidator(_ValidatorBase):
                     is_valid=True,
                     status="warn",
                     warnings=[
-                        "The OCSP responder reported the certificate as good, but the "
-                        f"response could not be verified ({why}). Set "
-                        "accept_unverified=True to treat it as proof, or enable the crl "
+                        f"The {source} source reported the certificate as good, but the "
+                        f"answer could not be verified ({why}). Set "
+                        "accept_unverified=True to treat it as proof, or enable another "
                         "method for a verified answer."
                     ],
                 )
@@ -127,12 +139,12 @@ class RevocationValidator(_ValidatorBase):
                 answers,
                 is_valid=False,
                 status="error",
-                error="OCSPUnverifiedRevocation",
+                error=f"{source}UnverifiedRevocation",
                 reason=(
-                    "The OCSP responder reported the certificate as revoked, but the "
-                    f"response could not be verified ({why}); the claim was not acted "
-                    "on. Set accept_unverified=True to treat it as proof, or enable the "
-                    "crl method for a verified answer."
+                    f"The {source} source reported the certificate as revoked, but the "
+                    f"answer could not be verified ({why}); the claim was not acted "
+                    "on. Set accept_unverified=True to treat it as proof, or enable "
+                    "another method for a verified answer."
                 ),
             )
         if all(answer["status"] == "unsupported" for answer in answers.values()):
@@ -144,18 +156,24 @@ class RevocationValidator(_ValidatorBase):
         for method, answer in answers.items():
             if answer.get("verification") == "failed":
                 problems.append(
-                    f"{method}: response signature failed verification "
+                    f"{method}: answer signature failed verification "
                     f"({answer.get('verification_error', 'unknown reason')})"
                 )
             elif answer["status"] != "good":
                 problems.append(f"{method}: {answer.get('reason', answer['status'])}")
-        failed = any(a.get("verification") == "failed" for a in answers.values())
+        failed = [
+            method
+            for method, answer in answers.items()
+            if answer.get("verification") == "failed"
+        ]
         return self._verdict(
             None,
             answers,
             is_valid=False,
             status="error",
-            error="OCSPInvalidSignature" if failed else "RevocationUnavailable",
+            error=f"{failed[0].upper()}InvalidSignature"
+            if failed
+            else "RevocationUnavailable",
             reason="No revocation source gave a usable answer ("
             + "; ".join(problems)
             + ")",

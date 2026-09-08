@@ -29,10 +29,6 @@ from certmonitor.protocol_handlers.ssl_handler import SSLHandler
 from certmonitor.validators import VALIDATORS
 
 
-# OpenSSL's X509_V_ERR_CERT_REVOKED, reported by a handshake with a CRL loaded.
-_X509_V_ERR_CERT_REVOKED = 23
-
-
 class CertMonitor:
     """Class for monitoring and retrieving certificate details from a given host."""
 
@@ -129,6 +125,7 @@ class CertMonitor:
         self.public_key_der = None
         self.public_key_pem = None
         self.public_key_info: dict[str, Any] | None = None
+        self.collection_error: dict[str, Any] | None = None
         self.validators = VALIDATORS
         self.enabled_validators = (
             enabled_validators
@@ -900,6 +897,9 @@ class CertMonitor:
         Returns:
             dict: A dictionary keyed by validator name, each value being the result of that validator.
 
+        After the call, `collection_error` is `None` when a certificate was collected, or a
+        dict with `error` and `message` when it was not.
+
         Example:
             with CertMonitor("example.com", enabled_validators=["expiration", "weak_cipher"]) as monitor:
                 results = monitor.validate()
@@ -907,6 +907,7 @@ class CertMonitor:
                 print(results["weak_cipher"])
         """
         results: dict[str, Any] = {}
+        self.collection_error = None
 
         # Check for unknown validators
         for requested_validator in self.enabled_validators:
@@ -916,6 +917,33 @@ class CertMonitor:
                     "status": "error",
                     "error": "UnknownValidator",
                     "reason": f"Validator '{requested_validator}' is not implemented.",
+                }
+
+        # Arguments for a validator that will not run are a configuration
+        # mistake, not a no-op: a misspelled name would otherwise leave the
+        # caller believing a threshold was applied.
+        for name in validator_args or {}:
+            if name in results:
+                continue
+            if name not in self.validators:
+                results[name] = {
+                    "is_valid": False,
+                    "status": "error",
+                    "error": "UnknownValidator",
+                    "reason": (
+                        f"validator_args names '{name}', which is not an "
+                        "implemented validator."
+                    ),
+                }
+            elif name not in self.enabled_validators:
+                results[name] = {
+                    "is_valid": True,
+                    "status": "warn",
+                    "warnings": [
+                        f"validator_args names '{name}', which is not enabled, so its "
+                        "arguments were not applied. Add it to enabled_validators or "
+                        "remove them."
+                    ],
                 }
 
         # Active validators: enabled, implemented, and not already flagged
@@ -968,6 +996,21 @@ class CertMonitor:
                 (*resolved, self.host, self.port),
                 validator_args,
             )
+
+        # Surface a failed collection once, at the top level, so reports
+        # and comparisons can tell "no certificate" from "a certificate
+        # that failed its checks".
+        if "cert_data" in source_cache:
+            source = source_cache["cert_data"]
+            if not source or (isinstance(source, dict) and "error" in source):
+                error = source if isinstance(source, dict) else {}
+                self.collection_error = {
+                    "error": str(error.get("error") or "MissingCertificate"),
+                    "message": str(
+                        error.get("message")
+                        or "Certificate data is missing due to a connection or retrieval error."
+                    ),
+                }
 
         for name, result in results.items():
             result.setdefault(
@@ -1160,77 +1203,8 @@ class CertMonitor:
             cert_info=cert_data.get("cert_info") or {},
             timeout=self.timeout,
             proxy=self.proxy,
-            crl_check=None if self.offline else self._check_crl,
             offline=self.offline,
         )
-
-    def _check_crl(self, crl_der: bytes) -> dict[str, Any]:
-        """Let OpenSSL judge the collected leaf against `crl_der`.
-
-        The CRL is loaded into a verifying context with `VERIFY_CRL_CHECK_LEAF`
-        and one more handshake is run. OpenSSL verifies the CRL's signature
-        against the trusted CA and its validity window, then reports
-        `certificate revoked` if the leaf is listed. The strict context is
-        tried first and the legacy one second, as for trust verification.
-        """
-        assert self.der is not None
-        with tempfile.NamedTemporaryFile("w", suffix=".pem", delete=False) as handle:
-            handle.write(
-                ssl.DER_cert_to_PEM_cert(crl_der).replace("CERTIFICATE", "X509 CRL")
-            )
-            crl_path = handle.name
-        try:
-            last_error: Exception | None = None
-            for legacy in (False, True):
-                try:
-                    context = ssl.create_default_context(
-                        cafile=self.cafile, capath=self.capath
-                    )
-                    context.check_hostname = False
-                    context.load_verify_locations(cafile=crl_path)
-                    context.verify_flags |= ssl.VERIFY_CRL_CHECK_LEAF
-                    if legacy:
-                        context.minimum_version = ssl.TLSVersion.MINIMUM_SUPPORTED
-                        context.set_ciphers("ALL:@SECLEVEL=0")
-                    if self.client_cert:
-                        context.load_cert_chain(self.client_cert, self.client_key)
-                    with open_tls_stream(
-                        self.connection_host,
-                        self.port,
-                        self.timeout,
-                        context,
-                        server_hostname=self.server_hostname,
-                        starttls=self.starttls,
-                        proxy=self.proxy,
-                    ) as secure:
-                        peer = secure.getpeercert(binary_form=True)
-                except ssl.SSLCertVerificationError as exc:
-                    message = getattr(exc, "verify_message", None) or str(exc)
-                    if exc.verify_code == _X509_V_ERR_CERT_REVOKED:
-                        return {"status": "revoked", "verify_code": exc.verify_code}
-                    return {
-                        "status": "error",
-                        "error": "CRLVerificationFailed",
-                        "reason": f"OpenSSL could not check the CRL: {message}",
-                        "verify_code": exc.verify_code,
-                    }
-                except (OSError, ValueError) as exc:
-                    last_error = exc
-                    continue
-                if peer != self.der:
-                    return {
-                        "status": "error",
-                        "error": "SnapshotMismatch",
-                        "reason": "The CRL check observed a different certificate; refresh and retry.",
-                    }
-                return {"status": "good"}
-            return {
-                "status": "error",
-                "error": type(last_error).__name__,
-                "reason": str(last_error),
-            }
-        finally:
-            os.unlink(crl_path)
 
     def _fetch_tls_probe(self) -> dict[str, Any]:
         """Probe the negotiated TLS 1.3 key-exchange group via the Rust probe.

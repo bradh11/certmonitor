@@ -19,6 +19,7 @@ PROTOCOLS = ("smtp", "imap", "pop3", "ftp", "postgres", "ldap")
 LDAP_STARTTLS_OID = b"1.3.6.1.4.1.1466.20037"
 _POSTGRES_SSL_REQUEST_CODE = 80877103
 _LINE_LIMIT = 4096
+_REPLY_LINE_LIMIT = 64
 
 
 class StartTLSError(OSError):
@@ -26,7 +27,11 @@ class StartTLSError(OSError):
 
 
 def negotiate(
-    sock: socket.socket, protocol: str, *, client_name: str = "certmonitor"
+    sock: socket.socket,
+    protocol: str,
+    *,
+    client_name: str = "certmonitor",
+    timeout: float | None = None,
 ) -> None:
     """Run the STARTTLS preamble for `protocol` on `sock`.
 
@@ -34,24 +39,70 @@ def negotiate(
         sock: A connected plaintext socket.
         protocol: One of `PROTOCOLS`.
         client_name: Name announced to servers that ask for one (SMTP EHLO).
+        timeout: Budget in seconds for the whole preamble, every read and
+            write included, so a server that trickles bytes cannot stretch
+            it. Defaults to the socket's own timeout; `None` on a blocking
+            socket means no deadline. The socket's timeout is restored
+            afterwards.
 
     Raises:
         ValueError: If `protocol` is not supported.
         StartTLSError: If the server refuses or answers unexpectedly.
+        TimeoutError: If the budget runs out before the server agrees.
     """
     handler = _HANDLERS.get(protocol)
     if handler is None:
         raise ValueError(
             f"unsupported STARTTLS protocol {protocol!r}; choose one of {', '.join(PROTOCOLS)}"
         )
+    wire = _Wire(sock, sock.gettimeout() if timeout is None else timeout)
     try:
-        handler(sock, client_name)
+        handler(wire, client_name)
     except ConnectionError as exc:
         # A reset or broken pipe mid-preamble means the server hung up on us,
         # which callers should see the same way as an orderly close.
         raise StartTLSError(
             f"connection closed during STARTTLS negotiation: {exc}"
         ) from exc
+    finally:
+        wire.restore()
+
+
+class _Wire:
+    """A socket with one deadline for a whole exchange.
+
+    Each read or write gets whatever time remains, so a server that sends a
+    byte every so often cannot keep the exchange alive the way a per-call
+    socket timeout, which restarts whenever a byte arrives, would let it.
+    With no budget the socket is used as it is.
+    """
+
+    def __init__(self, sock: socket.socket, budget: float | None) -> None:
+        self.sock = sock
+        self.original_timeout = sock.gettimeout()
+        self.deadline = None if budget is None else time.monotonic() + budget
+
+    def arm(self) -> None:
+        """Give the next socket call the time that is left, or give up."""
+        if self.deadline is None:
+            return
+        remaining = self.deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError("STARTTLS negotiation ran out of time")
+        self.sock.settimeout(remaining)
+
+    def recv(self, size: int) -> bytes:
+        self.arm()
+        return self.sock.recv(size)
+
+    def sendall(self, data: bytes) -> None:
+        self.arm()
+        self.sock.sendall(data)
+
+    def restore(self) -> None:
+        """Put the socket's own timeout back for whatever comes next."""
+        if self.deadline is not None:
+            self.sock.settimeout(self.original_timeout)
 
 
 # --- discovery ----------------------------------------------------------------
@@ -96,14 +147,16 @@ def discover(
     """
     deadline = time.monotonic() + timeout
     with connect(host, port, timeout) as sock:
-        greeting = _wait_for_greeting(sock, _remaining(deadline) / 2)
+        greeting = _wait_for_greeting(_Wire(sock, _remaining(deadline) / 2))
         if greeting is not None:
-            return _name_greeting(sock, greeting, client_name)
-        if _answers_ssl_request(sock, _remaining(deadline) / 2):
+            return _name_greeting(
+                _Wire(sock, _remaining(deadline)), greeting, client_name
+            )
+        if _answers_ssl_request(_Wire(sock, _remaining(deadline) / 2)):
             return "postgres"
     try:
         with connect(host, port, _remaining(deadline)) as sock:
-            if _answers_ldap_starttls(sock, _remaining(deadline)):
+            if _answers_ldap_starttls(_Wire(sock, _remaining(deadline))):
                 return "ldap"
     except OSError:
         return None
@@ -115,21 +168,18 @@ def _remaining(deadline: float) -> float:
     return max(deadline - time.monotonic(), 0.01)
 
 
-def _wait_for_greeting(sock: socket.socket, timeout: float) -> list[str] | None:
+def _wait_for_greeting(wire: _Wire) -> list[str] | None:
     """Return the server's greeting lines, or `None` if it stays silent or hangs up."""
-    sock.settimeout(timeout)
     try:
-        lines = [_read_line(sock)]
+        lines = [_read_line(wire)]
         while lines[-1].startswith("220-"):
-            lines.append(_read_line(sock))
+            lines.append(_read_line(wire))
     except OSError:
         return None
     return lines
 
 
-def _name_greeting(
-    sock: socket.socket, lines: list[str], client_name: str
-) -> str | None:
+def _name_greeting(wire: _Wire, lines: list[str], client_name: str) -> str | None:
     first = lines[0]
     if first.startswith("SSH-"):
         return "ssh"
@@ -146,30 +196,28 @@ def _name_greeting(
         return "ftp"
     # Both SMTP and FTP greet with 220; only SMTP answers EHLO with 250.
     try:
-        sock.sendall(f"EHLO {client_name}\r\n".encode("ascii"))
-        code, _ = _read_reply(sock)
+        wire.sendall(f"EHLO {client_name}\r\n".encode("ascii"))
+        code, _ = _read_reply(wire)
     except OSError:
         return None
     return "smtp" if code == "250" else "ftp"
 
 
-def _answers_ssl_request(sock: socket.socket, timeout: float) -> bool:
+def _answers_ssl_request(wire: _Wire) -> bool:
     """Send the PostgreSQL `SSLRequest`; any of its one-byte answers names PostgreSQL."""
-    sock.settimeout(timeout)
     try:
-        sock.sendall(struct.pack("!ii", 8, _POSTGRES_SSL_REQUEST_CODE))
-        reply = sock.recv(1)
+        wire.sendall(struct.pack("!ii", 8, _POSTGRES_SSL_REQUEST_CODE))
+        reply = wire.recv(1)
     except OSError:
         return False
     return reply in (b"S", b"N", b"E")
 
 
-def _answers_ldap_starttls(sock: socket.socket, timeout: float) -> bool:
+def _answers_ldap_starttls(wire: _Wire) -> bool:
     """Send the LDAP StartTLS request; any LDAPMessage reply (a BER SEQUENCE) names LDAP."""
-    sock.settimeout(timeout)
     try:
-        sock.sendall(ldap_starttls_request())
-        reply = sock.recv(1)
+        wire.sendall(ldap_starttls_request())
+        reply = wire.recv(1)
     except OSError:
         return False
     return reply == b"\x30"
@@ -178,11 +226,11 @@ def _answers_ldap_starttls(sock: socket.socket, timeout: float) -> bool:
 # --- line-oriented protocols -------------------------------------------------
 
 
-def _read_line(sock: socket.socket) -> str:
+def _read_line(wire: _Wire) -> str:
     """Read one CRLF- or LF-terminated line, byte by byte so nothing past it is consumed."""
     line = bytearray()
     while not line.endswith(b"\n"):
-        byte = sock.recv(1)
+        byte = wire.recv(1)
         if not byte:
             raise StartTLSError("connection closed during STARTTLS negotiation")
         line += byte
@@ -191,60 +239,64 @@ def _read_line(sock: socket.socket) -> str:
     return line.decode("utf-8", errors="replace").rstrip("\r\n")
 
 
-def _read_reply(sock: socket.socket) -> tuple[str, list[str]]:
+def _read_reply(wire: _Wire) -> tuple[str, list[str]]:
     """Read an SMTP/FTP style reply; multiline replies use `NNN-` continuation lines."""
     lines: list[str] = []
     while True:
-        line = _read_line(sock)
+        line = _read_line(wire)
         lines.append(line)
         if len(line) < 4 or line[3] != "-":
             return line[:3], lines
+        if len(lines) >= _REPLY_LINE_LIMIT:
+            raise StartTLSError("STARTTLS reply has too many lines")
 
 
-def _expect(sock: socket.socket, code: str, what: str) -> list[str]:
-    got, lines = _read_reply(sock)
+def _expect(wire: _Wire, code: str, what: str) -> list[str]:
+    got, lines = _read_reply(wire)
     if got != code:
         raise StartTLSError(f"{what}: expected {code}, server said {lines[-1]!r}")
     return lines
 
 
-def _smtp(sock: socket.socket, client_name: str) -> None:
-    _expect(sock, "220", "SMTP greeting")
-    sock.sendall(f"EHLO {client_name}\r\n".encode())
-    capabilities = _expect(sock, "250", "SMTP EHLO")
+def _smtp(wire: _Wire, client_name: str) -> None:
+    _expect(wire, "220", "SMTP greeting")
+    wire.sendall(f"EHLO {client_name}\r\n".encode())
+    capabilities = _expect(wire, "250", "SMTP EHLO")
     if not any(line[4:].upper().startswith("STARTTLS") for line in capabilities):
         raise StartTLSError("SMTP server does not advertise STARTTLS")
-    sock.sendall(b"STARTTLS\r\n")
-    _expect(sock, "220", "SMTP STARTTLS")
+    wire.sendall(b"STARTTLS\r\n")
+    _expect(wire, "220", "SMTP STARTTLS")
 
 
-def _ftp(sock: socket.socket, client_name: str) -> None:
-    _expect(sock, "220", "FTP greeting")
-    sock.sendall(b"AUTH TLS\r\n")
-    _expect(sock, "234", "FTP AUTH TLS")
+def _ftp(wire: _Wire, client_name: str) -> None:
+    _expect(wire, "220", "FTP greeting")
+    wire.sendall(b"AUTH TLS\r\n")
+    _expect(wire, "234", "FTP AUTH TLS")
 
 
-def _imap(sock: socket.socket, client_name: str) -> None:
-    greeting = _read_line(sock)
+def _imap(wire: _Wire, client_name: str) -> None:
+    greeting = _read_line(wire)
     if not greeting.upper().startswith("* OK") and not greeting.upper().startswith(
         "* PREAUTH"
     ):
         raise StartTLSError(f"IMAP greeting: server said {greeting!r}")
-    sock.sendall(b"a001 STARTTLS\r\n")
-    while True:
-        line = _read_line(sock)
+    wire.sendall(b"a001 STARTTLS\r\n")
+    # Untagged lines may precede the tagged reply, but not without end.
+    for _ in range(_REPLY_LINE_LIMIT):
+        line = _read_line(wire)
         if line.startswith("a001 "):
             if line[5:].upper().startswith("OK"):
                 return
             raise StartTLSError(f"IMAP STARTTLS: server said {line!r}")
+    raise StartTLSError("IMAP STARTTLS: too many untagged lines before the reply")
 
 
-def _pop3(sock: socket.socket, client_name: str) -> None:
-    greeting = _read_line(sock)
+def _pop3(wire: _Wire, client_name: str) -> None:
+    greeting = _read_line(wire)
     if not greeting.startswith("+OK"):
         raise StartTLSError(f"POP3 greeting: server said {greeting!r}")
-    sock.sendall(b"STLS\r\n")
-    reply = _read_line(sock)
+    wire.sendall(b"STLS\r\n")
+    reply = _read_line(wire)
     if not reply.startswith("+OK"):
         raise StartTLSError(f"POP3 STLS: server said {reply!r}")
 
@@ -252,20 +304,20 @@ def _pop3(sock: socket.socket, client_name: str) -> None:
 # --- binary protocols --------------------------------------------------------
 
 
-def _recv_exact(sock: socket.socket, size: int) -> bytes:
+def _recv_exact(wire: _Wire, size: int) -> bytes:
     data = bytearray()
     while len(data) < size:
-        chunk = sock.recv(size - len(data))
+        chunk = wire.recv(size - len(data))
         if not chunk:
             raise StartTLSError("connection closed during STARTTLS negotiation")
         data += chunk
     return bytes(data)
 
 
-def _postgres(sock: socket.socket, client_name: str) -> None:
+def _postgres(wire: _Wire, client_name: str) -> None:
     """PostgreSQL SSLRequest: 8 bytes out, one byte back ('S' agrees, 'N' declines)."""
-    sock.sendall(struct.pack("!ii", 8, _POSTGRES_SSL_REQUEST_CODE))
-    answer = _recv_exact(sock, 1)
+    wire.sendall(struct.pack("!ii", 8, _POSTGRES_SSL_REQUEST_CODE))
+    answer = _recv_exact(wire, 1)
     if answer == b"S":
         return
     if answer == b"N":
@@ -311,10 +363,10 @@ def ldap_starttls_request(message_id: int = 1) -> bytes:
     return _ber(0x30, _ber(0x02, bytes([message_id])) + extended_request)
 
 
-def _ldap(sock: socket.socket, client_name: str) -> None:
-    sock.sendall(ldap_starttls_request())
+def _ldap(wire: _Wire, client_name: str) -> None:
+    wire.sendall(ldap_starttls_request())
     # Read the outer SEQUENCE header first so exactly one message is consumed.
-    head = _recv_exact(sock, 2)
+    head = _recv_exact(wire, 2)
     if head[0] != 0x30:
         raise StartTLSError(
             f"LDAP reply: expected an LDAPMessage, got tag 0x{head[0]:02x}"
@@ -323,10 +375,10 @@ def _ldap(sock: socket.socket, client_name: str) -> None:
         size = head[1] & 0x7F
         if size == 0 or size > 4:
             raise StartTLSError("LDAP reply has an unsupported length encoding")
-        length = int.from_bytes(_recv_exact(sock, size), "big")
+        length = int.from_bytes(_recv_exact(wire, size), "big")
     else:
         length = head[1]
-    body = _recv_exact(sock, length)
+    body = _recv_exact(wire, length)
     _, _message_id, offset = _ber_read(body, 0)
     op_tag, op, _ = _ber_read(body, offset)
     if op_tag != 0x78:  # [APPLICATION 24] ExtendedResponse
@@ -342,7 +394,7 @@ def _ldap(sock: socket.socket, client_name: str) -> None:
         raise StartTLSError(f"LDAP StartTLS refused: {detail}")
 
 
-_HANDLERS: dict[str, Callable[[socket.socket, str], None]] = {
+_HANDLERS: dict[str, Callable[[_Wire, str], None]] = {
     "smtp": _smtp,
     "imap": _imap,
     "pop3": _pop3,

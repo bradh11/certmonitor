@@ -34,6 +34,8 @@ mod x509;
 // crate at `fuzz/` does, and any future in-tree Rust consumer (e.g. a
 // CLI) can use the same surface.
 pub use crate::crypto::bigint::BigUint;
+pub use crate::crypto::eddsa::{verify as verify_eddsa, EdCurve};
+pub use crate::crypto::rsa::PssParameters;
 pub use crate::crypto::VerifyError;
 pub use crate::error::ParseError;
 pub use crate::x509::crl::Crl;
@@ -166,7 +168,8 @@ mod py {
         }
     }
 
-    /// A DER CRL's issuer, validity window, and size.
+    /// A DER CRL's issuer, validity window, size, scope extensions, and any
+    /// critical extensions CertMonitor cannot process.
     #[pyfunction]
     pub(super) fn crl_info(py: Python<'_>, der_data: Vec<u8>) -> PyResult<Py<PyAny>> {
         let crl = crate::x509::crl::Crl::from_der(&der_data).map_err(to_py_err)?;
@@ -213,9 +216,10 @@ mod py {
     }
 
     /// The pieces needed to verify a certificate's signature and to use it
-    /// as a signer: `tbs`, `signature`, `signature_algorithm`, `spki`,
-    /// `key_bits`, `subject`, `subject_der`, `issuer_der`, `not_before`,
-    /// `not_after`, and `extended_key_usage`.
+    /// as a signer: `tbs`, `signature`, `signature_algorithm`,
+    /// `signature_algorithm_params`, `spki`, `key_bits`, `subject`,
+    /// `subject_der`, `issuer_der`, `not_before`, `not_after`, `key_usage`
+    /// (bit names, or `None` when absent), and `extended_key_usage`.
     #[pyfunction]
     pub(super) fn certificate_signature_parts(
         py: Python<'_>,
@@ -223,6 +227,116 @@ mod py {
     ) -> PyResult<Py<PyAny>> {
         let cert = Certificate::from_der(&der_data).map_err(to_py_err)?;
         Ok(pyobj::certificate_signature_parts_dict(py, &cert)?.into())
+    }
+
+    /// The RSASSA-PSS encoded message `EM` and the modulus's bit length, as
+    /// a `(bytes, int)` tuple. `EM` is `emLen = ceil((modBits - 1) / 8)`
+    /// octets (RFC 8017 §8.1.2 step 2.c), which the PSS padding check in
+    /// Python consumes as it stands. Raises ValueError when the key is not
+    /// RSA, is outside the supported bounds, the signature is the wrong
+    /// length or out of range, or the recovered value needs more than
+    /// `modBits - 1` bits.
+    #[pyfunction]
+    pub(super) fn rsa_pss_encoded_message(
+        py: Python<'_>,
+        signature: Vec<u8>,
+        spki_der: Vec<u8>,
+    ) -> PyResult<Py<PyAny>> {
+        let (em, mod_bits) = py
+            .detach(|| {
+                let mut reader = crate::der::DerReader::new(&spki_der);
+                let spki = crate::x509::spki::SubjectPublicKeyInfo::parse(&mut reader)
+                    .map_err(|_| crate::crypto::VerifyError::Malformed("SubjectPublicKeyInfo"))?;
+                match spki.parsed() {
+                    crate::x509::spki::PublicKeyAlgorithm::Rsa { .. } => {
+                        let key =
+                            crate::crypto::rsa::RsaPublicKey::from_der(spki.subject_public_key)?;
+                        crate::crypto::rsa::pss_encoded_message(&key, &signature)
+                    }
+                    _ => Err(crate::crypto::VerifyError::Unsupported(
+                        "non-RSA key for RSA public operation".to_string(),
+                    )),
+                }
+            })
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+        Ok((PyBytes::new(py, &em), mod_bits).into_pyobject(py)?.into())
+    }
+
+    /// Verify a PureEdDSA signature (RFC 8032 §5.1.7, §5.2.7). `curve` is
+    /// `"Ed25519"` or `"Ed448"`, `public_key` the raw `subjectPublicKey`
+    /// bits, `r` and `s` the two halves of the signature, and `k` the
+    /// challenge hash `H(R || A || M)`, which the caller computes so the
+    /// hashing stays in Python. Returns False for a signature that is
+    /// simply wrong; raises `ValueError` for an unknown curve name or for
+    /// inputs of the wrong length or a public key that does not decode.
+    #[pyfunction]
+    pub(super) fn eddsa_verify(
+        py: Python<'_>,
+        curve: &str,
+        public_key: Vec<u8>,
+        r: Vec<u8>,
+        s: Vec<u8>,
+        k: Vec<u8>,
+    ) -> PyResult<bool> {
+        let curve = match curve {
+            "Ed25519" => crate::crypto::eddsa::EdCurve::Ed25519,
+            "Ed448" => crate::crypto::eddsa::EdCurve::Ed448,
+            other => {
+                return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                    "unsupported EdDSA curve {other}"
+                )))
+            }
+        };
+        py.detach(|| crate::crypto::eddsa::verify(curve, &public_key, &r, &s, &k))
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))
+    }
+
+    /// Parse a bare DER SubjectPublicKeyInfo into
+    /// `{"algorithm": str, "size": int, "curve": str | None,
+    /// "key_bits": bytes, "algorithm_params": bytes | None}`. The first
+    /// three keys are exactly what `parse_public_key_info` reports, which
+    /// takes a whole certificate; this takes the SubjectPublicKeyInfo on
+    /// its own, which is what a signature check has in hand, and adds the
+    /// raw `subjectPublicKey` bits along with the raw
+    /// `AlgorithmIdentifier.parameters` TLV (`None` when absent or NULL),
+    /// which is where an id-RSASSA-PSS key carries the restrictions RFC
+    /// 4055 §3.3 puts on it. Raises `ValueError` when the
+    /// SubjectPublicKeyInfo does not parse.
+    #[pyfunction]
+    pub(super) fn parse_spki(py: Python<'_>, spki_der: Vec<u8>) -> PyResult<Py<PyAny>> {
+        let mut reader = crate::der::DerReader::new(&spki_der);
+        let spki = crate::x509::spki::SubjectPublicKeyInfo::parse(&mut reader).map_err(|_| {
+            pyo3::exceptions::PyValueError::new_err("malformed SubjectPublicKeyInfo")
+        })?;
+        let dict = pyobj::key_info_dict(py, &spki)?;
+        dict.set_item("key_bits", PyBytes::new(py, spki.subject_public_key))?;
+        match spki.algorithm.parameters {
+            Some(params) => dict.set_item("algorithm_params", PyBytes::new(py, params))?,
+            None => dict.set_item("algorithm_params", py.None())?,
+        }
+        Ok(dict.into())
+    }
+
+    /// Parse RSASSA-PSS-params (RFC 4055) into hashlib names and lengths:
+    /// `hash`, `mgf_hash`, `salt_length`, and `trailer_field`. `None`
+    /// parameters yield the RFC 4055 defaults (SHA-1, MGF1 with SHA-1, a
+    /// 20-byte salt, trailer field 1). Raises `ValueError` for a mask
+    /// generation function other than MGF1 or a hash outside SHA-1,
+    /// SHA-256, SHA-384, and SHA-512.
+    #[pyfunction]
+    pub(super) fn rsa_pss_parameters(
+        py: Python<'_>,
+        params_der: Option<Vec<u8>>,
+    ) -> PyResult<Py<PyAny>> {
+        let params = py
+            .detach(|| crate::crypto::rsa::PssParameters::parse(params_der.as_deref()))
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+        let d = PyDict::new(py);
+        d.set_item("hash", params.hash.name())?;
+        d.set_item("mgf_hash", params.mgf_hash.name())?;
+        d.set_item("salt_length", params.salt_length)?;
+        d.set_item("trailer_field", params.trailer_field)?;
+        Ok(d.into())
     }
 
     #[pymodule]
@@ -240,6 +354,10 @@ mod py {
         m.add_function(wrap_pyfunction!(signature_hash, m)?)?;
         m.add_function(wrap_pyfunction!(verify_signature, m)?)?;
         m.add_function(wrap_pyfunction!(certificate_signature_parts, m)?)?;
+        m.add_function(wrap_pyfunction!(rsa_pss_encoded_message, m)?)?;
+        m.add_function(wrap_pyfunction!(rsa_pss_parameters, m)?)?;
+        m.add_function(wrap_pyfunction!(eddsa_verify, m)?)?;
+        m.add_function(wrap_pyfunction!(parse_spki, m)?)?;
         Ok(())
     }
 }

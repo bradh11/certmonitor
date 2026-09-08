@@ -22,12 +22,36 @@
 //         crlEntryExtensions  Extensions OPTIONAL } OPTIONAL,
 //     crlExtensions        [0] EXPLICIT Extensions OPTIONAL }
 
-use crate::der::{tag, time, DerReader};
+use crate::der::{oid, tag, time, DerReader};
 use crate::error::ParseError;
+use crate::x509::extensions::Extensions;
 use crate::x509::{algorithm::AlgorithmIdentifier, name::Name};
 
+/// id-ce-cRLNumber (2.5.29.20)
+const OID_CRL_NUMBER: &[u8] = &[0x55, 0x1d, 0x14];
 /// id-ce-cRLReasons (2.5.29.21)
 const OID_CRL_REASON: &[u8] = &[0x55, 0x1d, 0x15];
+/// id-ce-invalidityDate (2.5.29.24)
+const OID_INVALIDITY_DATE: &[u8] = &[0x55, 0x1d, 0x18];
+/// id-ce-deltaCRLIndicator (2.5.29.27)
+const OID_DELTA_CRL_INDICATOR: &[u8] = &[0x55, 0x1d, 0x1b];
+/// id-ce-issuingDistributionPoint (2.5.29.28)
+const OID_ISSUING_DISTRIBUTION_POINT: &[u8] = &[0x55, 0x1d, 0x1c];
+
+/// CRL extensions CertMonitor processes, so a critical one is no obstacle:
+/// the two that narrow scope (checked by the caller), the CRL number, and
+/// the authority key identifier.
+const PROCESSED_CRL_EXTENSIONS: [&[u8]; 4] = [
+    OID_DELTA_CRL_INDICATOR,
+    OID_ISSUING_DISTRIBUTION_POINT,
+    OID_CRL_NUMBER,
+    oid::OID_EXT_AKI,
+];
+/// CRL entry extensions CertMonitor processes: the reason code it reports
+/// and the invalidity date, which changes nothing about whether the serial
+/// is revoked. `certificateIssuer` (RFC 5280 §5.3.3) is deliberately not
+/// here: it makes the entry belong to another issuer.
+const PROCESSED_ENTRY_EXTENSIONS: [&[u8]; 2] = [OID_CRL_REASON, OID_INVALIDITY_DATE];
 
 #[derive(Debug, Clone, Copy)]
 pub struct CrlEntry {
@@ -47,6 +71,24 @@ pub struct Crl<'a> {
     pub signature: &'a [u8],
     /// Value bytes of the revokedCertificates SEQUENCE (empty when absent).
     revoked_body: &'a [u8],
+    extensions: Extensions<'a>,
+}
+
+/// The scope narrowing an issuing distribution point declares (RFC 5280 §5.2.5).
+/// Every flag defaults to false when the extension omits it.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct IssuingDistributionPoint {
+    pub only_contains_user_certs: bool,
+    pub only_contains_ca_certs: bool,
+    pub only_some_reasons: bool,
+    pub indirect_crl: bool,
+    pub only_contains_attribute_certs: bool,
+    /// Every `uniformResourceIdentifier` in the distribution point's `fullName`.
+    pub distribution_point_uris: Vec<String>,
+    /// The distribution point names something that is not a URI (a directory
+    /// name, or a name relative to the CRL issuer), which CertMonitor cannot
+    /// compare with the URL it fetched from.
+    pub names_other_locations: bool,
 }
 
 impl<'a> Crl<'a> {
@@ -79,14 +121,24 @@ impl<'a> Crl<'a> {
         let this_update_unix = time::parse_time(this.tag, this.value)?;
         let mut next_update_unix = None;
         let mut revoked_body: &'a [u8] = &[];
+        let mut extensions_body: &'a [u8] = &[];
         while !tbs.is_empty() {
-            let item = tbs.read_tlv()?;
-            match item.tag {
-                tag::TAG_UTC_TIME | tag::TAG_GENERALIZED_TIME => {
+            match tbs.peek_tag() {
+                Some(tag::TAG_UTC_TIME) | Some(tag::TAG_GENERALIZED_TIME) => {
+                    let item = tbs.read_tlv()?;
                     next_update_unix = Some(time::parse_time(item.tag, item.value)?);
                 }
-                tag::TAG_SEQUENCE => revoked_body = item.value,
-                _ => {} // crlExtensions [0] and anything trailing
+                Some(tag::TAG_SEQUENCE) => {
+                    revoked_body = tbs.read_tlv()?.value;
+                }
+                Some(tag::CONTEXT_CONSTRUCTED_0) => {
+                    let mut wrapper = tbs.expect_constructed(tag::CONTEXT_CONSTRUCTED_0)?;
+                    extensions_body = wrapper.expect(tag::TAG_SEQUENCE)?;
+                    wrapper.end()?;
+                }
+                _ => {
+                    let _ = tbs.read_tlv()?;
+                }
             }
         }
         Ok(Crl {
@@ -97,6 +149,7 @@ impl<'a> Crl<'a> {
             tbs_cert_list: tbs_tlv.raw,
             signature,
             revoked_body,
+            extensions: Extensions::from_body(extensions_body),
         })
     }
 
@@ -149,6 +202,115 @@ impl<'a> Crl<'a> {
         }
         Ok(None)
     }
+
+    /// Dotted OIDs of the critical extensions, on the list or on any entry,
+    /// that CertMonitor does not process. RFC 5280 §5.2 and §5.3 forbid
+    /// using a CRL that carries one to determine any certificate's status.
+    pub fn unsupported_critical_extensions(&self) -> Result<Vec<String>, ParseError> {
+        let mut found: Vec<String> = Vec::new();
+        collect_unsupported(&self.extensions, &PROCESSED_CRL_EXTENSIONS, &mut found)?;
+        let mut reader = DerReader::new(self.revoked_body);
+        while !reader.is_empty() {
+            let mut entry = reader.expect_constructed(tag::TAG_SEQUENCE)?;
+            let _serial = entry.expect(tag::TAG_INTEGER)?;
+            let _when = entry.read_tlv()?;
+            if !entry.is_empty() {
+                let body = entry.expect(tag::TAG_SEQUENCE)?;
+                let extensions = Extensions::from_body(body);
+                collect_unsupported(&extensions, &PROCESSED_ENTRY_EXTENSIONS, &mut found)?;
+            }
+        }
+        Ok(found)
+    }
+
+    /// Whether the CRL carries the delta CRL indicator, meaning it lists only
+    /// changes since a base CRL and cannot answer for a serial it omits.
+    pub fn is_delta(&self) -> Result<bool, ParseError> {
+        Ok(self.extensions.find(OID_DELTA_CRL_INDICATOR)?.is_some())
+    }
+
+    /// The issuing distribution point's scope flags, if the extension is present.
+    ///
+    /// IssuingDistributionPoint ::= SEQUENCE {
+    ///     distributionPoint          [0] DistributionPointName OPTIONAL,
+    ///     onlyContainsUserCerts      [1] BOOLEAN DEFAULT FALSE,
+    ///     onlyContainsCACerts        [2] BOOLEAN DEFAULT FALSE,
+    ///     onlySomeReasons            [3] ReasonFlags OPTIONAL,
+    ///     indirectCRL                [4] BOOLEAN DEFAULT FALSE,
+    ///     onlyContainsAttributeCerts [5] BOOLEAN DEFAULT FALSE }
+    pub fn issuing_distribution_point(
+        &self,
+    ) -> Result<Option<IssuingDistributionPoint>, ParseError> {
+        let Some(ext) = self.extensions.find(OID_ISSUING_DISTRIBUTION_POINT)? else {
+            return Ok(None);
+        };
+        let mut outer = DerReader::new(ext.value);
+        let mut seq = outer.expect_constructed(tag::TAG_SEQUENCE)?;
+        outer.end()?;
+        let mut idp = IssuingDistributionPoint::default();
+        while !seq.is_empty() {
+            let item = seq.read_tlv()?;
+            let flag = item.value.first().is_some_and(|b| *b != 0);
+            match item.tag {
+                0x81 => idp.only_contains_user_certs = flag,
+                0x82 => idp.only_contains_ca_certs = flag,
+                0x83 => idp.only_some_reasons = true,
+                0x84 => idp.indirect_crl = flag,
+                0x85 => idp.only_contains_attribute_certs = flag,
+                0xa0 => parse_distribution_point_name(item.value, &mut idp)?,
+                _ => {} // anything unknown
+            }
+        }
+        Ok(Some(idp))
+    }
+}
+
+/// DistributionPointName ::= CHOICE {
+///     fullName                [0] GeneralNames,
+///     nameRelativeToCRLIssuer [1] RelativeDistinguishedName }
+/// GeneralName uniformResourceIdentifier is [6] IMPLICIT IA5String.
+fn parse_distribution_point_name(
+    body: &[u8],
+    idp: &mut IssuingDistributionPoint,
+) -> Result<(), ParseError> {
+    let mut reader = DerReader::new(body);
+    while !reader.is_empty() {
+        let choice = reader.read_tlv()?;
+        match choice.tag {
+            0xa0 => {
+                let mut names = DerReader::new(choice.value);
+                while !names.is_empty() {
+                    let name = names.read_tlv()?;
+                    if name.tag == 0x86 {
+                        idp.distribution_point_uris
+                            .push(String::from_utf8_lossy(name.value).into_owned());
+                    } else {
+                        idp.names_other_locations = true;
+                    }
+                }
+            }
+            _ => idp.names_other_locations = true, // [1] nameRelativeToCRLIssuer
+        }
+    }
+    Ok(())
+}
+
+fn collect_unsupported(
+    extensions: &Extensions<'_>,
+    processed: &[&[u8]],
+    found: &mut Vec<String>,
+) -> Result<(), ParseError> {
+    for ext in extensions.iter() {
+        let ext = ext?;
+        if !ext.critical || processed.contains(&ext.oid.as_bytes()) {
+            continue;
+        }
+        let id = ext.oid.to_id_string();
+        if !found.contains(&id) {
+            found.push(id);
+        }
+    }
+    Ok(())
 }
 
 fn strip_leading_zeros(bytes: &[u8]) -> &[u8] {
@@ -250,5 +412,188 @@ mod tests {
     fn malformed_input_errors_instead_of_panicking() {
         assert!(Crl::from_der(&[0x30, 0x00]).is_err());
         assert!(Crl::from_der(&[0x04, 0x01, 0x00]).is_err());
+    }
+
+    fn ext(oid: &[u8], value: &[u8]) -> Vec<u8> {
+        let mut body = tlv(tag::TAG_OBJECT_IDENTIFIER, oid);
+        body.extend(tlv(tag::TAG_OCTET_STRING, value));
+        tlv(tag::TAG_SEQUENCE, &body)
+    }
+
+    fn crl_with_extensions(extensions: &[Vec<u8>]) -> Vec<u8> {
+        let mut alg = tlv(
+            tag::TAG_OBJECT_IDENTIFIER,
+            &[0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x0b],
+        );
+        alg.extend_from_slice(&[0x05, 0x00]);
+        let alg = tlv(tag::TAG_SEQUENCE, &alg);
+        let mut tbs = tlv(tag::TAG_INTEGER, &[1]);
+        tbs.extend_from_slice(&alg);
+        tbs.extend(tlv(tag::TAG_SEQUENCE, &[])); // empty issuer Name
+        tbs.extend(utc("260906120000Z"));
+        if !extensions.is_empty() {
+            let mut list = Vec::new();
+            for e in extensions {
+                list.extend_from_slice(e);
+            }
+            let seq = tlv(tag::TAG_SEQUENCE, &list);
+            tbs.extend(tlv(tag::CONTEXT_CONSTRUCTED_0, &seq));
+        }
+        let mut outer = tlv(tag::TAG_SEQUENCE, &tbs);
+        outer.extend_from_slice(&alg);
+        outer.extend(tlv(tag::TAG_BIT_STRING, &[0x00, 0x01, 0x02]));
+        tlv(tag::TAG_SEQUENCE, &outer)
+    }
+
+    fn critical_ext(oid: &[u8], value: &[u8]) -> Vec<u8> {
+        let mut body = tlv(tag::TAG_OBJECT_IDENTIFIER, oid);
+        body.extend(tlv(tag::TAG_BOOLEAN, &[0xff]));
+        body.extend(tlv(tag::TAG_OCTET_STRING, value));
+        tlv(tag::TAG_SEQUENCE, &body)
+    }
+
+    fn entry_with_extensions(serial: &[u8], extensions: &[Vec<u8>]) -> Vec<u8> {
+        let mut body = tlv(tag::TAG_INTEGER, serial);
+        body.extend(utc("260901000000Z"));
+        let mut list = Vec::new();
+        for e in extensions {
+            list.extend_from_slice(e);
+        }
+        body.extend(tlv(tag::TAG_SEQUENCE, &list));
+        tlv(tag::TAG_SEQUENCE, &body)
+    }
+
+    #[test]
+    fn critical_extensions_certmonitor_processes_are_not_reported() {
+        let der = crl_with_extensions(&[
+            critical_ext(OID_DELTA_CRL_INDICATOR, &tlv(tag::TAG_INTEGER, &[5])),
+            critical_ext(
+                OID_ISSUING_DISTRIBUTION_POINT,
+                &tlv(tag::TAG_SEQUENCE, &tlv(0x81, &[0xff])),
+            ),
+            critical_ext(OID_CRL_NUMBER, &tlv(tag::TAG_INTEGER, &[7])),
+            critical_ext(oid::OID_EXT_AKI, &tlv(tag::TAG_SEQUENCE, &tlv(0x80, &[1]))),
+            ext(&[0x2a, 0x03, 0x04], &[0x05, 0x00]), // 1.2.3.4, not critical
+        ]);
+        let parsed = Crl::from_der(&der).unwrap();
+        assert!(parsed.unsupported_critical_extensions().unwrap().is_empty());
+    }
+
+    #[test]
+    fn unknown_critical_crl_extensions_are_reported_once_each() {
+        let der = crl_with_extensions(&[
+            critical_ext(&[0x2a, 0x03, 0x04], &[0x05, 0x00]),
+            critical_ext(&[0x2a, 0x03, 0x04], &[0x05, 0x00]),
+            critical_ext(&[0x55, 0x1d, 0x2e], &tlv(tag::TAG_SEQUENCE, &[])), // freshestCRL
+        ]);
+        let parsed = Crl::from_der(&der).unwrap();
+        assert_eq!(
+            parsed.unsupported_critical_extensions().unwrap(),
+            vec!["1.2.3.4", "2.5.29.46"]
+        );
+    }
+
+    #[test]
+    fn critical_entry_extensions_are_scanned_on_every_entry() {
+        let reason = critical_ext(OID_CRL_REASON, &tlv(0x0a, &[1]));
+        let invalidity = critical_ext(
+            OID_INVALIDITY_DATE,
+            &tlv(tag::TAG_GENERALIZED_TIME, b"20260901000000Z"),
+        );
+        // certificateIssuer (2.5.29.29) on the third entry only.
+        let issuer = critical_ext(&[0x55, 0x1d, 0x1d], &tlv(tag::TAG_SEQUENCE, &[]));
+        let der = crl(
+            &[
+                entry_with_extensions(&[0x10], &[reason.clone(), invalidity]),
+                entry(&[0x20], Some(4)),
+                entry_with_extensions(&[0x30], &[issuer]),
+            ],
+            true,
+        );
+        let parsed = Crl::from_der(&der).unwrap();
+        assert_eq!(
+            parsed.unsupported_critical_extensions().unwrap(),
+            vec!["2.5.29.29"]
+        );
+        let clean = crl(&[entry_with_extensions(&[0x10], &[reason])], true);
+        let parsed = Crl::from_der(&clean).unwrap();
+        assert!(parsed.unsupported_critical_extensions().unwrap().is_empty());
+    }
+
+    #[test]
+    fn no_extensions_means_no_scope_narrowing() {
+        let der = crl_with_extensions(&[]);
+        let parsed = Crl::from_der(&der).unwrap();
+        assert!(!parsed.is_delta().unwrap());
+        assert!(parsed.issuing_distribution_point().unwrap().is_none());
+    }
+
+    #[test]
+    fn delta_crl_indicator_is_reported() {
+        let der =
+            crl_with_extensions(&[ext(OID_DELTA_CRL_INDICATOR, &tlv(tag::TAG_INTEGER, &[5]))]);
+        let parsed = Crl::from_der(&der).unwrap();
+        assert!(parsed.is_delta().unwrap());
+    }
+
+    #[test]
+    fn issuing_distribution_point_scope_flags() {
+        let idp_body = {
+            let mut body = tlv(0x83, &[0x03, 0x02, 0x05, 0x20]);
+            body.extend(tlv(0x84, &[0xff]));
+            body
+        };
+        let der = crl_with_extensions(&[ext(
+            OID_ISSUING_DISTRIBUTION_POINT,
+            &tlv(tag::TAG_SEQUENCE, &idp_body),
+        )]);
+        let parsed = Crl::from_der(&der).unwrap();
+        let idp = parsed.issuing_distribution_point().unwrap().unwrap();
+        assert!(!idp.only_contains_user_certs);
+        assert!(!idp.only_contains_ca_certs);
+        assert!(idp.only_some_reasons);
+        assert!(idp.indirect_crl);
+        assert!(!idp.only_contains_attribute_certs);
+        assert!(idp.distribution_point_uris.is_empty());
+        assert!(!idp.names_other_locations);
+    }
+
+    /// distributionPoint [0] EXPLICIT DistributionPointName, whose fullName
+    /// [0] holds two URIs and a directoryName (tag 0xa4, body immaterial).
+    #[test]
+    fn distribution_point_full_name_reports_uris_and_other_locations() {
+        let mut full_name = tlv(0x86, b"http://a.test/x.crl");
+        full_name.extend(tlv(0x86, b"http://b.test/x.crl"));
+        full_name.extend(tlv(0xa4, &tlv(tag::TAG_SEQUENCE, &[])));
+        let choice = tlv(0xa0, &full_name);
+        let idp_body = tlv(0xa0, &choice);
+        let der = crl_with_extensions(&[ext(
+            OID_ISSUING_DISTRIBUTION_POINT,
+            &tlv(tag::TAG_SEQUENCE, &idp_body),
+        )]);
+        let parsed = Crl::from_der(&der).unwrap();
+        let idp = parsed.issuing_distribution_point().unwrap().unwrap();
+        assert_eq!(
+            idp.distribution_point_uris,
+            vec!["http://a.test/x.crl", "http://b.test/x.crl"]
+        );
+        assert!(idp.names_other_locations);
+    }
+
+    /// distributionPoint [0] EXPLICIT DistributionPointName, holding
+    /// nameRelativeToCRLIssuer [1] (a SET, body immaterial) instead of a
+    /// fullName.
+    #[test]
+    fn distribution_point_name_relative_to_issuer_reports_no_uris() {
+        let choice = tlv(0xa1, &tlv(tag::TAG_SET, &[]));
+        let idp_body = tlv(0xa0, &choice);
+        let der = crl_with_extensions(&[ext(
+            OID_ISSUING_DISTRIBUTION_POINT,
+            &tlv(tag::TAG_SEQUENCE, &idp_body),
+        )]);
+        let parsed = Crl::from_der(&der).unwrap();
+        let idp = parsed.issuing_distribution_point().unwrap().unwrap();
+        assert!(idp.distribution_point_uris.is_empty());
+        assert!(idp.names_other_locations);
     }
 }

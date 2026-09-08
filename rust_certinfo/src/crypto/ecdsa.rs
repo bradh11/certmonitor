@@ -1,6 +1,6 @@
 // rust_certinfo/src/crypto/ecdsa.rs
 //
-// ECDSA verification over the NIST curves P-256 and P-384 (FIPS 186-4,
+// ECDSA verification over the NIST curves P-256, P-384, and P-521 (FIPS 186-4,
 // SEC 1 §4.1.4). Points are kept in Jacobian coordinates so the only field
 // inversion is the final one. Both curves have a = -3, which the doubling
 // formula relies on. Arithmetic is the generic `BigUint` with reduction
@@ -15,6 +15,7 @@ use crate::der::{tag, DerReader};
 pub enum Curve {
     P256,
     P384,
+    P521,
 }
 
 struct Params {
@@ -53,6 +54,14 @@ impl Curve {
                 gx: hex("aa87ca22be8b05378eb1c71ef320ad746e1d3b628ba79b9859f741e082542a385502f25dbf55296c3a545e3872760ab7"),
                 gy: hex("3617de4a96262c6f5d9e98bf9292dc29f8f41dbd289a147ce9da3113b5f0b8c00a60b1ce1d7e819d7a431d7c90ea0e5f"),
                 size: 48,
+            },
+            Curve::P521 => Params {
+                p: hex("01ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"),
+                b: hex("0051953eb9618e1c9a1f929a21a0b68540eea2da725b99b315f3b8b489918ef109e156193951ec7e937b1652c0bd3bb1bf073573df883d2c34f1ef451fd46b503f00"),
+                n: hex("01fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffa51868783bf2f966b7fcc0148f709a5d03bb5c9b8899c47aebb6fb71e91386409"),
+                gx: hex("00c6858e06b70404e9cd9e3ecb662395b4429c648139053fb521f828af606b4d3dbaa14b5e77efe75928fe1dc127a2ffa8de3348b3c1856a429bf97e7e31c2e5bd66"),
+                gy: hex("011839296a789a3bc0045c8a5fb42c7d1bd998f54449579b446817afbd17273e662c97ee72995ef42640c550b9013fad0761353c7086a272c24088be94769fd16650"),
+                size: 66,
             },
         }
     }
@@ -333,6 +342,20 @@ mod tests {
         assert!(verify(&k384, &hex_bytes(DIGEST384), &hex_bytes(P384_SIG)).unwrap());
         // A longer digest than the curve order is truncated (SHA-384 on P-256).
         assert!(!verify(&k256, &hex_bytes(DIGEST384), &hex_bytes(P256_SIG)).unwrap());
+    }
+
+    #[test]
+    fn wycheproof_p521_sha512_vector_verifies() {
+        // ecdsa_secp521r1_sha512_test.json, testGroups[0], tcId 1 (empty message).
+        let spki_hex = "30819b301006072a8648ce3d020106052b810400230381860004012a908bfc5b70e17bdfae74294994808bf2a42dab59af8b0523a026d640a2a3d6d344520b62177e2cfa339ca42fb0883ec425904fbda2833a3b5b0a9a00811365d8012333d532f8f8eb1a623c378a3694651192bbda833e3b8d7b8f90b2bfc9b045f8a55e1b6a5fe1512c400c4bc9c86fd7c699d642f5cee9bb827c8b0abc0da01cef1e";
+        let sig_hex = "308188024201625d6115092a8e2ee21b9f8a425aa73814dec8b2335e86150ab4229f5a3421d2e6256d632c7a4365a1ee01dd2a936921bbb4551a512d1d4b5a56c314e4a02534c5024201b792d23f2649862595451055777bda1b02dc6cc8fef23231e44b921b16155cd42257441d75a790371e91819f0a9b1fd0ebd02c90b5b774527746ed9bfe743dbe2f";
+        let digest_hex = "cf83e1357eefb8bdf1542850d66d8007d620e4050b5715dc83f4a921d36ce9ce47d0d13c5d85f2b0ff8318d2877eec2f63b931bd47417a81a538327af927da3e";
+        let k521 = key(Curve::P521, spki_hex);
+        let digest = hex_bytes(digest_hex);
+        assert_eq!(verify(&k521, &digest, &hex_bytes(sig_hex)), Ok(true));
+        let mut tampered = digest;
+        tampered[0] ^= 1;
+        assert_eq!(verify(&k521, &tampered, &hex_bytes(sig_hex)), Ok(false));
     }
 
     #[test]

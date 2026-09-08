@@ -32,7 +32,8 @@ def open_stream(
     Args:
         host: Address to connect to.
         port: TCP port.
-        timeout: Timeout in seconds for the connection and each preamble step.
+        timeout: Timeout in seconds for the connection and, separately, for
+            the whole STARTTLS preamble.
         starttls: One of `starttls.PROTOCOLS` to negotiate before returning,
             or `None` for a bare connection.
         proxy: Tunnel to reach the host through, or `None` to connect directly.
@@ -45,7 +46,7 @@ def open_stream(
     sock = open_connection(host, port, timeout, proxy)
     try:
         if starttls:
-            starttls_negotiation.negotiate(sock, starttls)
+            starttls_negotiation.negotiate(sock, starttls, timeout=timeout)
     except BaseException:
         sock.close()
         raise

@@ -4,20 +4,20 @@
 
 ### Test Modularization Status
 - **Modular test files:** 10 files
-- **Total test lines:** 2,741 lines
-- **Average file size:** 274 lines
+- **Total test lines:** 2,780 lines
+- **Average file size:** 278 lines
 - **Main test file:** 22 lines
 
 ### Test Coverage
 - **Overall coverage:** 99.9%
-- **Total tests:** 3298
-- **Statements covered:** 2,800/2,804
-- **Files with coverage:** 38
+- **Total tests:** 4851
+- **Statements covered:** 3,075/3,079
+- **Files with coverage:** 39
 
 ### Type Hint Coverage
-- **Files analyzed:** 34
-- **Files with type hints:** 32
-- **Type hint coverage:** 94.1%
+- **Files analyzed:** 35
+- **Files with type hints:** 33
+- **Type hint coverage:** 94.3%
 
 ### Code Quality
 - **Ruff issues:** 0
@@ -29,8 +29,8 @@
 - **Rust vulnerabilities found:** 0
 - **Python security scanning:** ✅ Enabled
 - **Python security issues found:** 0
-- **Files scanned by bandit:** 38
-- **Lines scanned by bandit:** 6,048
+- **Files scanned by bandit:** 39
+- **Lines scanned by bandit:** 6,674
 - **Overall security status:** 🔒 Clean
 - **PyO3 version:** 0.29
 
@@ -51,7 +51,7 @@
 - **test_public_key_operations.py**: 213 lines, 12 functions
 - **test_initialization.py**: 211 lines, 17 functions
 - **test_raw_data_operations.py**: 70 lines, 4 functions
-- **test_review_regressions.py**: 324 lines, 37 functions
+- **test_review_regressions.py**: 363 lines, 39 functions
 - **test_utility_methods.py**: 140 lines, 11 functions
 - **test_connection_management.py**: 390 lines, 22 functions
 - **test_certificate_files.py**: 190 lines, 17 functions
@@ -66,18 +66,19 @@
 
 ### Files with Type Hints
 - **config.py**: ❌ (14 lines)
-- **core.py**: ✅ (1495 lines)
-- **revocation.py**: ✅ (619 lines)
-- **cli.py**: ✅ (433 lines)
-- **scanning.py**: ✅ (171 lines)
+- **core.py**: ✅ (1469 lines)
+- **revocation.py**: ✅ (987 lines)
+- **cli.py**: ✅ (466 lines)
+- **signatures.py**: ✅ (210 lines)
+- **scanning.py**: ✅ (187 lines)
 - **error_handlers.py**: ✅ (29 lines)
 - **cipher_algorithms.py**: ✅ (109 lines)
-- **compare.py**: ✅ (285 lines)
-- **protocol_handlers/starttls.py**: ✅ (353 lines)
+- **compare.py**: ✅ (311 lines)
+- **protocol_handlers/starttls.py**: ✅ (405 lines)
 - **protocol_handlers/ssl_handler.py**: ✅ (227 lines)
 - **protocol_handlers/detection.py**: ✅ (82 lines)
-- **protocol_handlers/proxy.py**: ✅ (226 lines)
-- **protocol_handlers/connection.py**: ✅ (76 lines)
+- **protocol_handlers/proxy.py**: ✅ (236 lines)
+- **protocol_handlers/connection.py**: ✅ (77 lines)
 - **protocol_handlers/ssh_handler.py**: ✅ (79 lines)
 - **protocol_handlers/http.py**: ✅ (229 lines)
 - **protocol_handlers/base.py**: ✅ (32 lines)
@@ -93,9 +94,9 @@
 - **validators/pq_key_exchange.py**: ✅ (186 lines)
 - **validators/root_certificate_validator.py**: ✅ (88 lines)
 - **validators/pq_signature.py**: ✅ (187 lines)
-- **validators/revocation.py**: ✅ (202 lines)
+- **validators/revocation.py**: ✅ (220 lines)
 - **validators/tls_version.py**: ✅ (95 lines)
-- **validators/key_info.py**: ✅ (204 lines)
+- **validators/key_info.py**: ✅ (222 lines)
 - **validators/base.py**: ✅ (157 lines)
 - **validators/hostname.py**: ✅ (129 lines)
 - **validators/_utils.py**: ✅ (38 lines)

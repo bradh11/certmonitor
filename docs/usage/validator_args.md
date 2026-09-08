@@ -40,6 +40,9 @@ Enable the validator first: passing `validator_args` configures a check but does
 
     Notice that the error even tells you which arguments *are* accepted, so the fix is usually obvious.
 
+!!! note "Every key must name a validator that runs"
+    A key in `validator_args` that is not a validator name produces a result with `status: "error"` and `error: "UnknownValidator"`, so a misspelled `"expiratoin"` fails the run instead of silently leaving the default threshold in place. A key for a real validator that is not in `enabled_validators` produces a `status: "warn"` result saying the arguments were not applied; the run still passes unless you fail on warnings.
+
 ## Example: sensitive_date
 
 Here's a more interesting one. The `sensitive_date` validator accepts a `dates` list, and it's flexible about how you describe each date. An entry can be a `SensitiveDate` named tuple, a plain `date`, an ISO 8601 string, or a `(name, date)` tuple. Use whichever fits your config source best:

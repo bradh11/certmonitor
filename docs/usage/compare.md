@@ -39,11 +39,11 @@ Any observation shape works: an entry from `certmonitor check --json`, a `scan_h
 | `subject` | The subject changed | notice |
 | `key` | Algorithm or size changed | notice, warning if weaker |
 | `status_changes` | A validator's `status` changed, or a validator appeared or disappeared between the runs | warning if it now fails or errors, notice otherwise |
-| `scan_error` | Either snapshot is a failed scan (it carries `error` and no results) | warning if the current scan failed, notice if only the previous one did |
+| `scan_error` | Either snapshot observed no certificate: a top-level `error` (with or without `results`), or, for older snapshots, results that are all `status: "error"` beside an empty certificate | warning if the current scan failed, notice if only the previous one did |
 
 `severity` is the worst of the above, `changed` is false when nothing differs, and `replaced` is true when the fingerprint (or, failing that, the serial number) differs. A replacement whose only other effect is a later expiry is called out as a routine renewal.
 
-A check that stops running is a change too. If yesterday's run had a `hostname` result and today's does not, the validator was disabled, misspelled, or failed to load, and the report says so instead of staying silent. And when one side is a failed scan, there is no certificate to compare: the report carries the scan's error in `scan_error` and one finding explaining it, rather than a list of fields that "changed to None".
+A check that stops running is a change too. If yesterday's run had a `hostname` result and today's does not, the validator was disabled, misspelled, or failed to load, and the report says so instead of staying silent. And when one side is a failed scan, there is no certificate to compare: the report carries the scan's error in `scan_error` and one finding explaining it, rather than a list of fields that "changed to None". This holds whether the failure is recorded at the top level (`error` and `message`, which `certmonitor check --json` and `scan_hosts()` add whenever a certificate-based check ran and no certificate could be collected) or only inside per-check results, as older snapshots did.
 
 ## From the shell
 

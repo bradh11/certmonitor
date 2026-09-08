@@ -39,6 +39,8 @@ certmonitor check example.com -v expiration,hostname,chain,pq_key_exchange \
 
 `-v` takes a comma-separated list of validator names. `--arg` takes `validator.key=value` and is repeatable; the value is parsed as JSON when it looks like JSON (numbers, `true`, `null`, lists) and used as text otherwise. `certmonitor validators` prints every validator with its arguments and defaults, without touching the network.
 
+An `--arg` for a name that is not a validator is a usage error: the command prints the problem and exits 2 before touching the network. An `--arg` for a validator that `-v` does not enable prints a warning to stderr and the report carries a `WARN` line for it, since the argument had no effect.
+
 ## Check a certificate file
 
 ```sh

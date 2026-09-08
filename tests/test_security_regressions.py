@@ -1,16 +1,23 @@
 """Offline regressions for the repository review's validation findings."""
 
 import contextlib
+import shutil
 import socket
 import ssl
+import subprocess
 import threading
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from certmonitor import CertMonitor
+from certmonitor import CertMonitor, certinfo
 from certmonitor.validators.hostname import HostnameValidator
+from certmonitor.validators.key_info import KeyInfoValidator
 from certmonitor.validators.subject_alt_names import SubjectAltNamesValidator
+from tests.support import algorithm_identifier, der
+
+# id-Ed25519 (RFC 8410 §3), OID 1.3.101.112.
+_OID_ED25519 = bytes.fromhex("2b6570")
 
 
 @pytest.mark.parametrize(
@@ -243,3 +250,60 @@ def test_chain_non_ca_is_rejected_and_weak_policy_configurable():
     assert validator.validate(
         {"chain_analysis": analysis}, "example.com", 443, reject_weak_signatures=False
     )["is_valid"]
+
+
+def _self_signed(tmp_path, *key_args: str) -> bytes:
+    openssl = shutil.which("openssl")
+    if openssl is None:
+        pytest.skip("OpenSSL CLI required")
+    pem = tmp_path / "cert.pem"
+    try:
+        subprocess.run(
+            [openssl, "req", "-x509", "-nodes", *key_args, "-keyout", str(tmp_path / "k.pem"),
+             "-out", str(pem), "-days", "1", "-subj", "/CN=t"],
+            check=True, capture_output=True,
+        )  # fmt: skip
+    except subprocess.CalledProcessError as exc:
+        pytest.skip(
+            f"OpenSSL cannot generate this key: {exc.stderr.decode(errors='replace').strip()}"
+        )
+    return ssl.PEM_cert_to_DER_cert(pem.read_text())
+
+
+def test_rsa_key_size_is_not_rounded_up(tmp_path):
+    cert_der = _self_signed(tmp_path, "-newkey", "rsa:2041")
+    info = certinfo.parse_public_key_info(cert_der)
+    assert info["size"] == 2041
+    verdict = KeyInfoValidator().validate({"public_key_info": info}, "h", 443)
+    assert verdict["is_valid"] is False
+    assert "2041" in verdict["reason"]
+
+
+def test_ed25519_keys_are_recognized_and_strong(tmp_path):
+    cert_der = _self_signed(tmp_path, "-newkey", "ed25519")
+    info = certinfo.parse_public_key_info(cert_der)
+    assert info == {"algorithm": "Ed25519", "size": 256, "curve": None}
+    verdict = KeyInfoValidator().validate({"public_key_info": info}, "h", 443)
+    assert verdict["is_valid"] is True
+
+
+def _minimal_certificate(spki: bytes) -> bytes:
+    """The smallest Certificate DER `Certificate::from_der` accepts: version
+    absent, empty issuer/subject Names, a UTCTime validity, no extensions."""
+    serial = der(0x02, b"\x01")
+    sig_alg = algorithm_identifier(_OID_ED25519)
+    empty_name = der(0x30, b"")
+    validity = der(0x30, der(0x17, b"250101000000Z") + der(0x17, b"350101000000Z"))
+    tbs = der(0x30, serial + sig_alg + empty_name + validity + empty_name + spki)
+    signature_value = der(0x03, b"\x00\x00")
+    return der(0x30, tbs + sig_alg + signature_value)
+
+
+def test_ed25519_wrong_length_key_reports_unknown_algorithm():
+    # RFC 8410 §3 fixes Ed25519 keys at 32 bytes; a 31-byte key must fail
+    # closed to "unknown" rather than being classified as EdDSA.
+    spki = der(
+        0x30, algorithm_identifier(_OID_ED25519) + der(0x03, b"\x00" + b"\x00" * 31)
+    )
+    info = certinfo.parse_public_key_info(_minimal_certificate(spki))
+    assert info["algorithm"] == "unknown"

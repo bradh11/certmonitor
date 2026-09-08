@@ -229,11 +229,21 @@ def test_unknown_protocol_is_rejected():
         CertMonitor("host.test", starttls="gopher")
 
 
-class ResetSocket:
-    """A socket whose peer reset the connection before answering."""
+class FakeSocket:
+    """Enough of a blocking socket for the preamble helpers: no timeout, no deadline."""
+
+    def gettimeout(self):
+        return None
+
+    def settimeout(self, value):
+        raise AssertionError("a socket without a budget must not be given a timeout")
 
     def sendall(self, data):
         return None
+
+
+class ResetSocket(FakeSocket):
+    """A socket whose peer reset the connection before answering."""
 
     def recv(self, size):
         raise ConnectionResetError(104, "Connection reset by peer")
@@ -376,6 +386,80 @@ def test_overlong_reply_line_is_rejected():
     with client_end, server_end:
         with pytest.raises(StartTLSError, match="too long"):
             negotiate(client_end, "smtp")
+
+
+class _EndlessLines(FakeSocket):
+    """A socket that answers with the same line forever."""
+
+    def __init__(self, line):
+        self.line = line
+        self.sent = 0
+
+    def recv(self, size):
+        at = self.sent % len(self.line)
+        self.sent += 1
+        return self.line[at : at + 1]
+
+
+def test_replies_with_too_many_lines_are_refused():
+    wire = starttls._Wire(_EndlessLines(b"250-x\r\n"), None)
+    with pytest.raises(starttls.StartTLSError, match="too many lines"):
+        starttls._read_reply(wire)
+
+
+def test_an_exhausted_budget_stops_the_next_socket_call():
+    # Once the deadline has passed nothing more is read or written; the
+    # socket is not even given a timeout.
+    wire = starttls._Wire(FakeSocket(), 0.0)
+    with pytest.raises(TimeoutError, match="ran out of time"):
+        wire.recv(1)
+    with pytest.raises(TimeoutError, match="ran out of time"):
+        wire.sendall(b"x")
+
+
+def test_imap_untagged_lines_before_the_reply_are_capped():
+    wire = starttls._Wire(_EndlessLines(b"* OK still thinking\r\n"), None)
+    with pytest.raises(starttls.StartTLSError, match="too many untagged lines"):
+        starttls._imap(wire, "certmonitor")
+
+
+def drips(conn):
+    """Sends a plausible greeting one byte at a time, a byte every 50 ms, without end."""
+    try:
+        conn.sendall(b"2")
+        while True:
+            time.sleep(0.05)
+            conn.sendall(b"2")
+    except OSError:
+        return
+
+
+def test_negotiation_is_bounded_by_its_budget_when_bytes_trickle_in():
+    # Each byte arrives well inside a per-read timeout, so only a deadline
+    # for the whole exchange can end this.
+    with FakeServer(drips) as server:
+        with client(server.port) as sock:
+            started = time.monotonic()
+            # Whichever fires first, the read armed with the last of the
+            # budget or the check that none is left, is a TimeoutError.
+            with pytest.raises(TimeoutError):
+                negotiate(sock, "smtp", timeout=0.3)
+            assert time.monotonic() - started < 1.5
+
+
+def test_negotiation_budget_defaults_to_the_sockets_timeout_and_restores_it():
+    with FakeServer(drips) as server:
+        with client(server.port) as sock:
+            sock.settimeout(0.3)
+            started = time.monotonic()
+            with pytest.raises(TimeoutError):
+                negotiate(sock, "smtp")
+            assert time.monotonic() - started < 1.5
+            assert sock.gettimeout() == 0.3
+    with FakeServer(smtp_ok) as server:
+        with client(server.port) as sock:
+            negotiate(sock, "smtp", timeout=2)
+            assert sock.gettimeout() == 3
 
 
 @pytest.mark.parametrize(
@@ -548,7 +632,7 @@ def test_probes_treat_a_dead_socket_as_no_answer(probe):
     ours, theirs = socket.socketpair()
     theirs.close()
     with ours:
-        assert probe(ours, 0.5) is False
+        assert probe(starttls._Wire(ours, 0.5)) is False
 
 
 @pytest.mark.parametrize(

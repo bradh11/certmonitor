@@ -51,7 +51,9 @@ def parse_ocsp_response(der_data: bytes) -> dict[str, Any]:
 
     Returns `response_status`, `responder_name` (with `responder_name_der`) or
     `responder_key_hash`,
-    `produced_at` (unix seconds), `signature_algorithm`, `signature`,
+    `produced_at` (unix seconds), `signature_algorithm`,
+    `signature_algorithm_params` (the raw DER parameters, or `None` when
+    absent or NULL, e.g. for RSASSA-PSS), `signature`,
     `tbs_response_data` (the signed bytes), `certs` (attached responder
     certificates as DER), and `responses`: one dict per certificate with
     `cert_id`, `status` (good, revoked, unknown), `this_update`,
@@ -69,9 +71,26 @@ def ocsp_cert_id_inputs(leaf_der: bytes, issuer_der: bytes) -> dict[str, bytes] 
     ...
 
 def crl_info(der_data: bytes) -> dict[str, Any]:
-    """A DER CRL's `issuer`, `this_update`, `next_update` (unix seconds or
-    None), `signature_algorithm`, `revoked_count`, and the signed bytes
-    (`tbs_cert_list`) with their `signature`.
+    """A DER CRL's `issuer` (and its raw DER as `issuer_der`), `this_update`,
+    `next_update` (unix seconds or None), `signature_algorithm`,
+    `signature_algorithm_params` (the raw DER parameters, or `None` when
+    absent or NULL, e.g. for RSASSA-PSS),
+    `revoked_count`, and the signed bytes (`tbs_cert_list`) with their
+    `signature`. Also reports `delta_crl_indicator` (`True` when the CRL
+    lists only changes since a base CRL) and `issuing_distribution_point`,
+    a dict of the bool keys `only_contains_user_certs`,
+    `only_contains_ca_certs`, `only_some_reasons`, `indirect_crl`, and
+    `only_contains_attribute_certs`, the list `distribution_point_uris`
+    (every `uniformResourceIdentifier` the distribution point names), and
+    the bool `names_other_locations` (true when the distribution point
+    names something that is not a URI, such as a directory name), or
+    `None` when the CRL carries no issuing distribution point.
+    `unsupported_critical_extensions` lists, in dotted form, the critical
+    extensions on the list or on any entry that CertMonitor does not
+    process; RFC 5280 sections 5.2 and 5.3 forbid using such a CRL to
+    determine certificate status. Recognized are the delta CRL indicator,
+    the issuing distribution point, the CRL number, the authority key
+    identifier, and on entries the reason code and invalidity date.
     """
     ...
 
@@ -100,10 +119,67 @@ def verify_signature(
     """
     ...
 
+def parse_spki(spki_der: bytes) -> dict[str, Any]:
+    """Parse a bare DER SubjectPublicKeyInfo into `algorithm`, `size`,
+    `curve` (the same three keys `parse_public_key_info` reports for a whole
+    certificate), `key_bits`, the raw `subjectPublicKey` bits, and
+    `algorithm_params`, the raw `AlgorithmIdentifier.parameters` TLV or
+    `None` when absent or NULL. An `id-RSASSA-PSS` key (RFC 4055 section 1.2)
+    reports `algorithm` as `rsassaPss` and carries its usage restrictions in
+    `algorithm_params`. Raises `ValueError` when the SubjectPublicKeyInfo
+    does not parse.
+    """
+    ...
+
+def eddsa_verify(curve: str, public_key: bytes, r: bytes, s: bytes, k: bytes) -> bool:
+    """Verify a PureEdDSA signature (RFC 8032 §5.1.7, §5.2.7). `curve` is
+    `"Ed25519"` or `"Ed448"`, `public_key` the raw `subjectPublicKey` bits,
+    `r` and `s` the two halves of the signature, and `k` the challenge hash
+    `H(R || A || M)`, which the caller computes so the hashing stays in
+    Python. Returns `False` for a signature that is simply wrong; raises
+    `ValueError` for an unknown curve name, for a key, signature half, or
+    challenge of the wrong length, or for a public key that does not decode
+    to a point on the curve.
+    """
+    ...
+
 def certificate_signature_parts(der_data: bytes) -> dict[str, Any]:
     """The pieces needed to verify a certificate's own signature and to use it
-    as a signer: `tbs`, `signature`, `signature_algorithm`, `spki`, `key_bits`,
+    as a signer: `tbs`, `signature`, `signature_algorithm`,
+    `signature_algorithm_params` (the raw DER parameters, or `None` when
+    absent or NULL, e.g. for RSASSA-PSS), `spki`, `key_bits`,
     `subject`, `subject_der`, `issuer_der`, `not_before`, `not_after` (unix
-    seconds), and `extended_key_usage` (OIDs in dotted form).
+    seconds), `key_usage` (the set bits of the KeyUsage extension as
+    snake_case names such as `digital_signature`, `key_cert_sign`, and
+    `crl_sign`, or `None` when the certificate carries no KeyUsage
+    extension), and `extended_key_usage` (OIDs in dotted form).
+    """
+    ...
+
+def rsa_pss_encoded_message(signature: bytes, spki_der: bytes) -> tuple[bytes, int]:
+    """The RSASSA-PSS encoded message `EM` and the modulus's bit length.
+
+    `signature^e mod n` (RFC 8017 §5.2.2 RSAVP1) converted with I2OSP to
+    `emLen = ceil((modBits - 1) / 8)` octets, per RFC 8017 §8.1.2 step 2.c,
+    together with `modBits` so the caller can derive `emBits`. `spki_der`
+    is a DER SubjectPublicKeyInfo naming an RSA key. No padding scheme is
+    applied; RSASSA-PSS padding is checked in Python, using this primitive,
+    while PKCS#1 v1.5 signatures go through `verify_signature`. Raises
+    `ValueError` when the key is not RSA or is outside the supported
+    bounds, when `signature` is not exactly `ceil(modBits / 8)` bytes long,
+    when the signature integer is not less than the modulus, or when the
+    recovered value needs more than `modBits - 1` bits.
+    """
+    ...
+
+def rsa_pss_parameters(params_der: bytes | None) -> dict[str, Any]:
+    """Parse `RSASSA-PSS-params` (RFC 4055 §3.1) into `hash` and `mgf_hash`
+    (`hashlib` names), `salt_length` (int), and `trailer_field` (int).
+    `None` means the AlgorithmIdentifier carried no parameters, which
+    yields the RFC 4055 defaults: `sha1` for both hashes, a 20-byte salt,
+    and trailer field 1. Raises `ValueError` when the mask generation
+    function is not MGF1 (RFC 4055 §A.2.3), when a named hash is not one
+    of SHA-1, SHA-256, SHA-384, or SHA-512, or when the trailer field is
+    not 1 (the only value RFC 4055 defines).
     """
     ...

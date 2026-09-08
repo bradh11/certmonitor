@@ -88,8 +88,20 @@ pub fn key_info_dict<'py>(
 ) -> PyResult<Bound<'py, PyDict>> {
     let dict = PyDict::new(py);
     match spki.parsed() {
-        PublicKeyAlgorithm::Rsa { modulus_bits } => {
-            dict.set_item("algorithm", "rsaEncryption")?;
+        PublicKeyAlgorithm::Rsa {
+            modulus_bits,
+            pss_only,
+        } => {
+            // An RSA key encoded with id-RSASSA-PSS (RFC 4055 §1.2) is
+            // reported under its own name so consumers can see the RFC
+            // 4055 §3.3 usage restriction; `size` is the modulus bit
+            // length either way, and the same RSA floor applies.
+            let algorithm = if pss_only {
+                "rsassaPss"
+            } else {
+                "rsaEncryption"
+            };
+            dict.set_item("algorithm", algorithm)?;
             dict.set_item("size", modulus_bits)?;
             dict.set_item("curve", py.None())?;
         }
@@ -117,6 +129,11 @@ pub fn key_info_dict<'py>(
             // size. Consumers (key_info / pq_signature validators) key off
             // the `algorithm` string.
             dict.set_item("algorithm", algorithm.name)?;
+            dict.set_item("size", key_bits)?;
+            dict.set_item("curve", py.None())?;
+        }
+        PublicKeyAlgorithm::EdDsa { name, key_bits } => {
+            dict.set_item("algorithm", name)?;
             dict.set_item("size", key_bits)?;
             dict.set_item("curve", py.None())?;
         }
@@ -339,6 +356,13 @@ pub fn ocsp_response_dict<'py>(
             .signature_algorithm
             .map(|a| a.algorithm.to_id_string()),
     )?;
+    d.set_item(
+        "signature_algorithm_params",
+        response
+            .signature_algorithm
+            .and_then(|a| a.parameters)
+            .map(|p| PyBytes::new(py, p)),
+    )?;
     d.set_item("signature", response.signature.map(|s| PyBytes::new(py, s)))?;
     d.set_item(
         "tbs_response_data",
@@ -385,15 +409,47 @@ pub fn ocsp_response_dict<'py>(
 pub fn crl_info_dict<'py>(py: Python<'py>, crl: &Crl<'_>) -> PyResult<Bound<'py, PyDict>> {
     let d = PyDict::new(py);
     d.set_item("issuer", name_dict(py, &crl.issuer)?)?;
+    d.set_item("issuer_der", PyBytes::new(py, crl.issuer.raw))?;
     d.set_item("this_update", crl.this_update_unix)?;
     d.set_item("next_update", crl.next_update_unix)?;
     d.set_item(
         "signature_algorithm",
         crl.signature_algorithm.algorithm.to_id_string(),
     )?;
+    d.set_item(
+        "signature_algorithm_params",
+        crl.signature_algorithm
+            .parameters
+            .map(|p| PyBytes::new(py, p)),
+    )?;
     d.set_item("revoked_count", crl.revoked_count().map_err(to_py_err)?)?;
     d.set_item("tbs_cert_list", PyBytes::new(py, crl.tbs_cert_list))?;
     d.set_item("signature", PyBytes::new(py, crl.signature))?;
+    d.set_item("delta_crl_indicator", crl.is_delta().map_err(to_py_err)?)?;
+    d.set_item(
+        "unsupported_critical_extensions",
+        crl.unsupported_critical_extensions().map_err(to_py_err)?,
+    )?;
+    match crl.issuing_distribution_point().map_err(to_py_err)? {
+        Some(idp) => {
+            let scope = PyDict::new(py);
+            scope.set_item("only_contains_user_certs", idp.only_contains_user_certs)?;
+            scope.set_item("only_contains_ca_certs", idp.only_contains_ca_certs)?;
+            scope.set_item("only_some_reasons", idp.only_some_reasons)?;
+            scope.set_item("indirect_crl", idp.indirect_crl)?;
+            scope.set_item(
+                "only_contains_attribute_certs",
+                idp.only_contains_attribute_certs,
+            )?;
+            scope.set_item(
+                "distribution_point_uris",
+                idp.distribution_point_uris.clone(),
+            )?;
+            scope.set_item("names_other_locations", idp.names_other_locations)?;
+            d.set_item("issuing_distribution_point", scope)?;
+        }
+        None => d.set_item("issuing_distribution_point", py.None())?,
+    }
     Ok(d)
 }
 
@@ -425,7 +481,7 @@ pub fn cert_id_inputs_dict<'py>(
 
 /// The pieces needed to verify a certificate's own signature and to use it
 /// as a signer: signed bytes, signature, algorithm, key, names, validity,
-/// and extended key usage.
+/// key usage, and extended key usage.
 pub fn certificate_signature_parts_dict<'py>(
     py: Python<'py>,
     cert: &Certificate<'_>,
@@ -436,6 +492,12 @@ pub fn certificate_signature_parts_dict<'py>(
     d.set_item(
         "signature_algorithm",
         cert.signature_algorithm.algorithm.to_id_string(),
+    )?;
+    d.set_item(
+        "signature_algorithm_params",
+        cert.signature_algorithm
+            .parameters
+            .map(|p| PyBytes::new(py, p)),
     )?;
     d.set_item("spki", PyBytes::new(py, cert.spki.raw))?;
     d.set_item("key_bits", PyBytes::new(py, cert.spki.subject_public_key))?;
@@ -449,5 +511,9 @@ pub fn certificate_signature_parts_dict<'py>(
         purposes.append(purpose.to_id_string())?;
     }
     d.set_item("extended_key_usage", purposes)?;
+    match cert.extensions.key_usage().map_err(to_py_err)? {
+        Some(usage) => d.set_item("key_usage", usage.names())?,
+        None => d.set_item("key_usage", py.None())?,
+    }
     Ok(d)
 }

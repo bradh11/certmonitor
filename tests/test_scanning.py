@@ -1,5 +1,6 @@
 """Behavior of the bounded multi-host scanner."""
 
+import json
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -25,6 +26,7 @@ def _fake_monitor(monkeypatch, validate):
     mock = MagicMock()
     mock.return_value.__enter__.return_value.validate.side_effect = validate
     mock.return_value.__enter__.return_value.snapshot_at = "2026-09-05T00:00:00+00:00"
+    mock.return_value.__enter__.return_value.collection_error = None
     monkeypatch.setattr(scanning, "CertMonitor", mock)
     return mock
 
@@ -153,3 +155,30 @@ def test_results_carry_the_fingerprint(monkeypatch):
     mock = _fake_monitor(monkeypatch, no_results)
     mock.return_value.__enter__.return_value.fingerprint_sha256 = "ab" * 32
     assert next(scan_hosts(["a.test"]))["fingerprint_sha256"] == "ab" * 32
+
+
+def test_error_reports_never_serialize_the_endpoint_dict(monkeypatch):
+    _fake_monitor(monkeypatch, no_results)
+    results = list(
+        scan_hosts(
+            [
+                {"port": 443, "proxy": "http://u:SECRET@p:1"},
+                {"host": "x.test", "bogus": 1, "proxy": "socks5://u:SECRET@p:1"},
+            ]
+        )
+    )
+    assert all("error" in r for r in results)
+    assert "SECRET" not in json.dumps(results)
+    # Results arrive in completion order, so only the set of hosts is fixed.
+    assert sorted(r["host"] for r in results) == ["<endpoint without host>", "x.test"]
+
+
+def test_collection_failure_is_a_top_level_report_error(monkeypatch):
+    mock = _fake_monitor(monkeypatch, no_results)
+    mock.return_value.__enter__.return_value.collection_error = {
+        "error": "TimeoutError",
+        "message": "timed out",
+    }
+    [report] = list(scan_hosts(["slow.test"]))
+    assert report["error"] == "TimeoutError" and report["message"] == "timed out"
+    assert report["results"] == {}

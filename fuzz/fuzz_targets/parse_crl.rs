@@ -11,6 +11,9 @@ use libfuzzer_sys::fuzz_target;
 fuzz_target!(|data: &[u8]| {
     if let Ok(crl) = certinfo::Crl::from_der(data) {
         let _ = crl.revoked_count();
+        let _ = crl.is_delta();
+        let _ = crl.issuing_distribution_point();
+        let _ = crl.unsupported_critical_extensions();
         let probe = &data[..data.len().min(8)];
         let _ = crl.lookup(probe);
     }

@@ -13,7 +13,7 @@ import ipaddress
 import socket
 import struct
 from typing import NamedTuple
-from urllib.parse import unquote, urlsplit
+from urllib.parse import unquote, urlsplit, urlunsplit
 
 SCHEMES = ("http", "socks5", "socks5h")
 _LINE_LIMIT = 4096
@@ -50,6 +50,16 @@ class ProxyConfig(NamedTuple):
         return f"{self.scheme}://{auth}{host}:{self.port}"
 
 
+def redact_url(url: str) -> str:
+    """`url` with any password replaced by `***`, for error messages and logs."""
+    parts = urlsplit(url)
+    if parts.password is None:
+        return url
+    userinfo, _, hostinfo = parts.netloc.rpartition("@")
+    username, _, _ = userinfo.partition(":")
+    return urlunsplit(parts._replace(netloc=f"{username}:***@{hostinfo}"))
+
+
 def parse_proxy(url: str) -> ProxyConfig:
     """Parse `http://[user:pass@]host:port` or `socks5://[user:pass@]host:port`.
 
@@ -66,11 +76,11 @@ def parse_proxy(url: str) -> ProxyConfig:
             f"unsupported proxy scheme {parts.scheme!r}; use http:// or socks5://"
         )
     if not parts.hostname:
-        raise ValueError(f"proxy URL {url!r} has no host")
+        raise ValueError(f"proxy URL {redact_url(url)!r} has no host")
     try:
         port = parts.port
     except ValueError as exc:
-        raise ValueError(f"proxy URL {url!r} has an invalid port") from exc
+        raise ValueError(f"proxy URL {redact_url(url)!r} has an invalid port") from exc
     if port is None:
         port = 1080 if scheme.startswith("socks") else 3128
     username = unquote(parts.username) if parts.username else None

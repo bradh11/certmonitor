@@ -21,6 +21,95 @@ rename the headers to emoji form when cutting a release.
 ### Fixed
 - TBD
 
+## [0.6.0] - 2026-09-08
+
+# 📦 CertMonitor v0.6.0 – Proven Revocation
+
+**Release Date:** September 8, 2026
+**Repository:** [bradh11/certmonitor](https://github.com/bradh11/certmonitor)
+
+---
+
+## 🚀 Overview
+
+Every revocation answer now has to prove itself the same way. OCSP responses, CRLs, responder certificates, and the issuer's own signature over the certificate are verified in-house, with RSASSA-PSS, ECDSA over P-521, Ed25519, and Ed448 joining RSA PKCS#1 v1.5 and ECDSA over P-256 and P-384, and OpenSSL is out of the CRL path. An issuer that merely shares the right name no longer counts, a CRL that is out of scope, carries a critical extension CertMonitor cannot process, or comes from a key not allowed to sign CRLs is refused rather than read, and the caches hold signed evidence that is re-checked against the certificate in hand on every reuse. Around it: exact RSA key sizes and Edwards keys in `key_info`, proxy secrets kept out of error output, unknown validator arguments reported instead of ignored, failed collections surfaced as such, and one deadline for the whole STARTTLS preamble. Still zero runtime dependencies. Read the Upgrading section before adopting.
+
+---
+
+## ⬆️ Upgrading from 0.5.x
+
+Most users need no changes: the `revocation` validator is opt-in, and every other validator keeps its result shape. Check the following if you consume revocation results or call into `certmonitor.revocation` directly.
+
+- **CRL error codes changed.** The OpenSSL-era `verify_code` field is gone, and so are the `CRLVerificationFailed` and `SnapshotMismatch` codes. A CRL answer now carries `verification` and `verification_error` like an OCSP answer, and fails with one of `CRLInvalidSignature`, `CRLIssuerMismatch`, `CRLNotYetValid`, `CRLStale`, `CRLScopeUnsupported`, `CRLUnsupportedCriticalExtension`, `CRLSignerNotAuthorized`, or `MissingIssuer`. Update any matching on the old names.
+- **The CRL method needs the issuer certificate**, from the served chain or the certificate's `caIssuers` pointer, as OCSP always did. A server that sends only its leaf and offers no `caIssuers` URL now reports `MissingIssuer` for CRL checks.
+- **Stricter by design.** Results that passed under 0.5.x can now be `warn` or `error`: an issuer that only name-matches the leaf caps every answer at `unsupported`; an OCSP response without `nextUpdate` is refused once older than `max_age_hours` (default 24); CRLs that are partitioned, delta, from a key without `cRLSign`, or carrying unknown critical extensions are refused and the next source consulted; a cached OCSP answer is re-checked against the current certificate's issuer binding. `accept_unverified` still takes an unverifiable answer at its word, and never a failed one.
+- **Removed from `certmonitor.revocation`:** `RevocationEvidence(crl_check=...)` and `serial_bytes()`. `fetch_crl()` still fetches and parses but no longer caches; `remember_crl()` does, and `RevocationEvidence` calls it after the signature verifies.
+- **`validator_args` are checked.** A key naming no known validator is an `error` result (`UnknownValidator`), and `certmonitor check --arg` for an unknown validator exits 2. Arguments for a validator that is not enabled produce a `warn` saying they were not applied.
+- **Failed collections are explicit.** `certmonitor check --json` and `scan_hosts()` add top-level `error` and `message` when no certificate was collected, `CertMonitor.collection_error` exposes the same, and `compare_snapshots()` reports such snapshots as failed scans instead of a replaced certificate.
+- **`key_info` reports exact RSA sizes**, so a 2041-bit key is 2041 bits and fails the 2048 floor it previously passed; Ed25519 and Ed448 keys now pass instead of failing closed as `unknown`.
+
+---
+
+## ✨ Added
+- `revocation`: `max_age_hours` argument.
+- `key_info`: Ed25519 and Ed448 keys are recognized (`algorithm: "Ed25519"` or `"Ed448"`) and judged strong, instead of `unknown` and failing closed.
+- `CertMonitor.collection_error`: `None` after a successful collection, else `{"error", "message"}`.
+- `key_info` and `revocation`: RSA public keys encoded with `id-RSASSA-PSS` (RFC 4055) are recognized as `rsassaPss`, judged by the RSA size floor, and may only verify RSASSA-PSS signatures whose parameters satisfy the key's restrictions. A PKCS#1 v1.5 signature under such a key is a hard failure that `accept_unverified` does not rescue.
+- `revocation`: OCSP responses, CRLs, responder certificates, and issuer bindings signed with RSASSA-PSS, ECDSA over P-521, Ed25519, or Ed448 are now verified in-house, alongside RSA PKCS#1 v1.5 and ECDSA over P-256 and P-384. Scheme dispatch and the padding checks live in `certmonitor.signatures`; `certinfo` gains `rsa_pss_encoded_message`, `rsa_pss_parameters`, `eddsa_verify`, and `parse_spki`, and reports `signature_algorithm_params` and `key_bits`.
+
+---
+
+## 🔄 Changed
+- `revocation`: CRL answers report `MissingIssuer` when no chain or `caIssuers` certificate signed the leaf (the CRL method now needs the issuer certificate, as OCSP always did), `CRLIssuerMismatch` when the CRL names another issuer, and `CRLNotYetValid` or `CRLStale` outside its validity window. The OpenSSL-era `verify_code` field and the `CRLVerificationFailed` and `SnapshotMismatch` CRL error codes are gone, as are `RevocationEvidence(crl_check=...)` and `certmonitor.revocation.serial_bytes()`.
+- `revocation`: `fetch_crl()` no longer caches what it fetched. A CRL enters the cache through the new `remember_crl()` once its signature has verified, which `RevocationEvidence` does for you; call it yourself only if you verify CRLs through `fetch_crl()` directly.
+- `starttls.negotiate()` takes a keyword-only `timeout` for the whole preamble, defaulting to the socket's own timeout, and restores the socket's timeout afterwards. `open_stream()` passes its `timeout` through.
+
+---
+
+## 🛠️ Fixed
+- `revocation`: the issuer certificate must verify the leaf's signature before it is trusted; a certificate that merely shares the issuer's name (from the chain or the `caIssuers` pointer) is rejected, and when the leaf's algorithm cannot be checked every answer built on it is capped at `unsupported`.
+- `revocation`: OCSP answers must match the whole CertID (hash algorithm, issuer name hash, issuer key hash, serial), and the cache is keyed the same way.
+- `revocation`: OCSP responses without `nextUpdate` are refused once `thisUpdate` is older than `max_age_hours` (default 24), any response older than ten days is refused, and cache lifetime is anchored to `thisUpdate` so a re-fetched historical response gets no new lease.
+- `revocation`: answers whose signature failed verification are no longer cached.
+- `revocation`: a CRL carrying a critical extension CertMonitor cannot process, on the list or on any entry, is refused with `CRLUnsupportedCriticalExtension` (RFC 5280 sections 5.2 and 5.3), and a CRL from an issuer whose `keyUsage` is present without `cRLSign` is refused with `CRLSignerNotAuthorized` (section 6.3.3); previously both were verified passes. `certinfo.crl_info()` reports `unsupported_critical_extensions` and `certinfo.certificate_signature_parts()` reports `key_usage`.
+- `revocation`: a CRL is cached only once its signature has verified, so a corrupted or forged CRL is fetched again next time instead of being served from the cache until its `nextUpdate`. CRL cache expiry follows the CRL acceptance rule (its `nextUpdate`, at most a day), not the OCSP ten-day ceiling, so an old CRL that is still inside its validity window is reused rather than downloaded on every check.
+- `revocation`: the OCSP cache keeps the responder's evidence, not the first caller's verdict. Every reuse is capped by the current certificate's issuer binding, so a cache hit no longer reports `signature_verified: true` for a certificate whose issuer is only name-matched, and is held to the same freshness rule as a fresh response, so nothing is served once `thisUpdate` is ten days old; cache expiry is capped there too, and at the `notAfter` of a delegated responder certificate that signed the answer.
+- `revocation`: the CRL is verified in-house against the bound issuer and the collected certificate's serial is looked up directly; the extra OpenSSL handshake, which could attribute another certificate's revocation to the snapshot, is gone. CRL answers now carry `verification` and `verification_error` like OCSP answers, and a failed CRL signature reports `CRLInvalidSignature`.
+- `revocation`: a delta CRL, or a CRL whose issuing distribution point limits it to some reasons, to CA or attribute certificates, or to another issuer, or whose issuing distribution point names a location other than the one it was fetched from (RFC 5280 section 6.3.3), is refused with `CRLScopeUnsupported` instead of being read as a complete list; the next distribution point or OCSP is consulted. A CRL without `nextUpdate` is refused once `thisUpdate` is older than ten days. `certinfo.crl_info()` reports `delta_crl_indicator` and `issuing_distribution_point`, which now also carries `distribution_point_uris` and `names_other_locations`.
+- `key_info`: an Ed25519 or Ed448 key whose encoding is not 32 or 57 bytes is reported as `unknown` and fails closed.
+- `key_info`: RSA modulus sizes are reported exactly (a 2041-bit key is 2041 bits, not 2048), so undersized keys no longer pass the 2048-bit floor. A modulus whose DER INTEGER carries a surplus leading zero byte is reported as `algorithm: "unknown"` and fails closed.
+- Signature verification refuses RSA keys with a modulus over 16384 bits or a public exponent over 64 bits (OpenSSL's limits) as `unsupported` instead of computing with them.
+- Signature verification refuses an RSASSA-PSS parameter integer carrying a second leading zero octet, which is not minimal DER, and an Ed25519 or Ed448 public key of small order: under the cofactorless verification equation, a small-order key needs no private key at all, so refusing it outright (RFC 8032 section 8.8 discusses the cofactor) removes a universal-forgery shape.
+- Certificate parsing rejects a `pathLenConstraint` integer carrying a second leading zero octet, which is not minimal DER.
+- `pq_key_exchange`: a ServerHello split across TLS records is reassembled instead of reported as `ServerHello split across records`.
+- Proxy URL parse errors (`has no host`, `has an invalid port`) redact the password; `scan_hosts()` labels an invalid endpoint dict by its `host`, never by the whole dict, so proxy credentials no longer reach CLI or fleet output.
+- `validate()` no longer ignores `validator_args` keys that name no validator that runs: an unknown name is an error (`UnknownValidator`), and a real validator that is not enabled gets a `warn` result saying its arguments were not applied. `certmonitor check` rejects an `--arg` for an unknown validator as a usage error (exit 2) and warns on stderr about one for a validator `-v` does not enable.
+- `certmonitor check --json` and `scan_hosts()` add top-level `error` and `message` when no certificate was collected, and `compare_snapshots()` treats such snapshots (and older ones whose results are all errors beside an empty certificate) as failed scans instead of reporting the certificate as replaced with a `None` issuer.
+- STARTTLS multi-line replies are capped at 64 lines, and so are the untagged IMAP lines that may precede the `STARTTLS` reply.
+- STARTTLS negotiation runs against one deadline of `timeout` seconds for the whole preamble, every read and write included, instead of a per-read socket timeout that restarted whenever a byte arrived.
+- CI: `cargo audit` now actually runs, in the security job, on every PR and weekly; the old step was gated on a matrix value that never matched.
+- Security policy points at the right repository, lists 0.5.x as supported, and describes the in-house parser; `pytest.ini` declares its marker correctly.
+
+---
+
+## 📚 Documentation
+
+Comprehensive documentation is available at [certmonitor.readthedocs.io](https://certmonitor.readthedocs.io/).
+
+---
+
+## 🐍 Python Compatibility
+
+Tested with Python 3.10 through 3.15 with 99% code coverage across all supported versions.
+
+---
+
+## 📝 License
+
+This project is licensed under the MIT License. See the [LICENSE](https://github.com/bradh11/certmonitor/blob/main/LICENSE) file for details.
+
+**Full Changelog**: https://github.com/bradh11/certmonitor/compare/v0.5.2...v0.6.0
+
 ## [0.5.2] - 2026-09-06
 
 # 📦 CertMonitor v0.5.2 – Signature First
