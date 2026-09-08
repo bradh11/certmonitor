@@ -168,7 +168,8 @@ mod py {
         }
     }
 
-    /// A DER CRL's issuer, validity window, and size.
+    /// A DER CRL's issuer, validity window, size, scope extensions, and any
+    /// critical extensions CertMonitor cannot process.
     #[pyfunction]
     pub(super) fn crl_info(py: Python<'_>, der_data: Vec<u8>) -> PyResult<Py<PyAny>> {
         let crl = crate::x509::crl::Crl::from_der(&der_data).map_err(to_py_err)?;
@@ -217,8 +218,8 @@ mod py {
     /// The pieces needed to verify a certificate's signature and to use it
     /// as a signer: `tbs`, `signature`, `signature_algorithm`,
     /// `signature_algorithm_params`, `spki`, `key_bits`, `subject`,
-    /// `subject_der`, `issuer_der`, `not_before`, `not_after`, and
-    /// `extended_key_usage`.
+    /// `subject_der`, `issuer_der`, `not_before`, `not_after`, `key_usage`
+    /// (bit names, or `None` when absent), and `extended_key_usage`.
     #[pyfunction]
     pub(super) fn certificate_signature_parts(
         py: Python<'_>,

@@ -197,18 +197,21 @@ class RevocationPKI:
         self.run("ca", "-config", "ca.cnf", "-gencrl", "-out", "ca.crl.pem")
         self.run("crl", "-in", "ca.crl.pem", "-outform", "DER", "-out", "ca.crl")
 
-    def publish_crl_with_idp(self, name: str, idp_lines: str) -> str:
-        """Publish a CRL whose issuing distribution point is `idp_lines`, served at `/{name}.crl`."""
+    def publish_crl(self, name: str, crl_ext_lines: str) -> str:
+        """Publish a CRL carrying the extensions `crl_ext_lines` describes, served at `/{name}.crl`.
+
+        `crl_ext_lines` is the body of an OpenSSL extension section, and may
+        define further sections it refers to.
+        """
         target = self.directory / f"{name}.crl"
         if not target.exists():
             (self.directory / f"{name}.cnf").write_text(
                 (self.directory / "ca.cnf").read_text()
-                + "[ idp_crl ]\nissuingDistributionPoint = critical, @idp\n"
-                + "[ idp ]\n"
-                + idp_lines
+                + "[ extra_crl ]\n"
+                + crl_ext_lines
             )
             self.run(
-                "ca", "-config", f"{name}.cnf", "-gencrl", "-crlexts", "idp_crl",
+                "ca", "-config", f"{name}.cnf", "-gencrl", "-crlexts", "extra_crl",
                 "-out", f"{name}.crl.pem",
             )  # fmt: skip
             self.run(
@@ -222,10 +225,21 @@ class RevocationPKI:
             )
         return f"http://127.0.0.1:{self.crl_port}/{name}.crl"
 
+    def publish_crl_with_idp(self, name: str, idp_lines: str) -> str:
+        """Publish a CRL whose issuing distribution point is `idp_lines`."""
+        return self.publish_crl(
+            name,
+            "issuingDistributionPoint = critical, @idp\n[ idp ]\n" + idp_lines,
+        )
+
     def publish_partitioned_crl(self) -> str:
         return self.publish_crl_with_idp(
             "partitioned", "onlysomereasons = keyCompromise\n"
         )
+
+    def publish_crl_with_unknown_critical_extension(self) -> str:
+        """A CRL carrying critical extension 1.2.3.4, which nothing can process."""
+        return self.publish_crl("weird", "1.2.3.4 = critical, ASN1:NULL\n")
 
     def _publish(self) -> None:
         pki = self
@@ -480,6 +494,150 @@ def test_failed_verification_is_not_cached(pki, monkeypatch):
     assert again["cached"] is True
 
 
+def test_cached_ocsp_answer_is_capped_by_the_current_leafs_binding(pki):
+    # The cache holds what the responder proved about the serial; how well
+    # the leaf being checked is tied to the issuer is this call's business,
+    # so a cache hit under a weaker binding must not inherit the earlier
+    # caller's `verified`.
+    leaf = ssl.PEM_cert_to_DER_cert((pki.directory / "good.pem").read_text())
+    issuer = ssl.PEM_cert_to_DER_cert(pki.ca_pem.read_text())
+    proven = revocation.check_ocsp(
+        leaf, issuer, pki.ocsp_url, timeout=5, issuer_binding=revocation.VERIFIED
+    )
+    assert proven["verification"] == "verified" and proven["cached"] is False
+    weaker = revocation.check_ocsp(
+        leaf,
+        issuer,
+        pki.ocsp_url,
+        timeout=5,
+        issuer_binding=revocation.UNSUPPORTED,
+        binding_problem="unsupported leaf signature algorithm",
+    )
+    assert weaker["cached"] is True
+    assert weaker["status"] == "good"
+    assert weaker["verification"] == "unsupported"
+    assert weaker["signature_verified"] is False
+    assert "only name-matched" in weaker["verification_error"]
+    assert "unsupported leaf signature algorithm" in weaker["verification_error"]
+    # The evidence itself is still good for a leaf that is properly bound.
+    again = revocation.check_ocsp(
+        leaf, issuer, pki.ocsp_url, timeout=5, issuer_binding=revocation.VERIFIED
+    )
+    assert again["cached"] is True and again["verification"] == "verified"
+    assert "verification_error" not in again
+
+
+def test_ocsp_evidence_is_cached_even_when_this_leafs_binding_is_weak(pki):
+    # A weak binding caps the answer, but the responder's signature checked,
+    # and that is what the cache keeps.
+    leaf = ssl.PEM_cert_to_DER_cert((pki.directory / "good.pem").read_text())
+    issuer = ssl.PEM_cert_to_DER_cert(pki.ca_pem.read_text())
+    first = revocation.check_ocsp(leaf, issuer, pki.ocsp_url, timeout=5)
+    assert first["verification"] == "unsupported" and first["cached"] is False
+    second = revocation.check_ocsp(
+        leaf, issuer, pki.ocsp_url, timeout=5, issuer_binding=revocation.VERIFIED
+    )
+    assert second["cached"] is True and second["verification"] == "verified"
+
+
+def test_cached_ocsp_evidence_expires_with_the_responder_certificate(pki, monkeypatch):
+    # A delegated responder's signature is evidence only while its
+    # certificate is valid (RFC 6960 section 4.2.2.2). A fresh fetch checks
+    # that; the cache must not keep the answer past it.
+    leaf = ssl.PEM_cert_to_DER_cert((pki.directory / "good.pem").read_text())
+    issuer = ssl.PEM_cert_to_DER_cert(pki.ca_pem.read_text())
+    responder = ssl.PEM_cert_to_DER_cert((pki.directory / "responder.pem").read_text())
+    real_parts = certinfo.certificate_signature_parts
+    now = time.time()
+
+    def responder_valid_for_ten_more_minutes(der):
+        found = real_parts(der)
+        if der == responder:
+            found["not_after"] = int(now) + 600
+        return found
+
+    monkeypatch.setattr(
+        certinfo, "certificate_signature_parts", responder_valid_for_ten_more_minutes
+    )
+
+    def ask(at):
+        return revocation.check_ocsp(
+            leaf,
+            issuer,
+            pki.ocsp_url,
+            timeout=5,
+            now=at,
+            issuer_binding=revocation.VERIFIED,
+        )
+
+    pki.signer = "responder"
+    try:
+        first = ask(now)
+        assert first["verification"] == "verified" and first["cached"] is False
+        assert first["responder_name"]["commonName"] == "responder.test"
+        assert ask(now + 599)["cached"] is True
+        later = ask(now + 601)
+    finally:
+        pki.signer = "ca"
+    assert later["cached"] is False
+    assert later["verification"] == "failed"
+    assert "not currently valid" in later["verification_error"]
+
+
+def test_cached_ocsp_answer_is_not_served_past_ten_days(pki, monkeypatch):
+    leaf = ssl.PEM_cert_to_DER_cert((pki.directory / "good.pem").read_text())
+    issuer = ssl.PEM_cert_to_DER_cert(pki.ca_pem.read_text())
+    real_parse = certinfo.parse_ocsp_response
+
+    def with_far_next_update(body):
+        parsed = real_parse(body)
+        for single in parsed["responses"]:
+            single["next_update"] = single["this_update"] + 30 * 86400
+        return parsed
+
+    monkeypatch.setattr(certinfo, "parse_ocsp_response", with_far_next_update)
+    produced = time.time()
+    almost = produced + 10 * 86400 - 3600
+    warm = revocation.check_ocsp(
+        leaf,
+        issuer,
+        pki.ocsp_url,
+        timeout=5,
+        now=almost,
+        issuer_binding=revocation.VERIFIED,
+    )
+    assert warm["status"] == "good" and warm["cached"] is False
+    later = revocation.check_ocsp(
+        leaf,
+        issuer,
+        pki.ocsp_url,
+        timeout=5,
+        now=almost + 2 * 3600,
+        issuer_binding=revocation.VERIFIED,
+    )
+    # Past the ceiling the cached copy is dropped and the responder is asked
+    # again; its answer is the same response, which is now refused.
+    assert later["cached"] is False
+    assert later["error"] == "OCSPStale" and "10 days" in later["reason"]
+
+
+def test_cache_expiry_never_passes_the_ten_day_ceiling():
+    now = 1_000_000.0
+    # thisUpdate nine and a half days ago puts the ceiling twelve hours out,
+    # well inside the one-day cap and long before nextUpdate.
+    this_update = int(now) - 9 * 86400 - 43200
+    ceiling = now + 43200
+    assert (
+        revocation._expiry_for(this_update, int(now) + 30 * 86400, now, 86400)
+        == ceiling
+    )
+    # Without nextUpdate, the hour lease usually gets there first; move
+    # thisUpdate to within half an hour of the ceiling and it wins instead.
+    assert revocation._expiry_for(this_update, None, now, 30 * 86400) == now + 3600
+    nearly_out = int(now) - 10 * 86400 + 1800
+    assert revocation._expiry_for(nearly_out, None, now, 30 * 86400) == now + 1800
+
+
 def test_ocsp_good_passes_when_unverified_answers_are_accepted(pki, monkeypatch):
     # An algorithm CertMonitor cannot check leaves the answer unverified but not
     # disproven; accept_unverified takes the responder's word for that case.
@@ -514,11 +672,12 @@ def test_unverifiable_ocsp_falls_through_to_the_verified_crl(pki, monkeypatch):
     # through the same primitive, so a global patch would leave it unproven too.
     monkeypatch.setattr(
         revocation,
-        "verify_ocsp_response",
+        "_verify_ocsp_signer",
         MagicMock(
             return_value=(
                 revocation.UNSUPPORTED,
                 "unsupported signature algorithm test",
+                None,
             )
         ),
     )
@@ -572,11 +731,12 @@ def test_unverifiable_revoked_is_an_error_unless_accepted(pki, monkeypatch):
     # through the same primitive, so a global patch would leave it unproven too.
     monkeypatch.setattr(
         revocation,
-        "verify_ocsp_response",
+        "_verify_ocsp_signer",
         MagicMock(
             return_value=(
                 revocation.UNSUPPORTED,
                 "unsupported signature algorithm test",
+                None,
             )
         ),
     )
@@ -859,10 +1019,37 @@ def test_crl_without_next_update_keeps_a_one_hour_lease(pki, monkeypatch):
         return info
 
     monkeypatch.setattr(certinfo, "crl_info", without_next_update)
-    first = revocation.fetch_crl(pki.crl_url, timeout=5)
-    assert first[2] is False
-    second = revocation.fetch_crl(pki.crl_url, timeout=5)
-    assert second[2] is True
+    first = _evidence_for_crl(pki, "good", pki.crl_url).crl()
+    assert first["verification"] == "verified" and first["cached"] is False
+    second = _evidence_for_crl(pki, "good", pki.crl_url).crl()
+    assert second["cached"] is True
+
+
+def test_an_old_crl_with_a_valid_next_update_is_cached(pki, monkeypatch):
+    # RFC 5280 puts no age limit on a CRL that is still inside its validity
+    # window, and neither does the acceptance check, so the cache must not
+    # apply the OCSP ten-day ceiling and drop it on every check.
+    real_info = certinfo.crl_info
+
+    def issued_two_weeks_ago_valid_for_two_more(der):
+        info = real_info(der)
+        info["this_update"] -= 15 * 86400
+        info["next_update"] += 15 * 86400
+        return info
+
+    monkeypatch.setattr(certinfo, "crl_info", issued_two_weeks_ago_valid_for_two_more)
+    first = _evidence_for_crl(pki, "good", pki.crl_url).crl()
+    assert first["verification"] == "verified" and first["cached"] is False
+    second = _evidence_for_crl(pki, "good", pki.crl_url).crl()
+    assert second["verification"] == "verified" and second["cached"] is True
+    # Still never longer than a day, and never past nextUpdate.
+    now = time.time()
+    der, info, _ = revocation.fetch_crl(pki.crl_url, timeout=5, now=now)
+    revocation.remember_crl("http://crl.test/far", der, info, now=now)
+    assert revocation.CRL_CACHE._expiry("http://crl.test/far") == now + 86400
+    soon = {**info, "next_update": int(now) + 60}
+    revocation.remember_crl("http://crl.test/soon", der, soon, now=now)
+    assert revocation.CRL_CACHE._expiry("http://crl.test/soon") == int(now) + 60
 
 
 def test_crl_info_reports_scope_extensions(pki):
@@ -873,6 +1060,113 @@ def test_crl_info_reports_scope_extensions(pki):
     partitioned = certinfo.crl_info((pki.directory / "partitioned.crl").read_bytes())
     assert partitioned["issuing_distribution_point"]["only_some_reasons"] is True
     assert partitioned["issuing_distribution_point"]["indirect_crl"] is False
+
+
+def test_certificate_signature_parts_reports_key_usage(pki):
+    ca = certinfo.certificate_signature_parts(
+        ssl.PEM_cert_to_DER_cert(pki.ca_pem.read_text())
+    )
+    assert ca["key_usage"] == ["key_cert_sign", "crl_sign"]
+    leaf = certinfo.certificate_signature_parts(
+        ssl.PEM_cert_to_DER_cert((pki.directory / "good.pem").read_text())
+    )
+    assert leaf["key_usage"] == ["digital_signature", "key_encipherment"]
+    responder = certinfo.certificate_signature_parts(
+        ssl.PEM_cert_to_DER_cert((pki.directory / "responder.pem").read_text())
+    )
+    assert responder["key_usage"] == ["digital_signature"]
+
+
+def test_crl_info_reports_unsupported_critical_extensions(pki):
+    plain = certinfo.crl_info((pki.directory / "ca.crl").read_bytes())
+    assert plain["unsupported_critical_extensions"] == []
+    # The issuing distribution point is critical by definition and is
+    # processed, so it is not an obstacle.
+    pki.publish_partitioned_crl()
+    partitioned = certinfo.crl_info((pki.directory / "partitioned.crl").read_bytes())
+    assert partitioned["unsupported_critical_extensions"] == []
+    pki.publish_crl_with_unknown_critical_extension()
+    weird = certinfo.crl_info((pki.directory / "weird.crl").read_bytes())
+    assert weird["unsupported_critical_extensions"] == ["1.2.3.4"]
+
+
+def test_crl_with_an_unknown_critical_extension_is_refused(pki):
+    url = pki.publish_crl_with_unknown_critical_extension()
+    answer = _evidence_for_crl(pki, "good", url).crl()
+    assert answer["status"] == "error", answer
+    assert answer["error"] == "CRLUnsupportedCriticalExtension"
+    assert "1.2.3.4" in answer["reason"] and "RFC 5280" in answer["reason"]
+    assert answer["signature_verified"] is False
+    assert "verification" not in answer
+    # The next distribution point is consulted, as for any other refusal.
+    leaf = ssl.PEM_cert_to_DER_cert((pki.directory / "good.pem").read_text())
+    issuer = ssl.PEM_cert_to_DER_cert(pki.ca_pem.read_text())
+    evidence = revocation.RevocationEvidence(
+        leaf_der=leaf,
+        chain_der=[leaf, issuer],
+        cert_info={"crlDistributionPoints": [url, pki.crl_url]},
+        timeout=5,
+    )
+    fallback = evidence.crl()
+    assert fallback["verification"] == "verified" and fallback["url"] == pki.crl_url
+
+
+def test_crl_from_an_issuer_without_crl_sign_is_refused(pki, monkeypatch):
+    issuer = ssl.PEM_cert_to_DER_cert(pki.ca_pem.read_text())
+    real_parts = certinfo.certificate_signature_parts
+
+    def make_issuer_key_usage(usage):
+        def parts(der):
+            found = real_parts(der)
+            if der == issuer:
+                found["key_usage"] = usage
+            return found
+
+        return parts
+
+    monkeypatch.setattr(
+        certinfo,
+        "certificate_signature_parts",
+        make_issuer_key_usage(["digital_signature", "key_cert_sign"]),
+    )
+    answer = _evidence_for_crl(pki, "good", pki.crl_url).crl()
+    assert answer["status"] == "error", answer
+    assert answer["error"] == "CRLSignerNotAuthorized"
+    assert "cRLSign" in answer["reason"]
+    assert "verification" not in answer
+    # A refused CRL is not cached, and an issuer with no keyUsage extension
+    # at all is under no such restriction (RFC 5280 section 6.3.3 step (f)).
+    monkeypatch.setattr(
+        certinfo, "certificate_signature_parts", make_issuer_key_usage(None)
+    )
+    relaxed = _evidence_for_crl(pki, "good", pki.crl_url).crl()
+    assert relaxed["verification"] == "verified" and relaxed["cached"] is False
+
+
+def test_rejected_crl_is_not_cached(pki, monkeypatch):
+    real_fetch = http.fetch
+    fetches = []
+
+    def flip_the_first_signature_byte_once(url, **kwargs):
+        body = real_fetch(url, **kwargs)
+        fetches.append(url)
+        if url != pki.crl_url or len(fetches) > 1:
+            return body
+        body = bytearray(body)
+        signature = certinfo.crl_info(bytes(body))["signature"]
+        body[body.find(signature)] ^= 0x01
+        return bytes(body)
+
+    monkeypatch.setattr(http, "fetch", flip_the_first_signature_byte_once)
+    first = _evidence_for_crl(pki, "good", pki.crl_url).crl()
+    assert first["verification"] == "failed" and first["cached"] is False
+    # The corrupted copy was not kept: the next check fetches again and the
+    # server's now-correct CRL is verified and cached.
+    second = _evidence_for_crl(pki, "good", pki.crl_url).crl()
+    assert second["verification"] == "verified" and second["cached"] is False
+    third = _evidence_for_crl(pki, "good", pki.crl_url).crl()
+    assert third["verification"] == "verified" and third["cached"] is True
+    assert len(fetches) == 2
 
 
 def _evidence_for_crl(pki, name: str, url: str) -> revocation.RevocationEvidence:
@@ -1245,6 +1539,9 @@ def test_pem_crls_are_accepted(pki, monkeypatch):
     der, info, cached = revocation.fetch_crl("http://crl.test/ca.crl", timeout=1)
     assert der == (pki.directory / "ca.crl").read_bytes()
     assert info["revoked_count"] == 1 and cached is False
+    # Fetching remembers nothing; the caller does, once the signature checks.
+    assert revocation.fetch_crl("http://crl.test/ca.crl", timeout=1)[2] is False
+    revocation.remember_crl("http://crl.test/ca.crl", der, info)
     assert revocation.fetch_crl("http://crl.test/ca.crl", timeout=1)[2] is True
 
 
@@ -1662,9 +1959,15 @@ def test_cached_answers_never_outlive_next_update(pki):
     refreshed = revocation.check_ocsp(leaf, issuer, pki.ocsp_url, timeout=5, now=now)
     assert refreshed["cached"] is False
 
-    # A CRL past its nextUpdate is fetched again rather than reused.
+    # A CRL past its nextUpdate is fetched again rather than reused, and
+    # one that is already past it is not remembered in the first place.
     der, info, cached = revocation.fetch_crl(pki.crl_url, timeout=5, now=now)
     assert cached is False
+    revocation.remember_crl(
+        pki.crl_url, der, {**info, "next_update": int(now) - 1}, now=now
+    )
+    assert revocation.fetch_crl(pki.crl_url, timeout=5, now=now)[2] is False
+    revocation.remember_crl(pki.crl_url, der, info, now=now)
     assert revocation.fetch_crl(pki.crl_url, timeout=5, now=now + 1)[2] is True
     revocation.CRL_CACHE.put(
         pki.crl_url, (der, {**info, "next_update": int(now) - 1}), expires_at=now + 3600

@@ -85,6 +85,12 @@ def crl_info(der_data: bytes) -> dict[str, Any]:
     the bool `names_other_locations` (true when the distribution point
     names something that is not a URI, such as a directory name), or
     `None` when the CRL carries no issuing distribution point.
+    `unsupported_critical_extensions` lists, in dotted form, the critical
+    extensions on the list or on any entry that CertMonitor does not
+    process; RFC 5280 sections 5.2 and 5.3 forbid using such a CRL to
+    determine certificate status. Recognized are the delta CRL indicator,
+    the issuing distribution point, the CRL number, the authority key
+    identifier, and on entries the reason code and invalidity date.
     """
     ...
 
@@ -143,7 +149,10 @@ def certificate_signature_parts(der_data: bytes) -> dict[str, Any]:
     `signature_algorithm_params` (the raw DER parameters, or `None` when
     absent or NULL, e.g. for RSASSA-PSS), `spki`, `key_bits`,
     `subject`, `subject_der`, `issuer_der`, `not_before`, `not_after` (unix
-    seconds), and `extended_key_usage` (OIDs in dotted form).
+    seconds), `key_usage` (the set bits of the KeyUsage extension as
+    snake_case names such as `digital_signature`, `key_cert_sign`, and
+    `crl_sign`, or `None` when the certificate carries no KeyUsage
+    extension), and `extended_key_usage` (OIDs in dotted form).
     """
     ...
 
