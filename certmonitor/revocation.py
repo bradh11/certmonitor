@@ -46,6 +46,10 @@ _CACHE_LIMIT = 256
 
 CrlCheck = Callable[[bytes], dict[str, Any]]
 
+VERIFIED = "verified"
+UNSUPPORTED = "unsupported"
+FAILED = "failed"
+
 
 # --- small helpers -----------------------------------------------------------------
 
@@ -154,17 +158,58 @@ def _still_current(next_update: int | None, now: float) -> bool:
 # --- OCSP ----------------------------------------------------------------------------
 
 
-def find_issuer(leaf_der: bytes, candidates: list[bytes]) -> bytes | None:
-    """The certificate among `candidates` that issued `leaf_der`, if any."""
+def find_issuer(
+    leaf_der: bytes, candidates: list[bytes]
+) -> tuple[bytes | None, str | None, str | None]:
+    """The certificate among `candidates` that issued `leaf_der`, and how that was shown.
+
+    A candidate must carry the leaf's issuer name and its key must verify the
+    leaf's signature: anyone can mint a certificate with the right subject, so
+    a name match alone binds nothing. Returns `(issuer, VERIFIED, None)` when
+    the signature checks, `(issuer, UNSUPPORTED, why)` when the leaf is signed
+    with an algorithm CertMonitor cannot verify and the name match is the best
+    evidence available, and `(None, None, None)` when no candidate qualifies.
+    """
+    try:
+        leaf = certinfo.certificate_signature_parts(leaf_der)  # type: ignore[attr-defined]
+    except ValueError:
+        return None, None, None
+    fallback: tuple[bytes, str] | None = None
     for candidate in candidates:
         if candidate == leaf_der:
             continue
         try:
-            if certinfo.ocsp_cert_id_inputs(leaf_der, candidate) is not None:  # type: ignore[attr-defined]
-                return candidate
+            if certinfo.ocsp_cert_id_inputs(leaf_der, candidate) is None:  # type: ignore[attr-defined]
+                continue
+            spki = certinfo.certificate_signature_parts(candidate)["spki"]  # type: ignore[attr-defined]
         except ValueError:
             continue
-    return None
+        outcome, problem = _signed_by(
+            spki, leaf["signature_algorithm"], leaf["tbs"], leaf["signature"]
+        )
+        if outcome == VERIFIED:
+            return candidate, VERIFIED, None
+        if outcome == UNSUPPORTED and fallback is None:
+            fallback = (candidate, problem or "unsupported leaf signature algorithm")
+    if fallback is None:
+        return None, None, None
+    return fallback[0], UNSUPPORTED, fallback[1]
+
+
+def _bound_by_issuer(
+    outcome: str, problem: str | None, binding: str | None, binding_problem: str | None
+) -> tuple[str, str | None]:
+    """Cap a signature outcome by how well the signer was tied to the leaf.
+
+    A response verified under an issuer that is only name-matched to the leaf
+    is not proof, because the name match could be satisfied by an impostor.
+    """
+    if outcome == VERIFIED and binding != VERIFIED:
+        return UNSUPPORTED, (
+            "the issuer certificate is only name-matched to the leaf "
+            f"({binding_problem or 'its signature over the leaf could not be checked'})"
+        )
+    return outcome, problem
 
 
 def build_ocsp_request(
@@ -211,6 +256,8 @@ def check_ocsp(
     timeout: float,
     proxy: ProxyConfig | None = None,
     now: float | None = None,
+    issuer_binding: str = VERIFIED,
+    binding_problem: str | None = None,
 ) -> dict[str, Any]:
     """Ask `url` about `leaf_der` and return one answer dict.
 
@@ -225,7 +272,15 @@ def check_ocsp(
     if cached is not None and _still_current(cached.get("_next_update"), now):
         return {**cached, "cached": True}
     answer = _ask_ocsp(
-        request, expected, url, issuer_der, timeout=timeout, proxy=proxy, now=now
+        request,
+        expected,
+        url,
+        issuer_der,
+        timeout=timeout,
+        proxy=proxy,
+        now=now,
+        issuer_binding=issuer_binding,
+        binding_problem=binding_problem,
     )
     if answer["status"] in ("good", "revoked", "unknown") and _still_current(
         answer.get("_next_update"), now
@@ -243,6 +298,8 @@ def _ask_ocsp(
     timeout: float,
     proxy: ProxyConfig | None,
     now: float,
+    issuer_binding: str = VERIFIED,
+    binding_problem: str | None = None,
 ) -> dict[str, Any]:
     answer: dict[str, Any] = {
         "method": "ocsp",
@@ -302,6 +359,9 @@ def _ask_ocsp(
     outcome, problem = verify_ocsp_response(
         parsed, issuer_der, expected["issuer_key_hash"], now
     )
+    outcome, problem = _bound_by_issuer(
+        outcome, problem, issuer_binding, binding_problem
+    )
     answer["signature_verified"] = outcome == VERIFIED
     answer["verification"] = outcome
     if problem is not None:
@@ -318,11 +378,6 @@ def _ask_ocsp(
         _next_update=single["next_update"],
     )
     return answer
-
-
-VERIFIED = "verified"
-UNSUPPORTED = "unsupported"
-FAILED = "failed"
 
 
 def _signed_by(
@@ -478,6 +533,8 @@ class RevocationEvidence:
         self.issuer_urls = http_urls(cert_info.get("caIssuers"))
         self._issuer: bytes | None = None
         self._issuer_error: str | None = None
+        self._issuer_binding: str | None = None
+        self._binding_problem: str | None = None
         self._answers: dict[str, dict[str, Any]] = {}
 
     def answer(self, method: str) -> dict[str, Any]:
@@ -487,10 +544,17 @@ class RevocationEvidence:
         return self._answers[method]
 
     def issuer(self) -> bytes | None:
-        """The issuer certificate: from the collected chain, else from the AIA pointer."""
+        """The issuer certificate: from the collected chain, else from the AIA pointer.
+
+        Only a certificate whose key verifies the leaf's signature qualifies.
+        `_issuer_binding` records whether that check ran (`VERIFIED`) or the
+        leaf's algorithm is one CertMonitor cannot check (`UNSUPPORTED`).
+        """
         if self._issuer is not None or self._issuer_error is not None:
             return self._issuer
-        found = find_issuer(self.leaf_der, self.chain_der[1:] + self.chain_der[:1])
+        found, binding, problem = find_issuer(
+            self.leaf_der, self.chain_der[1:] + self.chain_der[:1]
+        )
         if found is None:
             for url in self.issuer_urls:
                 try:
@@ -502,15 +566,22 @@ class RevocationEvidence:
                     continue
                 if body.lstrip().startswith(b"-----BEGIN"):
                     body = pem_to_der(body)
-                found = find_issuer(self.leaf_der, [body])
+                found, binding, problem = find_issuer(self.leaf_der, [body])
                 if found is not None:
                     self._issuer_error = None
                     break
+                self._issuer_error = (
+                    "the certificate fetched from the caIssuers pointer did not "
+                    "sign this certificate"
+                )
         if found is None and self._issuer_error is None:
             self._issuer_error = (
-                "the issuer certificate is not in the chain and has no AIA pointer"
+                "no certificate in the chain signed this certificate and it has "
+                "no AIA pointer"
             )
         self._issuer = found
+        self._issuer_binding = binding
+        self._binding_problem = problem
         return found
 
     def ocsp(self) -> dict[str, Any]:
@@ -541,7 +612,13 @@ class RevocationEvidence:
         last: dict[str, Any] = {}
         for url in self.ocsp_urls:
             last = check_ocsp(
-                self.leaf_der, issuer, url, timeout=self.timeout, proxy=self.proxy
+                self.leaf_der,
+                issuer,
+                url,
+                timeout=self.timeout,
+                proxy=self.proxy,
+                issuer_binding=self._issuer_binding or UNSUPPORTED,
+                binding_problem=self._binding_problem,
             )
             if last["status"] != "error":
                 break

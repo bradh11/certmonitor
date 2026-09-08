@@ -314,7 +314,7 @@ def test_ocsp_request_rejects_the_wrong_issuer(pki):
     leaf = ssl.PEM_cert_to_DER_cert((pki.directory / "good.pem").read_text())
     with pytest.raises(ValueError, match="does not match"):
         revocation.build_ocsp_request(leaf, leaf)
-    assert revocation.find_issuer(leaf, [leaf, b"not a certificate"]) is None
+    assert revocation.find_issuer(leaf, [leaf, b"not a certificate"])[0] is None
 
 
 # --- verdicts over live connections -------------------------------------------------
@@ -528,6 +528,71 @@ def test_issuer_comes_from_the_served_chain_when_present(pki):
         result = monitor.validate({"revocation": {"methods": ["ocsp"]}})["revocation"]
     assert result["revocation_status"] == "good"
     assert "/ca.pem" not in pki.crl_requests[len(before) :]
+
+
+def _impostor_ca(pki) -> bytes:
+    """A CA with the real CA's subject name and a different key."""
+    target = pki.directory / "impostor.pem"
+    if not target.exists():
+        pki.run(
+            "req", "-x509", *pki.newkey(), "-nodes", "-keyout", "impostor.key",
+            "-out", "impostor.pem", "-days", "2", "-subj", f"/CN={pki.ca_name}",
+            "-addext", "basicConstraints=critical,CA:TRUE",
+            "-addext", "keyUsage=critical,keyCertSign,cRLSign",
+        )  # fmt: skip
+    return ssl.PEM_cert_to_DER_cert(target.read_text())
+
+
+def test_issuer_must_have_signed_the_leaf(pki):
+    leaf = ssl.PEM_cert_to_DER_cert((pki.directory / "good.pem").read_text())
+    real = ssl.PEM_cert_to_DER_cert(pki.ca_pem.read_text())
+    impostor = _impostor_ca(pki)
+    # Same name, wrong key: a name match alone is not an issuer.
+    assert revocation.find_issuer(leaf, [impostor]) == (None, None, None)
+    found, binding, problem = revocation.find_issuer(leaf, [impostor, real])
+    assert found == real and binding == revocation.VERIFIED and problem is None
+
+
+def test_impostor_issuer_from_aia_is_rejected(pki, monkeypatch):
+    _impostor_ca(pki)
+    impostor_pem = (pki.directory / "impostor.pem").read_bytes()
+    real_fetch = http.fetch
+
+    def serve_impostor(url, **kwargs):
+        if url.endswith("/ca.pem"):
+            return impostor_pem
+        return real_fetch(url, **kwargs)
+
+    monkeypatch.setattr(http, "fetch", serve_impostor)
+    server, options = monitor_for(pki, "good")  # leaf only, issuer via AIA
+    with server, CertMonitor("localhost", server.port, **options) as monitor:
+        result = monitor.validate({"revocation": {"methods": ["ocsp"]}})["revocation"]
+    assert result["status"] == "error", result
+    assert result["methods"]["ocsp"]["error"] == "MissingIssuer"
+    assert "did not sign" in result["methods"]["ocsp"]["reason"]
+
+
+def test_unverifiable_issuer_binding_caps_ocsp_at_unsupported(pki, monkeypatch):
+    # If the leaf's own signature algorithm cannot be checked, the issuer is
+    # only name-matched, so even a correctly signed OCSP answer is not proof.
+    real_hash = certinfo.signature_hash
+    leaf = ssl.PEM_cert_to_DER_cert((pki.directory / "good.pem").read_text())
+    leaf_algorithm = certinfo.certificate_signature_parts(leaf)["signature_algorithm"]
+    calls = {"n": 0}
+
+    def unsupported_for_the_leaf_only(algorithm):
+        calls["n"] += 1
+        if calls["n"] == 1 and algorithm == leaf_algorithm:
+            return None
+        return real_hash(algorithm)
+
+    monkeypatch.setattr(certinfo, "signature_hash", unsupported_for_the_leaf_only)
+    server, options = monitor_for(pki, "good")
+    with server, CertMonitor("localhost", server.port, **options) as monitor:
+        result = monitor.validate({"revocation": {"methods": ["ocsp"]}})["revocation"]
+    assert result["status"] == "warn", result
+    assert result["methods"]["ocsp"]["verification"] == "unsupported"
+    assert "only name-matched" in result["methods"]["ocsp"]["verification_error"]
 
 
 def test_answers_are_cached_across_monitors(pki):
