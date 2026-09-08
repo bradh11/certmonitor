@@ -97,6 +97,11 @@ pub const OID_RSA_ENCRYPTION: &[u8] = &[0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01
 /// 1.2.840.10045.2.1, id-ecPublicKey
 pub const OID_EC_PUBLIC_KEY: &[u8] = &[0x2a, 0x86, 0x48, 0xce, 0x3d, 0x02, 0x01];
 
+/// id-Ed25519 (RFC 8410): 1.3.101.112
+pub const OID_ED25519: &[u8] = &[0x2b, 0x65, 0x70];
+/// id-Ed448 (RFC 8410): 1.3.101.113
+pub const OID_ED448: &[u8] = &[0x2b, 0x65, 0x71];
+
 // Curve OIDs (RFC 5480, RFC 5639). Used to map curve OID → field bit length.
 /// 1.2.840.10045.3.1.7, secp256r1 / P-256 / prime256v1
 pub const OID_SECP256R1: &[u8] = &[0x2a, 0x86, 0x48, 0xce, 0x3d, 0x03, 0x01, 0x07];

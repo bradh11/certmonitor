@@ -120,6 +120,11 @@ pub fn key_info_dict<'py>(
             dict.set_item("size", key_bits)?;
             dict.set_item("curve", py.None())?;
         }
+        PublicKeyAlgorithm::EdDsa { name, key_bits } => {
+            dict.set_item("algorithm", name)?;
+            dict.set_item("size", key_bits)?;
+            dict.set_item("curve", py.None())?;
+        }
         PublicKeyAlgorithm::Unknown => {
             dict.set_item("algorithm", "unknown")?;
             dict.set_item("size", 0usize)?;

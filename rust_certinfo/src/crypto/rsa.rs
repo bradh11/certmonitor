@@ -62,7 +62,15 @@ impl HashAlg {
     }
 }
 
+/// OpenSSL's `OPENSSL_RSA_MAX_MODULUS_BITS`: no CA issues anything larger,
+/// and modular exponentiation cost grows with the cube of the modulus size.
+const MAX_MODULUS_BITS: usize = 16384;
+/// OpenSSL's `OPENSSL_RSA_MAX_PUBEXP_BITS`: real public exponents are 3 or
+/// 65537; a huge exponent only serves to make verification slow.
+const MAX_EXPONENT_BITS: usize = 64;
+
 /// `RSAPublicKey ::= SEQUENCE { modulus INTEGER, publicExponent INTEGER }`
+#[derive(Debug)]
 pub struct RsaPublicKey {
     pub modulus: BigUint,
     pub exponent: BigUint,
@@ -89,6 +97,18 @@ impl RsaPublicKey {
             .ok_or(VerifyError::Malformed("RSA exponent encoding"))?;
         if modulus.bit_len() < 512 || !modulus.is_odd() || exponent < BigUint::from_u64(3) {
             return Err(VerifyError::Malformed("RSA key parameters"));
+        }
+        if modulus.bit_len() > MAX_MODULUS_BITS {
+            return Err(VerifyError::Unsupported(format!(
+                "RSA modulus of {} bits (limit {MAX_MODULUS_BITS})",
+                modulus.bit_len()
+            )));
+        }
+        if exponent.bit_len() > MAX_EXPONENT_BITS {
+            return Err(VerifyError::Unsupported(format!(
+                "RSA public exponent of {} bits (limit {MAX_EXPONENT_BITS})",
+                exponent.bit_len()
+            )));
         }
         Ok(Self { modulus, exponent })
     }
@@ -189,5 +209,48 @@ mod tests {
         assert!(RsaPublicKey::from_der(&[0x04, 0x01, 0x00]).is_err());
         // A tiny modulus is not a usable RSA key.
         assert!(RsaPublicKey::from_der(&[0x30, 0x06, 0x02, 0x01, 0x0d, 0x02, 0x01, 0x03]).is_err());
+    }
+
+    fn rsa_key_der(modulus: &[u8], exponent: &[u8]) -> Vec<u8> {
+        fn tlv(tag: u8, content: &[u8]) -> Vec<u8> {
+            let mut out = vec![tag];
+            if content.len() < 128 {
+                out.push(content.len() as u8);
+            } else {
+                let len_bytes: Vec<u8> = content
+                    .len()
+                    .to_be_bytes()
+                    .iter()
+                    .copied()
+                    .skip_while(|b| *b == 0)
+                    .collect();
+                out.push(0x80 | len_bytes.len() as u8);
+                out.extend_from_slice(&len_bytes);
+            }
+            out.extend_from_slice(content);
+            out
+        }
+        let mut body = tlv(tag::TAG_INTEGER, modulus);
+        body.extend(tlv(tag::TAG_INTEGER, exponent));
+        tlv(tag::TAG_SEQUENCE, &body)
+    }
+
+    #[test]
+    fn oversized_parameters_are_unsupported_not_computed() {
+        let mut modulus = vec![0x00u8, 0xff];
+        modulus.extend(vec![0xffu8; 255]); // 2048 bits, odd
+        let mut huge_e = vec![0x01u8];
+        huge_e.extend(vec![0x00u8; 8]); // 2^64: 65 bits
+        huge_e[8] = 0x01;
+        let err = RsaPublicKey::from_der(&rsa_key_der(&modulus, &huge_e)).unwrap_err();
+        assert!(matches!(err, VerifyError::Unsupported(_)), "{err:?}");
+        let mut giant_n = vec![0x00u8, 0xff];
+        giant_n.extend(vec![0xffu8; 2048]); // 16392 bits
+        let err = RsaPublicKey::from_der(&rsa_key_der(&giant_n, &[0x01, 0x00, 0x01])).unwrap_err();
+        assert!(matches!(err, VerifyError::Unsupported(_)), "{err:?}");
+        // 64-bit exponents and 16384-bit moduli stay within bounds.
+        let mut max_e = vec![0x00u8, 0xff];
+        max_e.extend(vec![0xffu8; 7]);
+        assert!(RsaPublicKey::from_der(&rsa_key_der(&modulus, &max_e)).is_ok());
     }
 }

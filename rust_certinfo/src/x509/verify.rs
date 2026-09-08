@@ -62,6 +62,9 @@ pub fn verify_signature(
         (_, PublicKeyAlgorithm::PostQuantum { algorithm, .. }) => Err(VerifyError::Unsupported(
             format!("post-quantum signature verification ({})", algorithm.name),
         )),
+        (_, PublicKeyAlgorithm::EdDsa { name, .. }) => Err(VerifyError::Unsupported(format!(
+            "{name} signature verification"
+        ))),
         _ => Err(VerifyError::Unsupported(
             "signature algorithm does not match the key type".into(),
         )),

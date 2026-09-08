@@ -12,7 +12,9 @@
 // algorithms (ML-DSA, SLH-DSA, composite ML-DSA) are recognized via the
 // registry in `crate::pq_algorithms`, for those the OID alone
 // identifies the parameter set, and we report the subjectPublicKey bit
-// length as `key_bits`. Anything else collapses to `Unknown`.
+// length as `key_bits`. Ed25519 and Ed448 (RFC 8410) are likewise
+// identified by OID alone, each has exactly one parameter set. Anything
+// else collapses to `Unknown`.
 
 use crate::der::{oid, tag, DerReader, Oid};
 use crate::error::ParseError;
@@ -47,6 +49,12 @@ pub enum PublicKeyAlgorithm<'a> {
     /// only (e.g. ML-DSA-65 → 15616).
     PostQuantum {
         algorithm: &'static pq_algorithms::PqAlgorithm,
+        key_bits: usize,
+    },
+    /// Ed25519 or Ed448 (RFC 8410). Strength is fixed by the algorithm;
+    /// `key_bits` is the raw subjectPublicKey bit length for information.
+    EdDsa {
+        name: &'static str,
         key_bits: usize,
     },
     Unknown,
@@ -95,6 +103,18 @@ impl<'a> SubjectPublicKeyInfo<'a> {
         if alg_bytes == oid::OID_EC_PUBLIC_KEY {
             return parse_ec(self);
         }
+        if alg_bytes == oid::OID_ED25519 {
+            return PublicKeyAlgorithm::EdDsa {
+                name: "Ed25519",
+                key_bits: self.subject_public_key.len() * 8,
+            };
+        }
+        if alg_bytes == oid::OID_ED448 {
+            return PublicKeyAlgorithm::EdDsa {
+                name: "Ed448",
+                key_bits: self.subject_public_key.len() * 8,
+            };
+        }
         if let Some(algorithm) = pq_algorithms::lookup(self.algorithm.algorithm) {
             return PublicKeyAlgorithm::PostQuantum {
                 algorithm,
@@ -106,10 +126,8 @@ impl<'a> SubjectPublicKeyInfo<'a> {
 }
 
 /// RSA SubjectPublicKey: `SEQUENCE { modulus INTEGER, publicExponent INTEGER }`.
-/// We compute the modulus bit length the same way x509-parser does:
-/// `modulus_bytes.len() * 8`, where `modulus_bytes` is the INTEGER value
-/// **excluding** any leading 0x00 byte that DER inserts to keep the value
-/// unsigned.
+/// We report the modulus's true bit length: DER's sign byte is stripped
+/// and leading zero bits are subtracted.
 fn parse_rsa(subject_public_key: &[u8]) -> PublicKeyAlgorithm<'static> {
     let mut r = DerReader::new(subject_public_key);
     let inner = match r.expect_constructed(tag::TAG_SEQUENCE) {
@@ -121,16 +139,21 @@ fn parse_rsa(subject_public_key: &[u8]) -> PublicKeyAlgorithm<'static> {
         Ok(v) => v,
         Err(_) => return PublicKeyAlgorithm::Unknown,
     };
-    // DER unsigned integers prepend 0x00 if the high bit is set; strip it
-    // so we report the true bit length. x509-parser does the equivalent.
-    let trimmed = if modulus.len() > 1 && modulus[0] == 0x00 {
+    // DER unsigned integers prepend 0x00 when the high bit is set; strip
+    // that byte, then count the leading zero bits of what remains so a
+    // 2041-bit modulus is reported as 2041, not rounded up to 2048. A
+    // leading zero byte that is not followed by a high bit is not minimal
+    // DER, and a value that starts with 0x00 after stripping is malformed.
+    let trimmed = if modulus.len() > 1 && modulus[0] == 0x00 && modulus[1] & 0x80 != 0 {
         &modulus[1..]
     } else {
         modulus
     };
-    PublicKeyAlgorithm::Rsa {
-        modulus_bits: trimmed.len() * 8,
-    }
+    let modulus_bits = match trimmed.first() {
+        None | Some(0) => return PublicKeyAlgorithm::Unknown,
+        Some(&first) => trimmed.len() * 8 - first.leading_zeros() as usize,
+    };
+    PublicKeyAlgorithm::Rsa { modulus_bits }
 }
 
 /// EC SubjectPublicKey:
@@ -196,14 +219,14 @@ fn ec_key_bits(curve_oid: Oid<'_>, subject_public_key: &[u8]) -> usize {
 mod tests {
     use super::*;
 
-    /// Build a minimal SPKI for RSA-2048 with all-zero modulus (still
-    /// 256 bytes long, which is what we measure).
+    /// Build a minimal SPKI for RSA-2048 with a modulus whose top bit is
+    /// set, which is why DER's sign byte (0x00) precedes it.
     fn rsa_2048_spki() -> Vec<u8> {
         // RSAPublicKey: SEQUENCE { INTEGER modulus, INTEGER exponent }
-        // modulus: 257 bytes (0x00 || 256 zero bytes) so the trimmed
-        // length is 256 bytes = 2048 bits.
-        let mut modulus = vec![0x00u8];
-        modulus.extend(vec![0u8; 256]);
+        // modulus: 257 bytes (0x00 || 0x80 || 255 zero bytes) so the
+        // trimmed length is 256 bytes = 2048 bits.
+        let mut modulus = vec![0x00u8, 0x80u8];
+        modulus.extend(vec![0u8; 255]);
         // SEQUENCE { INTEGER modulus, INTEGER publicExponent }
         let mut rsa_pk = vec![
             tag::TAG_INTEGER,
@@ -370,6 +393,24 @@ mod tests {
     }
 
     #[test]
+    fn ed25519_and_ed448_are_classified() {
+        match parse_spki(&synthetic_spki(oid::OID_ED25519, 32)) {
+            PublicKeyAlgorithm::EdDsa { name, key_bits } => {
+                assert_eq!(name, "Ed25519");
+                assert_eq!(key_bits, 256);
+            }
+            other => panic!("expected EdDsa, got {:?}", other),
+        }
+        match parse_spki(&synthetic_spki(oid::OID_ED448, 57)) {
+            PublicKeyAlgorithm::EdDsa { name, key_bits } => {
+                assert_eq!(name, "Ed448");
+                assert_eq!(key_bits, 456);
+            }
+            other => panic!("expected EdDsa, got {:?}", other),
+        }
+    }
+
+    #[test]
     fn unrecognized_oid_still_collapses_to_unknown() {
         // 1.2.3.4, not RSA, not EC, not in the PQ table.
         let bytes = synthetic_spki(&[0x2a, 0x03, 0x04], 16);
@@ -417,5 +458,44 @@ mod tests {
             }
             other => panic!("expected EC, got {:?}", other),
         }
+    }
+
+    /// Build a minimal rsaEncryption SPKI around a raw modulus value.
+    fn rsa_spki(modulus: &[u8]) -> Vec<u8> {
+        let mut key = der_tlv(tag::TAG_INTEGER, modulus);
+        key.extend(der_tlv(tag::TAG_INTEGER, &[0x01, 0x00, 0x01]));
+        let key = der_tlv(tag::TAG_SEQUENCE, &key);
+        let mut alg = der_tlv(tag::TAG_OBJECT_IDENTIFIER, oid::OID_RSA_ENCRYPTION);
+        alg.extend_from_slice(&[0x05, 0x00]);
+        let mut body = der_tlv(tag::TAG_SEQUENCE, &alg);
+        let mut bits = vec![0u8];
+        bits.extend(key);
+        body.extend(der_tlv(tag::TAG_BIT_STRING, &bits));
+        der_tlv(tag::TAG_SEQUENCE, &body)
+    }
+
+    fn rsa_bits(modulus: &[u8]) -> Option<usize> {
+        let spki = rsa_spki(modulus);
+        let mut r = DerReader::new(&spki);
+        match SubjectPublicKeyInfo::parse(&mut r).unwrap().parsed() {
+            PublicKeyAlgorithm::Rsa { modulus_bits } => Some(modulus_bits),
+            _ => None,
+        }
+    }
+
+    #[test]
+    fn rsa_modulus_bits_count_leading_zero_bits() {
+        // 256 bytes whose top byte is 0x01: a 2041-bit modulus, not 2048.
+        let mut short = vec![0x01u8; 1];
+        short.extend(vec![0xffu8; 255]);
+        assert_eq!(rsa_bits(&short), Some(2041));
+        // Top bit set: DER prepends 0x00, which must not count.
+        let mut full = vec![0x00u8, 0x80];
+        full.extend(vec![0xffu8; 255]);
+        assert_eq!(rsa_bits(&full), Some(2048));
+        // A modulus padded with a surplus zero byte is not valid DER.
+        let mut padded = vec![0x00u8, 0x01];
+        padded.extend(vec![0xffu8; 255]);
+        assert_eq!(rsa_bits(&padded), None);
     }
 }
