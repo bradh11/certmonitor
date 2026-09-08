@@ -37,6 +37,8 @@ from urllib.parse import urlsplit
 from certmonitor import certinfo
 from certmonitor.protocol_handlers import http
 from certmonitor.protocol_handlers.proxy import ProxyConfig
+from certmonitor.signatures import FAILED, UNSUPPORTED, VERIFIED
+from certmonitor.signatures import verify as verify_signature_bytes
 
 METHODS = ("ocsp", "crl")
 OCSP_CONTENT_TYPE = "application/ocsp-request"
@@ -50,10 +52,6 @@ _DEFAULT_TTL_SECONDS = 60 * 60
 _CACHE_LIMIT = 256
 _OCSP_MAX_AGE_SECONDS = 24 * 60 * 60
 _MAX_LIFETIME_SECONDS = 10 * 24 * 60 * 60
-
-VERIFIED = "verified"
-UNSUPPORTED = "unsupported"
-FAILED = "failed"
 
 
 # --- small helpers -----------------------------------------------------------------
@@ -186,7 +184,11 @@ def find_issuer(
         except ValueError:
             continue
         outcome, problem = _signed_by(
-            spki, leaf["signature_algorithm"], leaf["tbs"], leaf["signature"]
+            spki,
+            leaf["signature_algorithm"],
+            leaf["tbs"],
+            leaf["signature"],
+            leaf["signature_algorithm_params"],
         )
         if outcome == VERIFIED:
             return candidate, VERIFIED, None
@@ -442,29 +444,14 @@ def _ask_ocsp(
 
 
 def _signed_by(
-    signer_spki: bytes, algorithm: str, tbs: bytes, signature: bytes
+    signer_spki: bytes,
+    algorithm: str,
+    tbs: bytes,
+    signature: bytes,
+    params: bytes | None = None,
 ) -> tuple[str, str | None]:
-    """Check one signature.
-
-    Returns `(VERIFIED, None)`, `(UNSUPPORTED, why)` when the algorithm or key
-    is one CertMonitor cannot check, or `(FAILED, why)` when the check ran and
-    the signature is wrong.
-    """
-    hash_name = certinfo.signature_hash(algorithm)  # type: ignore[attr-defined]
-    if hash_name is None:
-        return UNSUPPORTED, f"unsupported signature algorithm {algorithm}"
-    try:
-        digest = hashlib.new(hash_name, tbs).digest()
-    except ValueError as exc:
-        return UNSUPPORTED, f"unsupported digest {hash_name}: {exc}"
-    try:
-        ok = certinfo.verify_signature(  # type: ignore[attr-defined]
-            algorithm, digest, signature, signer_spki
-        )
-    except ValueError as exc:
-        outcome = UNSUPPORTED if str(exc).startswith("unsupported") else FAILED
-        return outcome, str(exc)
-    return (VERIFIED, None) if ok else (FAILED, "signature does not verify")
+    """Check one signature; see `certmonitor.signatures.verify` for the outcomes."""
+    return verify_signature_bytes(signer_spki, algorithm, params, tbs, signature)
 
 
 def verify_ocsp_response(
@@ -491,8 +478,9 @@ def verify_ocsp_response(
     def names_issuer(name_der: bytes | None, key_hash: str | None) -> bool:
         return name_der == issuer["subject_der"] or key_hash == issuer_key_hash
 
+    params = parsed["signature_algorithm_params"]
     if names_issuer(parsed["responder_name_der"], parsed["responder_key_hash"]):
-        return _signed_by(issuer["spki"], algorithm, tbs, signature)
+        return _signed_by(issuer["spki"], algorithm, tbs, signature, params)
 
     for cert_der in parsed["certs"]:
         try:
@@ -524,10 +512,11 @@ def verify_ocsp_response(
             responder["signature_algorithm"],
             responder["tbs"],
             responder["signature"],
+            responder["signature_algorithm_params"],
         )
         if outcome != VERIFIED:
             return outcome, f"responder certificate: {problem}"
-        return _signed_by(responder["spki"], algorithm, tbs, signature)
+        return _signed_by(responder["spki"], algorithm, tbs, signature, params)
     return FAILED, "response is not signed by the issuer or an authorized responder"
 
 
@@ -851,6 +840,7 @@ class RevocationEvidence:
             info["signature_algorithm"],
             info["tbs_cert_list"],
             info["signature"],
+            info["signature_algorithm_params"],
         )
         outcome, problem = _bound_by_issuer(
             outcome, problem, self._issuer_binding, self._binding_problem

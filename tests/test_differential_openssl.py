@@ -25,48 +25,62 @@ from pathlib import Path
 
 import pytest
 
-from certmonitor import certinfo
+from certmonitor import certinfo, signatures
 
 pytestmark = pytest.mark.differential
 
 KEYS_PER_TYPE = int(os.environ.get("CERTMONITOR_DIFFERENTIAL_KEYS", "4"))
 MESSAGES_PER_KEY = int(os.environ.get("CERTMONITOR_DIFFERENTIAL_MESSAGES", "8"))
 WRONG_HASH = {"sha256": "sha384", "sha384": "sha512", "sha512": "sha256"}
+# (genpkey options, hash name, algorithm OID, extra -sigopt/-verify options)
 SCHEMES = {
     "rsa2048-sha256": (
         ["-algorithm", "RSA", "-pkeyopt", "rsa_keygen_bits:2048"],
         "sha256",
         "1.2.840.113549.1.1.11",
+        [],
     ),
     "rsa2048-sha512": (
         ["-algorithm", "RSA", "-pkeyopt", "rsa_keygen_bits:2048"],
         "sha512",
         "1.2.840.113549.1.1.13",
+        [],
     ),
     "rsa3072-sha384": (
         ["-algorithm", "RSA", "-pkeyopt", "rsa_keygen_bits:3072"],
         "sha384",
         "1.2.840.113549.1.1.12",
+        [],
     ),
     "p256-sha256": (
         ["-algorithm", "EC", "-pkeyopt", "ec_paramgen_curve:P-256"],
         "sha256",
         "1.2.840.10045.4.3.2",
+        [],
     ),
     "p256-sha512": (
         ["-algorithm", "EC", "-pkeyopt", "ec_paramgen_curve:P-256"],
         "sha512",
         "1.2.840.10045.4.3.4",
+        [],
     ),
     "p384-sha384": (
         ["-algorithm", "EC", "-pkeyopt", "ec_paramgen_curve:P-384"],
         "sha384",
         "1.2.840.10045.4.3.3",
+        [],
     ),
     "p521-sha512": (
         ["-algorithm", "EC", "-pkeyopt", "ec_paramgen_curve:P-521"],
         "sha512",
         "1.2.840.10045.4.3.4",
+        [],
+    ),
+    "rsa2048-pss-sha256": (
+        ["-algorithm", "RSA", "-pkeyopt", "rsa_keygen_bits:2048"],
+        "sha256",
+        "1.2.840.113549.1.1.10",
+        ["-sigopt", "rsa_padding_mode:pss", "-sigopt", "rsa_pss_saltlen:digest"],
     ),
 }
 
@@ -86,15 +100,56 @@ def rng():
     return random.Random(seed), seed
 
 
+_PSS_HASH_OIDS = {
+    "sha256": bytes.fromhex("608648016503040201"),
+    "sha384": bytes.fromhex("608648016503040202"),
+    "sha512": bytes.fromhex("608648016503040203"),
+}
+_OID_MGF1 = bytes.fromhex("2a864886f70d010108")
+
+
+def _der(tag: int, content: bytes) -> bytes:
+    """Encode one DER TLV, mirroring `revocation._der`."""
+    length = len(content)
+    if length < 0x80:
+        return bytes([tag, length]) + content
+    size = (length.bit_length() + 7) // 8
+    return bytes([tag, 0x80 | size]) + length.to_bytes(size, "big") + content
+
+
+def _algorithm_identifier(oid: bytes) -> bytes:
+    return _der(0x30, _der(0x06, oid) + _der(0x05, b""))
+
+
+def _pss_params(sha: str, mgf_sha: str, salt_len: int) -> bytes:
+    """`RSASSA-PSS-params` (RFC 4055 §3.1) for MGF1 with an explicit salt length."""
+    hash_id = _algorithm_identifier(_PSS_HASH_OIDS[sha])
+    mgf_id = _der(
+        0x30, _der(0x06, _OID_MGF1) + _algorithm_identifier(_PSS_HASH_OIDS[mgf_sha])
+    )
+    return _der(
+        0x30,
+        _der(0xA0, hash_id)
+        + _der(0xA1, mgf_id)
+        + _der(0xA2, _der(0x02, bytes([salt_len]))),
+    )
+
+
 class Signer:
     """One OpenSSL key pair and the commands to sign and verify with it."""
 
     def __init__(
-        self, openssl: str, directory: Path, genpkey: list[str], hash_name: str
+        self,
+        openssl: str,
+        directory: Path,
+        genpkey: list[str],
+        hash_name: str,
+        sign_options: list[str] | None = None,
     ):
         self.openssl = openssl
         self.directory = directory
         self.hash_name = hash_name
+        self.sign_options = sign_options or []
         directory.mkdir(parents=True, exist_ok=True)
         self.key = directory / "key.pem"
         self.spki_path = directory / "spki.der"
@@ -123,6 +178,7 @@ class Signer:
             f"-{self.hash_name}",
             "-sign",
             str(self.key),
+            *self.sign_options,
             "-out",
             str(sig),
             str(msg),
@@ -141,6 +197,7 @@ class Signer:
                 f"-{self.hash_name}",
                 "-verify",
                 str(self.spki_path),
+                *self.sign_options,
                 "-signature",
                 str(sig),
                 str(msg),
@@ -153,6 +210,10 @@ class Signer:
 def ours_verifies(
     algorithm: str, hash_name: str, message: bytes, signature: bytes, spki: bytes
 ) -> bool:
+    if algorithm == signatures.RSASSA_PSS:
+        params = _pss_params(hash_name, hash_name, hashlib.new(hash_name).digest_size)
+        outcome, _ = signatures.verify(spki, algorithm, params, message, signature)
+        return outcome == signatures.VERIFIED
     digest = hashlib.new(hash_name, message).digest()
     try:
         return certinfo.verify_signature(algorithm, digest, signature, spki)
@@ -211,9 +272,15 @@ def damage(
 @pytest.mark.parametrize("scheme", sorted(SCHEMES))
 def test_openssl_and_certmonitor_agree(openssl, rng, tmp_path, scheme):
     random_, seed = rng
-    genpkey, hash_name, algorithm = SCHEMES[scheme]
+    genpkey, hash_name, algorithm, sign_options = SCHEMES[scheme]
     for key_index in range(KEYS_PER_TYPE):
-        signer = Signer(openssl, tmp_path / f"{scheme}-{key_index}", genpkey, hash_name)
+        signer = Signer(
+            openssl,
+            tmp_path / f"{scheme}-{key_index}",
+            genpkey,
+            hash_name,
+            sign_options,
+        )
         for _ in range(MESSAGES_PER_KEY):
             message = random_.randbytes(random_.randrange(0, 300))
             signature = signer.sign(message)
@@ -222,13 +289,19 @@ def test_openssl_and_certmonitor_agree(openssl, rng, tmp_path, scheme):
                 algorithm, hash_name, message, signature, signer.spki
             ), f"{context}: rejected a signature OpenSSL produced"
             # The right signature checked under the wrong hash must fail too.
+            # RSASSA-PSS keeps one OID across hashes, so the wrong-hash check
+            # only needs to change `hash_name`; PKCS#1 v1.5 and ECDSA each
+            # have a distinct OID per hash, so the matching OID is looked up.
             wrong = WRONG_HASH[hash_name]
-            family = algorithm.rsplit(".", 1)[0]
-            wrong_algorithm = next(
-                oid
-                for _, (_, h, oid) in SCHEMES.items()
-                if h == wrong and oid.rsplit(".", 1)[0] == family
-            )
+            if algorithm == signatures.RSASSA_PSS:
+                wrong_algorithm = algorithm
+            else:
+                family = algorithm.rsplit(".", 1)[0]
+                wrong_algorithm = next(
+                    oid
+                    for _, (_, h, oid, _) in SCHEMES.items()
+                    if h == wrong and oid.rsplit(".", 1)[0] == family
+                )
             assert not ours_verifies(
                 wrong_algorithm, wrong, message, signature, signer.spki
             ), f"{context}: accepted a signature under the wrong hash algorithm"
