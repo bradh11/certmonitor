@@ -2,10 +2,10 @@
 names, the padding checks that are plain byte work, and the hashing.
 
 Hashing stays in Python (`hashlib`), arithmetic stays in the Rust extension:
-`certinfo.verify_signature` for RSASSA-PKCS1-v1_5 and ECDSA,
-`certinfo.rsa_public_operation` for RSASSA-PSS (RFC 8017 §9.1.2 is checked
-here), and `certinfo.eddsa_verify` for Ed25519 and Ed448 (the challenge
-scalar is hashed here per RFC 8032). Verification only.
+`certinfo.verify_signature` for RSASSA-PKCS1-v1_5 and ECDSA, and
+`certinfo.rsa_pss_encoded_message` for RSASSA-PSS (RFC 8017 §9.1.2 is
+checked here). Ed25519 and Ed448 are reported as unsupported until they are
+implemented. Verification only.
 """
 
 from __future__ import annotations
@@ -72,57 +72,13 @@ def _mgf1(seed: bytes, length: int, hash_name: str) -> bytes:
     return bytes(out[:length])
 
 
-def _der_tlv(data: bytes, offset: int) -> tuple[int, bytes, int]:
-    """Read one DER TLV at `offset`; returns `(tag, content, offset after it)`."""
-    tag = data[offset]
-    length = data[offset + 1]
-    if length & 0x80:
-        size = length & 0x7F
-        length = int.from_bytes(data[offset + 2 : offset + 2 + size], "big")
-        start = offset + 2 + size
-    else:
-        start = offset + 2
-    end = start + length
-    return tag, data[start:end], end
-
-
-def _modulus_bits(spki: bytes) -> int:
-    """The RSA modulus's exact bit length, read from its DER SubjectPublicKeyInfo.
-
-    RSASSA-PSS needs `emBits`, one less than the modulus's exact bit length
-    (RFC 8017 §9.1.2), not its byte length: a modulus a few bits short of a
-    full byte boundary is exactly why EMSA-PSS-VERIFY's leftmost-bits check
-    exists. `certinfo.parse_public_key_info` parses a whole certificate, not
-    a bare SubjectPublicKeyInfo, so the modulus is read here instead: past
-    the AlgorithmIdentifier and into the BIT STRING holding the RSAPublicKey
-    (RFC 8017 appendix A.1.1). `rsa_public_operation` already proved `spki`
-    names a well-formed RSA key, so this walk only needs to reach the
-    modulus, not validate the whole structure again.
-    """
-    tag, spki_body, _ = _der_tlv(spki, 0)
-    if tag != 0x30:
-        raise ValueError("malformed SubjectPublicKeyInfo")
-    _, _, after_algorithm = _der_tlv(spki_body, 0)
-    bit_tag, bit_string, _ = _der_tlv(spki_body, after_algorithm)
-    if bit_tag != 0x03 or not bit_string or bit_string[0] != 0:
-        raise ValueError("malformed RSA public key bit string")
-    key_tag, key_body, _ = _der_tlv(bit_string, 1)
-    if key_tag != 0x30:
-        raise ValueError("malformed RSAPublicKey")
-    modulus_tag, modulus, _ = _der_tlv(key_body, 0)
-    if modulus_tag != 0x02:
-        raise ValueError("malformed RSAPublicKey")
-    return int.from_bytes(modulus, "big").bit_length()
-
-
 def _verify_pss(
     spki: bytes, params: bytes | None, tbs: bytes, signature: bytes
 ) -> tuple[str, str | None]:
     """RSASSA-PSS-VERIFY (RFC 8017 §8.1.2) with EMSA-PSS-VERIFY (§9.1.2)."""
     try:
         options = certinfo.rsa_pss_parameters(params)  # type: ignore[attr-defined]
-        em = certinfo.rsa_public_operation(signature, spki)  # type: ignore[attr-defined]
-        mod_bits = _modulus_bits(spki)
+        em, mod_bits = certinfo.rsa_pss_encoded_message(signature, spki)  # type: ignore[attr-defined]
     except ValueError as exc:
         outcome = UNSUPPORTED if str(exc).startswith("unsupported") else FAILED
         return outcome, str(exc)
@@ -133,8 +89,10 @@ def _verify_pss(
     )
     m_hash = hashlib.new(hash_name, tbs).digest()
     h_len = len(m_hash)
+    # `em` is already emLen octets (RFC 8017 §8.1.2 step 2.c), so emBits is
+    # modBits - 1 and the leftmost 8*emLen - emBits bits of EM, zero to seven
+    # of them, must be zero.
     em_len = len(em)
-    # emBits is modBits - 1; the leftmost 8*emLen - emBits bits of EM must be zero.
     em_bits = mod_bits - 1
     if em_len < h_len + salt_length + 2:
         return FAILED, "PSS encoded message too short"

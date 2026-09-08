@@ -137,6 +137,29 @@ pub fn public_operation(key: &RsaPublicKey, signature: &[u8]) -> Result<Vec<u8>,
         .ok_or(VerifyError::Malformed("RSA public operation width"))
 }
 
+/// The RSASSA-PSS encoded message and the modulus's exact bit length.
+///
+/// RFC 8017 §8.1.2 step 2.c encodes `EM` as `I2OSP(m, emLen)` with
+/// `emLen = ceil(emBits / 8)` and `emBits = modBits - 1`, which is one octet
+/// shorter than the `k`-byte RSAVP1 result whenever `modBits` is 1 mod 8.
+/// Returning `emLen` octets here, together with `modBits`, keeps the caller
+/// from having to rediscover the modulus's bit length to find where `EM`
+/// starts. The octets dropped from the front must all be zero, or `m` does
+/// not fit in `emBits` bits.
+pub fn pss_encoded_message(
+    key: &RsaPublicKey,
+    signature: &[u8],
+) -> Result<(Vec<u8>, usize), VerifyError> {
+    let em = public_operation(key, signature)?;
+    let mod_bits = key.modulus.bit_len();
+    let em_len = (mod_bits - 1).div_ceil(8);
+    let leading = em.len() - em_len;
+    if em[..leading].iter().any(|b| *b != 0) {
+        return Err(VerifyError::Malformed("PSS encoded message exceeds emBits"));
+    }
+    Ok((em[leading..].to_vec(), mod_bits))
+}
+
 /// Verify `signature` over `digest` (already hashed with `hash`).
 pub fn verify(
     key: &RsaPublicKey,
@@ -437,6 +460,36 @@ mod tests {
         assert!(public_operation(&key, &hex(RSA_SIG)[1..]).is_err());
         let too_big = vec![0xff; 256];
         assert!(public_operation(&key, &too_big).is_err());
+    }
+
+    #[test]
+    fn pss_encoded_message_is_em_len_octets_long() {
+        // 2048 bits is 0 mod 8, so emLen == k and EM is the whole result.
+        let key = key();
+        let (em, mod_bits) = pss_encoded_message(&key, &hex(RSA_SIG)).unwrap();
+        assert_eq!(mod_bits, 2048);
+        assert_eq!(em.len(), 256);
+        assert_eq!(em, public_operation(&key, &hex(RSA_SIG)).unwrap());
+    }
+
+    #[test]
+    fn pss_encoded_message_rejects_a_value_wider_than_em_bits() {
+        // n = 2^2049 - 1, so modBits is 2049, k is 257, and emLen is 256:
+        // the leading octet of the k-byte result has to be zero.
+        let mut modulus = vec![0x01u8];
+        modulus.extend(vec![0xffu8; 256]);
+        let key = RsaPublicKey::from_der(&rsa_key_der(&modulus, &[0x03])).unwrap();
+        assert_eq!(key.modulus.bit_len(), 2049);
+        assert_eq!(key.size(), 257);
+        // s = 2^683 - 1, whose cube is below n and at or above 2^2048.
+        let mut signature = vec![0x00u8; 171];
+        signature.push(0x07);
+        signature.extend(vec![0xffu8; 85]);
+        assert_ne!(public_operation(&key, &signature).unwrap()[0], 0);
+        assert_eq!(
+            pss_encoded_message(&key, &signature).unwrap_err(),
+            VerifyError::Malformed("PSS encoded message exceeds emBits")
+        );
     }
 
     #[test]

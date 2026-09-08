@@ -9,8 +9,9 @@ way. `acceptable` may go either way.
 
 ECDSA and RSASSA-PKCS1-v1_5 vectors are checked with `certinfo.verify_signature`
 directly. RSASSA-PSS vectors carry no algorithm parameters of their own, so
-`_pss_params` builds the `RSASSA-PSS-params` DER (RFC 4055 §3.1) from each
-test group's `sha`, `mgf`, `mgfSha`, and `sLen` fields, and the check goes
+`tests.support.pss_params` builds the `RSASSA-PSS-params` DER (RFC 4055
+§3.1) from each test group's `sha`, `mgfSha`, and `sLen` fields (groups
+naming a mask generation function other than MGF1 are skipped), and the check goes
 through `certmonitor.signatures.verify`, which is where the PSS padding is
 implemented.
 """
@@ -24,6 +25,7 @@ from pathlib import Path
 import pytest
 
 from certmonitor import certinfo, signatures
+from tests.support import pss_params
 
 VECTORS = Path(__file__).resolve().parent / "fixtures" / "wycheproof"
 ALGORITHMS = {
@@ -35,46 +37,6 @@ ALGORITHMS = {
     ("RSASSA-PKCS1-v1_5", "SHA-512"): "1.2.840.113549.1.1.13",
 }
 HASHES = {"SHA-256": "sha256", "SHA-384": "sha384", "SHA-512": "sha512"}
-HASH_OIDS = {
-    "sha256": bytes.fromhex("608648016503040201"),
-    "sha384": bytes.fromhex("608648016503040202"),
-    "sha512": bytes.fromhex("608648016503040203"),
-}
-_OID_MGF1 = bytes.fromhex("2a864886f70d010108")
-
-
-def _der(tag: int, content: bytes) -> bytes:
-    """Encode one DER TLV, mirroring `revocation._der`."""
-    length = len(content)
-    if length < 0x80:
-        return bytes([tag, length]) + content
-    size = (length.bit_length() + 7) // 8
-    return bytes([tag, 0x80 | size]) + length.to_bytes(size, "big") + content
-
-
-def _der_integer(value: int) -> bytes:
-    """DER INTEGER encoding of a non-negative value."""
-    length = max(1, (value.bit_length() + 7) // 8)
-    content = value.to_bytes(length, "big")
-    if content[0] & 0x80:
-        content = b"\x00" + content
-    return _der(0x02, content)
-
-
-def _algorithm_identifier(oid: bytes) -> bytes:
-    return _der(0x30, _der(0x06, oid) + _der(0x05, b""))
-
-
-def _pss_params(sha: str, mgf_sha: str, salt_len: int) -> bytes:
-    """`RSASSA-PSS-params` (RFC 4055 §3.1) for MGF1 with an explicit salt length."""
-    hash_id = _algorithm_identifier(HASH_OIDS[sha])
-    mgf_id = _der(
-        0x30, _der(0x06, _OID_MGF1) + _algorithm_identifier(HASH_OIDS[mgf_sha])
-    )
-    return _der(
-        0x30,
-        _der(0xA0, hash_id) + _der(0xA1, mgf_id) + _der(0xA2, _der_integer(salt_len)),
-    )
 
 
 def load_cases():
@@ -85,7 +47,12 @@ def load_cases():
         for group in data["testGroups"]:
             key = bytes.fromhex(group["publicKeyDer"])
             if pss:
-                params = _pss_params(
+                # `pss_params` encodes MGF1, the only mask generation function
+                # RFC 4055 §A.2.3 defines for PSS, so a group naming anything
+                # else is not one these parameters could describe.
+                if group["mgf"] != "MGF1":
+                    continue
+                params = pss_params(
                     HASHES[group["sha"]], HASHES[group["mgfSha"]], group["sLen"]
                 )
                 scheme = (signatures.RSASSA_PSS, params)

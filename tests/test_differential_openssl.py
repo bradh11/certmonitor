@@ -26,6 +26,7 @@ from pathlib import Path
 import pytest
 
 from certmonitor import certinfo, signatures
+from tests.support import pss_params
 
 pytestmark = pytest.mark.differential
 
@@ -98,41 +99,6 @@ def rng():
     seed = int(os.environ.get("CERTMONITOR_DIFFERENTIAL_SEED", str(int(time.time()))))
     print(f"\nCERTMONITOR_DIFFERENTIAL_SEED={seed}")
     return random.Random(seed), seed
-
-
-_PSS_HASH_OIDS = {
-    "sha256": bytes.fromhex("608648016503040201"),
-    "sha384": bytes.fromhex("608648016503040202"),
-    "sha512": bytes.fromhex("608648016503040203"),
-}
-_OID_MGF1 = bytes.fromhex("2a864886f70d010108")
-
-
-def _der(tag: int, content: bytes) -> bytes:
-    """Encode one DER TLV, mirroring `revocation._der`."""
-    length = len(content)
-    if length < 0x80:
-        return bytes([tag, length]) + content
-    size = (length.bit_length() + 7) // 8
-    return bytes([tag, 0x80 | size]) + length.to_bytes(size, "big") + content
-
-
-def _algorithm_identifier(oid: bytes) -> bytes:
-    return _der(0x30, _der(0x06, oid) + _der(0x05, b""))
-
-
-def _pss_params(sha: str, mgf_sha: str, salt_len: int) -> bytes:
-    """`RSASSA-PSS-params` (RFC 4055 §3.1) for MGF1 with an explicit salt length."""
-    hash_id = _algorithm_identifier(_PSS_HASH_OIDS[sha])
-    mgf_id = _der(
-        0x30, _der(0x06, _OID_MGF1) + _algorithm_identifier(_PSS_HASH_OIDS[mgf_sha])
-    )
-    return _der(
-        0x30,
-        _der(0xA0, hash_id)
-        + _der(0xA1, mgf_id)
-        + _der(0xA2, _der(0x02, bytes([salt_len]))),
-    )
 
 
 class Signer:
@@ -211,7 +177,7 @@ def ours_verifies(
     algorithm: str, hash_name: str, message: bytes, signature: bytes, spki: bytes
 ) -> bool:
     if algorithm == signatures.RSASSA_PSS:
-        params = _pss_params(hash_name, hash_name, hashlib.new(hash_name).digest_size)
+        params = pss_params(hash_name, hash_name, hashlib.new(hash_name).digest_size)
         outcome, _ = signatures.verify(spki, algorithm, params, message, signature)
         return outcome == signatures.VERIFIED
     digest = hashlib.new(hash_name, message).digest()

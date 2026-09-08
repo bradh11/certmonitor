@@ -123,16 +123,19 @@ def certificate_signature_parts(der_data: bytes) -> dict[str, Any]:
     """
     ...
 
-def rsa_public_operation(signature: bytes, spki_der: bytes) -> bytes:
-    """Compute `signature^e mod n` (RFC 8017 §5.2.2 RSAVP1, followed by
-    I2OSP) as exactly `k` bytes, where `k` is the modulus size in bytes.
-    `spki_der` is a DER SubjectPublicKeyInfo naming an RSA key. This is the
-    raw public-key operation with no padding scheme applied; a caller
-    checking a PKCS#1 v1.5 signature should use `verify_signature` instead,
-    but RSASSA-PSS padding is checked in Python, using this primitive.
-    Raises `ValueError` when the key is not RSA or is outside the
-    supported bounds, when `signature` is not exactly `k` bytes long, or
-    when the signature integer is not less than the modulus.
+def rsa_pss_encoded_message(signature: bytes, spki_der: bytes) -> tuple[bytes, int]:
+    """The RSASSA-PSS encoded message `EM` and the modulus's bit length.
+
+    `signature^e mod n` (RFC 8017 §5.2.2 RSAVP1) converted with I2OSP to
+    `emLen = ceil((modBits - 1) / 8)` octets, per RFC 8017 §8.1.2 step 2.c,
+    together with `modBits` so the caller can derive `emBits`. `spki_der`
+    is a DER SubjectPublicKeyInfo naming an RSA key. No padding scheme is
+    applied; RSASSA-PSS padding is checked in Python, using this primitive,
+    while PKCS#1 v1.5 signatures go through `verify_signature`. Raises
+    `ValueError` when the key is not RSA or is outside the supported
+    bounds, when `signature` is not exactly `ceil(modBits / 8)` bytes long,
+    when the signature integer is not less than the modulus, or when the
+    recovered value needs more than `modBits - 1` bits.
     """
     ...
 

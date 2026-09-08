@@ -226,17 +226,20 @@ mod py {
         Ok(pyobj::certificate_signature_parts_dict(py, &cert)?.into())
     }
 
-    /// `signature^e mod n` as a modulus-sized byte string, for padding
-    /// schemes checked in Python (RSASSA-PSS). Raises ValueError when the
-    /// key is not RSA, is outside the supported bounds, or the signature
-    /// is the wrong length or out of range.
+    /// The RSASSA-PSS encoded message `EM` and the modulus's bit length, as
+    /// a `(bytes, int)` tuple. `EM` is `emLen = ceil((modBits - 1) / 8)`
+    /// octets (RFC 8017 §8.1.2 step 2.c), which the PSS padding check in
+    /// Python consumes as it stands. Raises ValueError when the key is not
+    /// RSA, is outside the supported bounds, the signature is the wrong
+    /// length or out of range, or the recovered value needs more than
+    /// `modBits - 1` bits.
     #[pyfunction]
-    pub(super) fn rsa_public_operation(
+    pub(super) fn rsa_pss_encoded_message(
         py: Python<'_>,
         signature: Vec<u8>,
         spki_der: Vec<u8>,
     ) -> PyResult<Py<PyAny>> {
-        let bytes = py
+        let (em, mod_bits) = py
             .detach(|| {
                 let mut reader = crate::der::DerReader::new(&spki_der);
                 let spki = crate::x509::spki::SubjectPublicKeyInfo::parse(&mut reader)
@@ -245,7 +248,7 @@ mod py {
                     crate::x509::spki::PublicKeyAlgorithm::Rsa { .. } => {
                         let key =
                             crate::crypto::rsa::RsaPublicKey::from_der(spki.subject_public_key)?;
-                        crate::crypto::rsa::public_operation(&key, &signature)
+                        crate::crypto::rsa::pss_encoded_message(&key, &signature)
                     }
                     _ => Err(crate::crypto::VerifyError::Unsupported(
                         "non-RSA key for RSA public operation".to_string(),
@@ -253,7 +256,7 @@ mod py {
                 }
             })
             .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
-        Ok(PyBytes::new(py, &bytes).into())
+        Ok((PyBytes::new(py, &em), mod_bits).into_pyobject(py)?.into())
     }
 
     /// Parse RSASSA-PSS-params (RFC 4055) into hashlib names and lengths:
@@ -293,7 +296,7 @@ mod py {
         m.add_function(wrap_pyfunction!(signature_hash, m)?)?;
         m.add_function(wrap_pyfunction!(verify_signature, m)?)?;
         m.add_function(wrap_pyfunction!(certificate_signature_parts, m)?)?;
-        m.add_function(wrap_pyfunction!(rsa_public_operation, m)?)?;
+        m.add_function(wrap_pyfunction!(rsa_pss_encoded_message, m)?)?;
         m.add_function(wrap_pyfunction!(rsa_pss_parameters, m)?)?;
         Ok(())
     }
