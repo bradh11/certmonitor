@@ -10,14 +10,18 @@ DER parser, which also verifies the responder's signature (RSA PKCS#1 v1.5
 and ECDSA over P-256 and P-384). A response signed by the issuing CA, or by
 a delegated responder certificate the CA issued for OCSP signing, carries
 `signature_verified: True`; anything else says why in `verification_error`.
-CRLs are fetched here and judged by OpenSSL: the monitor loads the CRL into
-a verifying TLS context, so a `good` or `revoked` CRL answer is backed by
-OpenSSL's signature and validity checks.
+CRLs are fetched here and verified the same way: the CRL must name the
+leaf's issuer and carry that issuer's signature. The CRL's signature outcome
+is recorded before its list is consulted, and the validator discards any
+answer whose signature failed. No second connection is opened for either
+method, so an answer can only describe the certificate that was collected.
 
-Fetched CRLs and OCSP answers are cached process-wide until their
-`nextUpdate`, so a fleet scan downloads each CA's CRL once. A monitor built
-from a file never touches the network, so both methods report `unsupported`
-for it.
+Fetched CRLs and OCSP answers are cached process-wide: verified answers are
+cached until their `nextUpdate`, never longer than a day; an answer with no
+`nextUpdate` is cached for at most an hour and, for OCSP, never past
+`thisUpdate` plus `max_age`; failed or unverifiable answers are fetched
+again next time. A monitor built from a file never touches the network, so
+both methods report `unsupported` for it.
 """
 
 from __future__ import annotations
@@ -26,7 +30,6 @@ import base64
 import hashlib
 import threading
 import time
-from collections.abc import Callable
 from datetime import datetime, timezone
 from typing import Any
 
@@ -39,12 +42,17 @@ OCSP_CONTENT_TYPE = "application/ocsp-request"
 OCSP_RESPONSE_TYPE = "application/ocsp-response"
 
 _OID_SHA1 = b"\x06\x05\x2b\x0e\x03\x02\x1a"
+_SHA1_OID_TEXT = "1.3.14.3.2.26"
 _OID_OCSP_SIGNING = "1.3.6.1.5.5.7.3.9"
 _CACHE_CEILING_SECONDS = 24 * 60 * 60
 _DEFAULT_TTL_SECONDS = 60 * 60
 _CACHE_LIMIT = 256
+_OCSP_MAX_AGE_SECONDS = 24 * 60 * 60
+_OCSP_MAX_LIFETIME_SECONDS = 10 * 24 * 60 * 60
 
-CrlCheck = Callable[[bytes], dict[str, Any]]
+VERIFIED = "verified"
+UNSUPPORTED = "unsupported"
+FAILED = "failed"
 
 
 # --- small helpers -----------------------------------------------------------------
@@ -64,14 +72,6 @@ def format_time(unix: int | None) -> str | None:
     if unix is None:
         return None
     return datetime.fromtimestamp(unix, timezone.utc).isoformat()
-
-
-def serial_bytes(serial_hex: str) -> bytes:
-    """The raw INTEGER bytes of a serial number rendered as hex."""
-    digits = serial_hex.replace(":", "")
-    if len(digits) % 2:
-        digits = "0" + digits
-    return bytes.fromhex(digits)
 
 
 def pem_to_der(text: bytes) -> bytes:
@@ -135,15 +135,19 @@ CRL_CACHE = _Cache()
 OCSP_CACHE = _Cache()
 
 
-def _expiry_for(next_update: int | None, now: float) -> float:
+def _expiry_for(
+    this_update: int, next_update: int | None, now: float, max_age: float
+) -> float:
     """When a fetched answer stops being reusable.
 
     Never later than the answer's own `nextUpdate`: a cache must not extend
     the validity of signed evidence. Capped at a day for answers that promise
-    more, and an hour for answers that carry no `nextUpdate` at all.
+    more. An answer without `nextUpdate` is reusable until `thisUpdate` plus
+    `max_age`, and never longer than an hour, so re-fetching a historical
+    response cannot give it a fresh lease.
     """
     if next_update is None:
-        return now + _DEFAULT_TTL_SECONDS
+        return min(this_update + max_age, now + _DEFAULT_TTL_SECONDS)
     return min(float(next_update), now + _CACHE_CEILING_SECONDS)
 
 
@@ -154,17 +158,58 @@ def _still_current(next_update: int | None, now: float) -> bool:
 # --- OCSP ----------------------------------------------------------------------------
 
 
-def find_issuer(leaf_der: bytes, candidates: list[bytes]) -> bytes | None:
-    """The certificate among `candidates` that issued `leaf_der`, if any."""
+def find_issuer(
+    leaf_der: bytes, candidates: list[bytes]
+) -> tuple[bytes | None, str | None, str | None]:
+    """The certificate among `candidates` that issued `leaf_der`, and how that was shown.
+
+    A candidate must carry the leaf's issuer name and its key must verify the
+    leaf's signature: anyone can mint a certificate with the right subject, so
+    a name match alone binds nothing. Returns `(issuer, VERIFIED, None)` when
+    the signature checks, `(issuer, UNSUPPORTED, why)` when the leaf is signed
+    with an algorithm CertMonitor cannot verify and the name match is the best
+    evidence available, and `(None, None, None)` when no candidate qualifies.
+    """
+    try:
+        leaf = certinfo.certificate_signature_parts(leaf_der)  # type: ignore[attr-defined]
+    except ValueError:
+        return None, None, None
+    fallback: tuple[bytes, str] | None = None
     for candidate in candidates:
         if candidate == leaf_der:
             continue
         try:
-            if certinfo.ocsp_cert_id_inputs(leaf_der, candidate) is not None:  # type: ignore[attr-defined]
-                return candidate
+            if certinfo.ocsp_cert_id_inputs(leaf_der, candidate) is None:  # type: ignore[attr-defined]
+                continue
+            spki = certinfo.certificate_signature_parts(candidate)["spki"]  # type: ignore[attr-defined]
         except ValueError:
             continue
-    return None
+        outcome, problem = _signed_by(
+            spki, leaf["signature_algorithm"], leaf["tbs"], leaf["signature"]
+        )
+        if outcome == VERIFIED:
+            return candidate, VERIFIED, None
+        if outcome == UNSUPPORTED and fallback is None:
+            fallback = (candidate, problem or "unsupported leaf signature algorithm")
+    if fallback is None:
+        return None, None, None
+    return fallback[0], UNSUPPORTED, fallback[1]
+
+
+def _bound_by_issuer(
+    outcome: str, problem: str | None, binding: str | None, binding_problem: str | None
+) -> tuple[str, str | None]:
+    """Cap a signature outcome by how well the signer was tied to the leaf.
+
+    A response verified under an issuer that is only name-matched to the leaf
+    is not proof, because the name match could be satisfied by an impostor.
+    """
+    if outcome == VERIFIED and binding != VERIFIED:
+        return UNSUPPORTED, (
+            "the issuer certificate is only name-matched to the leaf "
+            f"({binding_problem or 'its signature over the leaf could not be checked'})"
+        )
+    return outcome, problem
 
 
 def build_ocsp_request(
@@ -203,6 +248,22 @@ def build_ocsp_request(
     return request, expected
 
 
+def _cert_id_matches(cert_id: dict[str, str], expected: dict[str, str]) -> bool:
+    """Whether a response's CertID is the one the request asked about.
+
+    All four fields must agree (RFC 6960 section 4.2.1): the hash algorithm the
+    request used, both issuer hashes, and the serial. Leading zeros on the
+    serial are ignored because some responders re-encode it.
+    """
+    return (
+        cert_id["hash_algorithm"] == _SHA1_OID_TEXT
+        and cert_id["issuer_name_hash"] == expected["issuer_name_hash"]
+        and cert_id["issuer_key_hash"] == expected["issuer_key_hash"]
+        and cert_id["serial_number"].lstrip("0")
+        == expected["serial_number"].lstrip("0")
+    )
+
+
 def check_ocsp(
     leaf_der: bytes,
     issuer_der: bytes,
@@ -211,26 +272,59 @@ def check_ocsp(
     timeout: float,
     proxy: ProxyConfig | None = None,
     now: float | None = None,
+    issuer_binding: str = UNSUPPORTED,
+    binding_problem: str | None = None,
+    max_age: float = _OCSP_MAX_AGE_SECONDS,
 ) -> dict[str, Any]:
     """Ask `url` about `leaf_der` and return one answer dict.
 
     The answer's `status` is `good`, `revoked`, or `unknown` when the
     responder answered about this certificate, and `error` otherwise, with
-    `reason` saying why. Answers are cached until their `nextUpdate`.
+    `reason` saying why. Verified answers are cached until their `nextUpdate`,
+    never longer than a day; an answer with no `nextUpdate` is cached for at
+    most an hour and never past `thisUpdate` plus `max_age`; failed or
+    unverifiable answers are fetched again next time.
     """
     now = time.time() if now is None else now
     request, expected = build_ocsp_request(leaf_der, issuer_der)
-    key = (url, expected["issuer_key_hash"], expected["serial_number"])
+    key = (
+        url,
+        expected["issuer_name_hash"],
+        expected["issuer_key_hash"],
+        expected["serial_number"],
+    )
     cached = OCSP_CACHE.get(key, now)
-    if cached is not None and _still_current(cached.get("_next_update"), now):
+    if (
+        cached is not None
+        and _still_current(cached.get("_next_update"), now)
+        and (
+            cached.get("_next_update") is not None
+            or now - cached["_this_update"] <= max_age
+        )
+    ):
         return {**cached, "cached": True}
     answer = _ask_ocsp(
-        request, expected, url, issuer_der, timeout=timeout, proxy=proxy, now=now
+        request,
+        expected,
+        url,
+        issuer_der,
+        timeout=timeout,
+        proxy=proxy,
+        now=now,
+        issuer_binding=issuer_binding,
+        binding_problem=binding_problem,
+        max_age=max_age,
     )
-    if answer["status"] in ("good", "revoked", "unknown") and _still_current(
+    if answer.get("verification") == VERIFIED and _still_current(
         answer.get("_next_update"), now
     ):
-        OCSP_CACHE.put(key, answer, _expiry_for(answer.get("_next_update"), now))
+        OCSP_CACHE.put(
+            key,
+            answer,
+            _expiry_for(
+                answer["_this_update"], answer.get("_next_update"), now, max_age
+            ),
+        )
     return {**answer, "cached": False}
 
 
@@ -243,6 +337,9 @@ def _ask_ocsp(
     timeout: float,
     proxy: ProxyConfig | None,
     now: float,
+    issuer_binding: str = UNSUPPORTED,
+    binding_problem: str | None = None,
+    max_age: float,
 ) -> dict[str, Any]:
     answer: dict[str, Any] = {
         "method": "ocsp",
@@ -272,10 +369,7 @@ def _ask_ocsp(
         return answer
     single = None
     for candidate in parsed["responses"]:
-        cert_id = candidate["cert_id"]
-        if cert_id["issuer_key_hash"] == expected["issuer_key_hash"] and cert_id[
-            "serial_number"
-        ].lstrip("0") == expected["serial_number"].lstrip("0"):
+        if _cert_id_matches(candidate["cert_id"], expected):
             single = candidate
             break
     if single is None:
@@ -292,6 +386,28 @@ def _ask_ocsp(
             reason=f"OCSP response thisUpdate {format_time(single['this_update'])} is in the future",
         )
         return answer
+    age = now - single["this_update"]
+    if single["next_update"] is None and age > max_age:
+        answer.update(
+            status="error",
+            error="OCSPStale",
+            reason=(
+                f"OCSP response thisUpdate {format_time(single['this_update'])} is "
+                f"{age / 3600:.0f} hours old and carries no nextUpdate; the limit is "
+                f"{max_age / 3600:.0f} hours (RFC 6960 §3.2 requires a recent thisUpdate)"
+            ),
+        )
+        return answer
+    if age > _OCSP_MAX_LIFETIME_SECONDS:
+        answer.update(
+            status="error",
+            error="OCSPStale",
+            reason=(
+                f"OCSP response thisUpdate {format_time(single['this_update'])} is "
+                "older than 10 days, whatever nextUpdate says"
+            ),
+        )
+        return answer
     if single["next_update"] is not None and single["next_update"] < now:
         answer.update(
             status="error",
@@ -301,6 +417,9 @@ def _ask_ocsp(
         return answer
     outcome, problem = verify_ocsp_response(
         parsed, issuer_der, expected["issuer_key_hash"], now
+    )
+    outcome, problem = _bound_by_issuer(
+        outcome, problem, issuer_binding, binding_problem
     )
     answer["signature_verified"] = outcome == VERIFIED
     answer["verification"] = outcome
@@ -316,13 +435,9 @@ def _ask_ocsp(
         responder_key_hash=parsed["responder_key_hash"],
         responder_name=parsed["responder_name"],
         _next_update=single["next_update"],
+        _this_update=single["this_update"],
     )
     return answer
-
-
-VERIFIED = "verified"
-UNSUPPORTED = "unsupported"
-FAILED = "failed"
 
 
 def _signed_by(
@@ -337,7 +452,10 @@ def _signed_by(
     hash_name = certinfo.signature_hash(algorithm)  # type: ignore[attr-defined]
     if hash_name is None:
         return UNSUPPORTED, f"unsupported signature algorithm {algorithm}"
-    digest = hashlib.new(hash_name, tbs).digest()
+    try:
+        digest = hashlib.new(hash_name, tbs).digest()
+    except ValueError as exc:
+        return UNSUPPORTED, f"unsupported digest {hash_name}: {exc}"
     try:
         ok = certinfo.verify_signature(  # type: ignore[attr-defined]
             algorithm, digest, signature, signer_spki
@@ -440,7 +558,14 @@ def fetch_crl(
     der = pem_to_der(body) if body.lstrip().startswith(b"-----BEGIN") else body
     info = certinfo.crl_info(der)  # type: ignore[attr-defined]
     if _still_current(info["next_update"], now):
-        CRL_CACHE.put(url, (der, info), _expiry_for(info["next_update"], now))
+        expires_at = (
+            now + _DEFAULT_TTL_SECONDS
+            if info["next_update"] is None
+            else _expiry_for(
+                info["this_update"], info["next_update"], now, _DEFAULT_TTL_SECONDS
+            )
+        )
+        CRL_CACHE.put(url, (der, info), expires_at)
     return der, info, False
 
 
@@ -463,7 +588,6 @@ class RevocationEvidence:
         cert_info: dict[str, Any],
         timeout: float,
         proxy: ProxyConfig | None = None,
-        crl_check: CrlCheck | None = None,
         offline: bool = False,
     ) -> None:
         self.leaf_der = leaf_der
@@ -472,12 +596,14 @@ class RevocationEvidence:
         self.cert_info = cert_info
         self.timeout = timeout
         self.proxy = proxy
-        self.crl_check = crl_check
+        self.ocsp_max_age: float = _OCSP_MAX_AGE_SECONDS
         self.ocsp_urls = http_urls(cert_info.get("OCSP"))
         self.crl_urls = http_urls(cert_info.get("crlDistributionPoints"))
         self.issuer_urls = http_urls(cert_info.get("caIssuers"))
         self._issuer: bytes | None = None
         self._issuer_error: str | None = None
+        self._issuer_binding: str | None = None
+        self._binding_problem: str | None = None
         self._answers: dict[str, dict[str, Any]] = {}
 
     def answer(self, method: str) -> dict[str, Any]:
@@ -487,10 +613,17 @@ class RevocationEvidence:
         return self._answers[method]
 
     def issuer(self) -> bytes | None:
-        """The issuer certificate: from the collected chain, else from the AIA pointer."""
+        """The issuer certificate: from the collected chain, else from the AIA pointer.
+
+        Only a certificate whose key verifies the leaf's signature qualifies.
+        `_issuer_binding` records whether that check ran (`VERIFIED`) or the
+        leaf's algorithm is one CertMonitor cannot check (`UNSUPPORTED`).
+        """
         if self._issuer is not None or self._issuer_error is not None:
             return self._issuer
-        found = find_issuer(self.leaf_der, self.chain_der[1:] + self.chain_der[:1])
+        found, binding, problem = find_issuer(
+            self.leaf_der, self.chain_der[1:] + self.chain_der[:1]
+        )
         if found is None:
             for url in self.issuer_urls:
                 try:
@@ -502,15 +635,22 @@ class RevocationEvidence:
                     continue
                 if body.lstrip().startswith(b"-----BEGIN"):
                     body = pem_to_der(body)
-                found = find_issuer(self.leaf_der, [body])
+                found, binding, problem = find_issuer(self.leaf_der, [body])
                 if found is not None:
                     self._issuer_error = None
                     break
+                self._issuer_error = (
+                    "the certificate fetched from the caIssuers pointer did not "
+                    "sign this certificate"
+                )
         if found is None and self._issuer_error is None:
             self._issuer_error = (
-                "the issuer certificate is not in the chain and has no AIA pointer"
+                "no certificate in the chain signed this certificate and it has "
+                "no AIA pointer"
             )
         self._issuer = found
+        self._issuer_binding = binding
+        self._binding_problem = problem
         return found
 
     def ocsp(self) -> dict[str, Any]:
@@ -541,9 +681,16 @@ class RevocationEvidence:
         last: dict[str, Any] = {}
         for url in self.ocsp_urls:
             last = check_ocsp(
-                self.leaf_der, issuer, url, timeout=self.timeout, proxy=self.proxy
+                self.leaf_der,
+                issuer,
+                url,
+                timeout=self.timeout,
+                proxy=self.proxy,
+                issuer_binding=self._issuer_binding or UNSUPPORTED,
+                binding_problem=self._binding_problem,
+                max_age=self.ocsp_max_age,
             )
-            if last["status"] != "error":
+            if last["status"] != "error" and last.get("verification") != FAILED:
                 break
         return self._remember("ocsp", last)
 
@@ -561,20 +708,25 @@ class RevocationEvidence:
                     "reason": "the certificate carries no CRL distribution point",
                 },
             )
-        if self.crl_check is None:
-            return self._remember("crl", self._offline("crl"))
         last: dict[str, Any] = {}
         for url in self.crl_urls:
             last = self._check_one_crl(url)
-            if last["status"] != "error":
+            if last["status"] != "error" and last.get("verification") != FAILED:
                 break
         return self._remember("crl", last)
 
     def _check_one_crl(self, url: str) -> dict[str, Any]:
+        """Fetch one CRL, verify it against the bound issuer, and look the leaf up.
+
+        The CRL's signature outcome is recorded before its list is consulted,
+        and the validator discards any answer whose signature failed. No
+        second connection is opened, so the verdict can only ever describe
+        the certificate that was collected.
+        """
         answer: dict[str, Any] = {
             "method": "crl",
             "url": url,
-            "signature_verified": True,
+            "signature_verified": False,
         }
         try:
             der, info, cached = fetch_crl(url, timeout=self.timeout, proxy=self.proxy)
@@ -587,21 +739,60 @@ class RevocationEvidence:
             next_update=format_time(info["next_update"]),
             revoked_count=info["revoked_count"],
         )
-        assert self.crl_check is not None
-        verdict = self.crl_check(der)
-        answer.update(verdict)
-        if verdict.get("status") == "revoked":
-            serial = self.cert_info.get("serialNumber")
-            entry = (
-                certinfo.crl_lookup(der, serial_bytes(serial))  # type: ignore[attr-defined]
-                if serial
-                else None
+        now = time.time()
+        if info["this_update"] > now + 300:
+            answer.update(
+                status="error",
+                error="CRLNotYetValid",
+                reason=f"CRL thisUpdate {answer['this_update']} is in the future",
             )
-            if entry is not None:
-                answer.update(
-                    revocation_time=format_time(entry["revocation_time"]),
-                    revocation_reason=entry["revocation_reason"],
-                )
+            return answer
+        if info["next_update"] is not None and info["next_update"] < now:
+            answer.update(
+                status="error",
+                error="CRLStale",
+                reason=f"CRL expired at {answer['next_update']}",
+            )
+            return answer
+        issuer = self.issuer()
+        if issuer is None:
+            answer.update(
+                status="error",
+                error="MissingIssuer",
+                reason=self._issuer_error or "issuer certificate unavailable",
+            )
+            return answer
+        parts = certinfo.certificate_signature_parts(issuer)  # type: ignore[attr-defined]
+        if info["issuer_der"] != parts["subject_der"]:
+            answer.update(
+                status="error",
+                error="CRLIssuerMismatch",
+                reason="the CRL was not issued by the certificate's CA",
+            )
+            return answer
+        outcome, problem = _signed_by(
+            parts["spki"],
+            info["signature_algorithm"],
+            info["tbs_cert_list"],
+            info["signature"],
+        )
+        outcome, problem = _bound_by_issuer(
+            outcome, problem, self._issuer_binding, self._binding_problem
+        )
+        answer["signature_verified"] = outcome == VERIFIED
+        answer["verification"] = outcome
+        if problem is not None:
+            answer["verification_error"] = problem
+        serial = certinfo.ocsp_cert_id_inputs(self.leaf_der, issuer)["serial_number"]  # type: ignore[attr-defined]
+        entry = certinfo.crl_lookup(der, serial)  # type: ignore[attr-defined]
+        if entry is None:
+            answer["status"] = "good"
+        else:
+            answer.update(
+                status="revoked",
+                revocation_time=format_time(entry["revocation_time"]),
+                revocation_reason=entry["revocation_reason"],
+            )
         return answer
 
     @staticmethod

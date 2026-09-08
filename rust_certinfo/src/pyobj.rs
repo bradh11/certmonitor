@@ -385,6 +385,7 @@ pub fn ocsp_response_dict<'py>(
 pub fn crl_info_dict<'py>(py: Python<'py>, crl: &Crl<'_>) -> PyResult<Bound<'py, PyDict>> {
     let d = PyDict::new(py);
     d.set_item("issuer", name_dict(py, &crl.issuer)?)?;
+    d.set_item("issuer_der", PyBytes::new(py, crl.issuer.raw))?;
     d.set_item("this_update", crl.this_update_unix)?;
     d.set_item("next_update", crl.next_update_unix)?;
     d.set_item(

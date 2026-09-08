@@ -69,9 +69,10 @@ def ocsp_cert_id_inputs(leaf_der: bytes, issuer_der: bytes) -> dict[str, bytes] 
     ...
 
 def crl_info(der_data: bytes) -> dict[str, Any]:
-    """A DER CRL's `issuer`, `this_update`, `next_update` (unix seconds or
-    None), `signature_algorithm`, `revoked_count`, and the signed bytes
-    (`tbs_cert_list`) with their `signature`.
+    """A DER CRL's `issuer` (and its raw DER as `issuer_der`), `this_update`,
+    `next_update` (unix seconds or None), `signature_algorithm`,
+    `revoked_count`, and the signed bytes (`tbs_cert_list`) with their
+    `signature`.
     """
     ...
 

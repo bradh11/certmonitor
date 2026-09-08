@@ -13,13 +13,17 @@ rename the headers to emoji form when cutting a release.
 ## [Unreleased]
 
 ### Added
-- TBD
+- `revocation`: `max_age_hours` argument.
 
 ### Changed
 - TBD
 
 ### Fixed
-- TBD
+- `revocation`: the issuer certificate must verify the leaf's signature before it is trusted; a certificate that merely shares the issuer's name (from the chain or the `caIssuers` pointer) is rejected, and when the leaf's algorithm cannot be checked every answer built on it is capped at `unsupported`.
+- `revocation`: OCSP answers must match the whole CertID (hash algorithm, issuer name hash, issuer key hash, serial), and the cache is keyed the same way.
+- `revocation`: OCSP responses without `nextUpdate` are refused once `thisUpdate` is older than `max_age_hours` (default 24), any response older than ten days is refused, and cache lifetime is anchored to `thisUpdate` so a re-fetched historical response gets no new lease.
+- `revocation`: answers whose signature failed verification are no longer cached.
+- `revocation`: the CRL is verified in-house against the bound issuer and the collected certificate's serial is looked up directly; the extra OpenSSL handshake, which could attribute another certificate's revocation to the snapshot, is gone. CRL answers now carry `verification` and `verification_error` like OCSP answers, and a failed CRL signature reports `CRLInvalidSignature`.
 
 ## [0.5.2] - 2026-09-06
 
