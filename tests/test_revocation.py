@@ -1604,8 +1604,12 @@ def test_signature_primitives_surface_errors(pki):
         certinfo.verify_signature("1.2.840.113549.1.1.11", b"short", b"sig", spki)
     outcome, why = revocation._signed_by(spki, "1.2.840.113549.1.1.11", b"tbs", b"sig")
     assert outcome == "failed" and why == "signature does not verify"
+    # The Ed25519 OID over an RSA key is a key-type mismatch, not a bad
+    # signature; Ed448 is routed but not implemented.
     outcome, why = revocation._signed_by(spki, "1.3.101.112", b"tbs", b"sig")
-    assert outcome == "unsupported" and "1.3.101.112" in why
+    assert outcome == "unsupported" and "does not match the key type" in why
+    outcome, why = revocation._signed_by(spki, "1.3.101.113", b"tbs", b"sig")
+    assert outcome == "unsupported" and "1.3.101.113" in why
     ec_spki = ssl.PEM_cert_to_DER_cert((pki.directory / "good.pem").read_text())
     ec_spki = certinfo.certificate_signature_parts(ec_spki)["spki"]
     outcome, why = revocation._signed_by(ec_spki, "1.2.840.10045.4.3.2", b"tbs", b"sig")

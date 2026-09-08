@@ -8,10 +8,12 @@
 //
 //   bigint.rs, unsigned big integers (multiply, divide, modular power)
 //   rsa.rs   , RSASSA-PKCS1-v1_5 verification (RFC 8017 §8.2.2)
-//   ecdsa.rs , ECDSA verification over P-256 and P-384 (FIPS 186-4)
+//   ecdsa.rs , ECDSA verification over P-256, P-384, and P-521 (FIPS 186-4)
+//   eddsa.rs , Ed25519 verification (RFC 8032 §5.1)
 
 pub mod bigint;
 pub mod ecdsa;
+pub mod eddsa;
 pub mod rsa;
 #[cfg(test)]
 pub mod test_vectors;

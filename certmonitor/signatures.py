@@ -2,10 +2,11 @@
 names, the padding checks that are plain byte work, and the hashing.
 
 Hashing stays in Python (`hashlib`), arithmetic stays in the Rust extension:
-`certinfo.verify_signature` for RSASSA-PKCS1-v1_5 and ECDSA, and
+`certinfo.verify_signature` for RSASSA-PKCS1-v1_5 and ECDSA,
 `certinfo.rsa_pss_encoded_message` for RSASSA-PSS (RFC 8017 §9.1.2 is
-checked here). Ed25519 and Ed448 are reported as unsupported until they are
-implemented. Verification only.
+checked here), and `certinfo.eddsa_verify` for Ed25519, whose challenge hash
+(RFC 8032 §5.1.7 step 2) is computed here. Ed448 is reported as unsupported
+until it is implemented. Verification only.
 """
 
 from __future__ import annotations
@@ -119,5 +120,25 @@ def _verify_pss(
 def _verify_eddsa(
     spki: bytes, algorithm: str, tbs: bytes, signature: bytes
 ) -> tuple[str, str | None]:
-    """Ed25519 and Ed448 verification is added in a later task."""
+    """PureEdDSA verification (RFC 8032 §5.1.7): hash here, group equation in Rust.
+
+    The signature is `R || S`, and the challenge the group equation needs is
+    `SHA-512(R || A || M)` over the encoded point, the encoded public key,
+    and the whole message, so nothing but the message is pre-hashed.
+    """
+    try:
+        info = certinfo.parse_spki(spki)  # type: ignore[attr-defined]
+    except ValueError as exc:
+        outcome = UNSUPPORTED if str(exc).startswith("unsupported") else FAILED
+        return outcome, str(exc)
+    if algorithm == ED25519:
+        if info["algorithm"] != "Ed25519":
+            return UNSUPPORTED, "signature algorithm does not match the key type"
+        if len(signature) != 64:
+            return FAILED, "malformed Ed25519 signature length"
+        public_key = info["key_bits"]
+        r, s = signature[:32], signature[32:]
+        k = hashlib.sha512(r + public_key + tbs).digest()
+        verifier = certinfo.eddsa_verify  # type: ignore[attr-defined]
+        return _outcome_of(verifier, "Ed25519", public_key, r, s, k)
     return UNSUPPORTED, f"{algorithm} signature verification"

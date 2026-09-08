@@ -33,7 +33,9 @@ pytestmark = pytest.mark.differential
 KEYS_PER_TYPE = int(os.environ.get("CERTMONITOR_DIFFERENTIAL_KEYS", "4"))
 MESSAGES_PER_KEY = int(os.environ.get("CERTMONITOR_DIFFERENTIAL_MESSAGES", "8"))
 WRONG_HASH = {"sha256": "sha384", "sha384": "sha512", "sha512": "sha256"}
-# (genpkey options, hash name, algorithm OID, extra -sigopt/-verify options)
+# (genpkey options, hash name, algorithm OID, extra -sigopt/-verify options).
+# A `None` hash name means PureEdDSA, which hashes the whole message itself
+# (RFC 8032 §4) and so is signed and verified raw rather than over a digest.
 SCHEMES = {
     "rsa2048-sha256": (
         ["-algorithm", "RSA", "-pkeyopt", "rsa_keygen_bits:2048"],
@@ -83,6 +85,7 @@ SCHEMES = {
         "1.2.840.113549.1.1.10",
         ["-sigopt", "rsa_padding_mode:pss", "-sigopt", "rsa_pss_saltlen:digest"],
     ),
+    "ed25519": (["-algorithm", "ED25519"], None, "1.3.101.112", []),
 }
 
 
@@ -109,12 +112,16 @@ class Signer:
         openssl: str,
         directory: Path,
         genpkey: list[str],
-        hash_name: str,
+        hash_name: str | None,
         sign_options: list[str] | None = None,
     ):
         self.openssl = openssl
         self.directory = directory
         self.hash_name = hash_name
+        # `dgst` cannot sign or verify with an Edwards key at all, so raw
+        # schemes go through `pkeyutl -rawin`, which hands the whole
+        # message to the algorithm instead of a digest.
+        self.raw = hash_name is None
         self.sign_options = sign_options or []
         directory.mkdir(parents=True, exist_ok=True)
         self.key = directory / "key.pem"
@@ -139,16 +146,29 @@ class Signer:
         msg = self.directory / "msg"
         sig = self.directory / "sig"
         msg.write_bytes(message)
-        self._run(
-            "dgst",
-            f"-{self.hash_name}",
-            "-sign",
-            str(self.key),
-            *self.sign_options,
-            "-out",
-            str(sig),
-            str(msg),
-        )
+        if self.raw:
+            self._run(
+                "pkeyutl",
+                "-sign",
+                "-rawin",
+                "-inkey",
+                str(self.key),
+                "-in",
+                str(msg),
+                "-out",
+                str(sig),
+            )
+        else:
+            self._run(
+                "dgst",
+                f"-{self.hash_name}",
+                "-sign",
+                str(self.key),
+                *self.sign_options,
+                "-out",
+                str(sig),
+                str(msg),
+            )
         return sig.read_bytes()
 
     def openssl_verifies(self, message: bytes, signature: bytes) -> bool:
@@ -156,8 +176,24 @@ class Signer:
         sig = self.directory / "vsig"
         msg.write_bytes(message)
         sig.write_bytes(signature)
-        done = subprocess.run(
-            [
+        if self.raw:
+            command = [
+                self.openssl,
+                "pkeyutl",
+                "-verify",
+                "-rawin",
+                "-pubin",
+                "-inkey",
+                str(self.spki_path),
+                "-keyform",
+                "DER",
+                "-in",
+                str(msg),
+                "-sigfile",
+                str(sig),
+            ]
+        else:
+            command = [
                 self.openssl,
                 "dgst",
                 f"-{self.hash_name}",
@@ -167,15 +203,17 @@ class Signer:
                 "-signature",
                 str(sig),
                 str(msg),
-            ],
-            capture_output=True,
-        )
+            ]
+        done = subprocess.run(command, capture_output=True)
         return done.returncode == 0
 
 
 def ours_verifies(
-    algorithm: str, hash_name: str, message: bytes, signature: bytes, spki: bytes
+    algorithm: str, hash_name: str | None, message: bytes, signature: bytes, spki: bytes
 ) -> bool:
+    if algorithm in (signatures.ED25519, signatures.ED448):
+        outcome, _ = signatures.verify(spki, algorithm, None, message, signature)
+        return outcome == signatures.VERIFIED
     if algorithm == signatures.RSASSA_PSS:
         params = pss_params(hash_name, hash_name, hashlib.new(hash_name).digest_size)
         outcome, _ = signatures.verify(spki, algorithm, params, message, signature)
@@ -248,7 +286,9 @@ def test_openssl_and_certmonitor_agree(openssl, rng, tmp_path, scheme):
             sign_options,
         )
         for _ in range(MESSAGES_PER_KEY):
-            message = random_.randbytes(random_.randrange(0, 300))
+            # `pkeyutl -rawin` refuses a zero-length input file, so raw
+            # schemes get at least one message byte.
+            message = random_.randbytes(random_.randrange(int(signer.raw), 300))
             signature = signer.sign(message)
             context = f"seed={seed} scheme={scheme} key={key_index}"
             assert ours_verifies(
@@ -258,19 +298,22 @@ def test_openssl_and_certmonitor_agree(openssl, rng, tmp_path, scheme):
             # RSASSA-PSS keeps one OID across hashes, so the wrong-hash check
             # only needs to change `hash_name`; PKCS#1 v1.5 and ECDSA each
             # have a distinct OID per hash, so the matching OID is looked up.
-            wrong = WRONG_HASH[hash_name]
-            if algorithm == signatures.RSASSA_PSS:
-                wrong_algorithm = algorithm
-            else:
-                family = algorithm.rsplit(".", 1)[0]
-                wrong_algorithm = next(
-                    oid
-                    for _, (_, h, oid, _) in SCHEMES.items()
-                    if h == wrong and oid.rsplit(".", 1)[0] == family
-                )
-            assert not ours_verifies(
-                wrong_algorithm, wrong, message, signature, signer.spki
-            ), f"{context}: accepted a signature under the wrong hash algorithm"
+            # PureEdDSA fixes its hash in RFC 8032, so there is none to get
+            # wrong and nothing to check.
+            if hash_name is not None:
+                wrong = WRONG_HASH[hash_name]
+                if algorithm == signatures.RSASSA_PSS:
+                    wrong_algorithm = algorithm
+                else:
+                    family = algorithm.rsplit(".", 1)[0]
+                    wrong_algorithm = next(
+                        oid
+                        for _, (_, h, oid, _) in SCHEMES.items()
+                        if h == wrong and oid.rsplit(".", 1)[0] == family
+                    )
+                assert not ours_verifies(
+                    wrong_algorithm, wrong, message, signature, signer.spki
+                ), f"{context}: accepted a signature under the wrong hash algorithm"
             what, bad_signature, bad_message = damage(random_, signature, message)
             mine = ours_verifies(
                 algorithm, hash_name, bad_message, bad_signature, signer.spki

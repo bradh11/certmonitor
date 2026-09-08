@@ -1,6 +1,7 @@
 """Signature-algorithm primitives exposed by the Rust extension: RSASSA-PSS
-parameter parsing (RFC 4055) and the raw RSA public-key operation (RFC 8017
-§5.2.2 RSAVP1); and the scheme dispatch and padding checks in
+parameter parsing (RFC 4055), the raw RSA public-key operation (RFC 8017
+§5.2.2 RSAVP1), and the Ed25519 group equation (RFC 8032 §5.1.7); and the
+scheme dispatch, padding checks, and challenge hashing in
 `certmonitor.signatures` that build on them.
 """
 
@@ -50,6 +51,18 @@ SIG_2049 = bytes.fromhex(
     "01d2f81a536567b3369649288534a6e5f8"
 )
 MESSAGE_2049 = b"certmonitor pss 2049"
+
+# RFC 8032 §7.1 test 3: a two-byte message, wrapped in the RFC 8410 §4
+# SubjectPublicKeyInfo an X.509 signer would carry it in.
+ED25519_SPKI = bytes.fromhex(
+    "302a300506032b6570032100"
+    "fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025"
+)
+ED25519_MESSAGE = bytes.fromhex("af82")
+ED25519_SIGNATURE = bytes.fromhex(
+    "6291d657deec24024827e69c3abe01a30ce548a284743a445e3680d7db5ac3ac"
+    "18ff9b538d16f290ae67f760984dc6594a7c15e9716ed28dc027beceea1ec40a"
+)
 
 
 @pytest.fixture
@@ -133,3 +146,73 @@ def test_pss_verifies_under_a_modulus_whose_bit_length_is_one_mod_eight():
         )[0]
         == signatures.FAILED
     )
+
+
+def test_parse_spki_reports_the_key_type_and_its_bits():
+    info = certinfo.parse_spki(ED25519_SPKI)
+    assert info["algorithm"] == "Ed25519"
+    assert info["curve"] is None
+    assert info["key_bits"] == ED25519_SPKI[-32:]
+
+
+def test_parse_spki_rejects_bytes_that_are_not_a_subject_public_key_info():
+    with pytest.raises(ValueError, match="malformed SubjectPublicKeyInfo"):
+        certinfo.parse_spki(b"\x30\x00")
+
+
+def test_ed25519_verifies_an_rfc8032_vector():
+    assert signatures.verify(
+        ED25519_SPKI, signatures.ED25519, None, ED25519_MESSAGE, ED25519_SIGNATURE
+    ) == (signatures.VERIFIED, None)
+
+
+def test_ed25519_rejects_a_changed_message_and_a_changed_signature():
+    outcome, why = signatures.verify(
+        ED25519_SPKI,
+        signatures.ED25519,
+        None,
+        ED25519_MESSAGE + b"!",
+        ED25519_SIGNATURE,
+    )
+    assert (outcome, why) == (signatures.FAILED, "signature does not verify")
+    tampered = bytearray(ED25519_SIGNATURE)
+    tampered[0] ^= 1
+    assert (
+        signatures.verify(
+            ED25519_SPKI, signatures.ED25519, None, ED25519_MESSAGE, bytes(tampered)
+        )[0]
+        == signatures.FAILED
+    )
+
+
+def test_ed25519_rejects_a_signature_that_is_not_sixty_four_bytes():
+    outcome, why = signatures.verify(
+        ED25519_SPKI,
+        signatures.ED25519,
+        None,
+        ED25519_MESSAGE,
+        ED25519_SIGNATURE + b"\x00",
+    )
+    assert outcome == signatures.FAILED and "signature length" in why
+
+
+def test_ed25519_over_a_key_that_is_not_an_edwards_key_is_unsupported(rsa_spki):
+    outcome, why = signatures.verify(
+        rsa_spki, signatures.ED25519, None, ED25519_MESSAGE, ED25519_SIGNATURE
+    )
+    assert outcome == signatures.UNSUPPORTED and "key type" in why
+
+
+def test_ed25519_with_a_malformed_signer_key_fails():
+    outcome, why = signatures.verify(
+        b"\x30\x00", signatures.ED25519, None, ED25519_MESSAGE, ED25519_SIGNATURE
+    )
+    assert outcome == signatures.FAILED and "malformed" in why
+
+
+def test_ed448_is_still_unsupported():
+    # The OID is recognised and routed, the curve is not implemented yet.
+    outcome, why = signatures.verify(
+        ED25519_SPKI, signatures.ED448, None, ED25519_MESSAGE, ED25519_SIGNATURE
+    )
+    assert outcome == signatures.UNSUPPORTED and signatures.ED448 in why

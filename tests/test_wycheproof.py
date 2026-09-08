@@ -13,7 +13,8 @@ directly. RSASSA-PSS vectors carry no algorithm parameters of their own, so
 §3.1) from each test group's `sha`, `mgfSha`, and `sLen` fields (groups
 naming a mask generation function other than MGF1 are skipped), and the check goes
 through `certmonitor.signatures.verify`, which is where the PSS padding is
-implemented.
+implemented. EdDSA vectors go through `signatures.verify` too, since that is
+where the challenge hash is computed.
 """
 
 from __future__ import annotations
@@ -37,16 +38,16 @@ ALGORITHMS = {
     ("RSASSA-PKCS1-v1_5", "SHA-512"): "1.2.840.113549.1.1.13",
 }
 HASHES = {"SHA-256": "sha256", "SHA-384": "sha384", "SHA-512": "sha512"}
+EDDSA_OIDS = {"Ed25519": signatures.ED25519, "Ed448": signatures.ED448}
 
 
 def load_cases():
     cases = []
     for path in sorted(VECTORS.glob("*.json")):
         data = json.loads(path.read_text())
-        pss = data["algorithm"] == "RSASSA-PSS"
         for group in data["testGroups"]:
             key = bytes.fromhex(group["publicKeyDer"])
-            if pss:
+            if data["algorithm"] == "RSASSA-PSS":
                 # `pss_params` encodes MGF1, the only mask generation function
                 # RFC 4055 §A.2.3 defines for PSS, so a group naming anything
                 # else is not one these parameters could describe.
@@ -55,14 +56,20 @@ def load_cases():
                 params = pss_params(
                     HASHES[group["sha"]], HASHES[group["mgfSha"]], group["sLen"]
                 )
-                scheme = (signatures.RSASSA_PSS, params)
+                via_signatures, scheme = True, (signatures.RSASSA_PSS, params)
+            elif data["algorithm"] == "EDDSA":
+                # One file covers both Edwards curves under the same
+                # `algorithm`, and a group names no algorithm of its own, so
+                # the OID comes from the key.
+                curve = certinfo.parse_spki(key)["algorithm"]
+                via_signatures, scheme = True, (EDDSA_OIDS[curve], None)
             else:
                 algorithm = ALGORITHMS[(data["algorithm"], group["sha"])]
-                scheme = (algorithm, HASHES[group["sha"]])
+                via_signatures, scheme = False, (algorithm, HASHES[group["sha"]])
             for test in group["tests"]:
                 cases.append(
                     pytest.param(
-                        pss,
+                        via_signatures,
                         scheme,
                         key,
                         test,
@@ -72,8 +79,8 @@ def load_cases():
     return cases
 
 
-def verdict(pss, scheme, key, test):
-    if pss:
+def verdict(via_signatures, scheme, key, test):
+    if via_signatures:
         algorithm, params = scheme
         message = bytes.fromhex(test["msg"])
         outcome, _ = signatures.verify(
@@ -90,9 +97,9 @@ def verdict(pss, scheme, key, test):
         return False
 
 
-@pytest.mark.parametrize("pss,scheme,key,test", load_cases())
-def test_wycheproof_vector(pss, scheme, key, test):
-    result = verdict(pss, scheme, key, test)
+@pytest.mark.parametrize("via_signatures,scheme,key,test", load_cases())
+def test_wycheproof_vector(via_signatures, scheme, key, test):
+    result = verdict(via_signatures, scheme, key, test)
     if test["result"] == "valid":
         assert result is True, f"tcId {test['tcId']}: {test['comment']} {test['flags']}"
     elif test["result"] == "invalid":
@@ -108,6 +115,7 @@ def test_vector_files_are_complete():
         "ecdsa_secp256r1_sha512_test.json",
         "ecdsa_secp384r1_sha384_test.json",
         "ecdsa_secp521r1_sha512_test.json",
+        "ed25519_test.json",
         "rsa_pss_2048_sha256_mgf1_32_test.json",
         "rsa_pss_2048_sha384_mgf1_48_test.json",
         "rsa_pss_3072_sha256_mgf1_32_test.json",
