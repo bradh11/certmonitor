@@ -42,7 +42,8 @@ rename the headers to emoji form when cutting a release.
 - Proxy URL parse errors (`has no host`, `has an invalid port`) redact the password; `scan_hosts()` labels an invalid endpoint dict by its `host`, never by the whole dict, so proxy credentials no longer reach CLI or fleet output.
 - `validate()` no longer ignores `validator_args` keys that name no validator that runs: an unknown name is an error (`UnknownValidator`), and a real validator that is not enabled gets a `warn` result saying its arguments were not applied. `certmonitor check` rejects an `--arg` for an unknown validator as a usage error (exit 2) and warns on stderr about one for a validator `-v` does not enable.
 - `certmonitor check --json` and `scan_hosts()` add top-level `error` and `message` when no certificate was collected, and `compare_snapshots()` treats such snapshots (and older ones whose results are all errors beside an empty certificate) as failed scans instead of reporting the certificate as replaced with a `None` issuer.
-- STARTTLS multi-line replies are capped at 64 lines.
+- STARTTLS multi-line replies are capped at 64 lines, and so are the untagged IMAP lines that may precede the `STARTTLS` reply.
+- STARTTLS negotiation runs against one deadline of `timeout` seconds for the whole preamble, every read and write included, instead of a per-read socket timeout that restarted whenever a byte arrived. `starttls.negotiate()` takes an optional `timeout`, defaulting to the socket's own, and restores the socket's timeout afterwards.
 - CI: `cargo audit` now actually runs, in the security job, on every PR and weekly; the old step was gated on a matrix value that never matched.
 - Security policy points at the right repository, lists 0.5.x as supported, and describes the in-house parser; `pytest.ini` declares its marker correctly.
 
