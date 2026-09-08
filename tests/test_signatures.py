@@ -252,10 +252,12 @@ def test_pss_signature_may_use_a_longer_salt_than_the_key_requires(rsa_spki):
 
 def test_pkcs1_v15_under_an_rsassa_pss_key_is_refused(rsa_spki):
     # RFC 4055 §3.3 again, from the other side: the Rust verifier will not
-    # check a PKCS#1 v1.5 signature under a key restricted to PSS.
+    # check a PKCS#1 v1.5 signature under a key restricted to PSS. This is
+    # a policy violation by the signer, not an algorithm CertMonitor lacks,
+    # so it is malformed rather than unsupported.
     spki = pss_keyed_spki(rsa_spki, KEY_PSS_PARAMS)
     digest = hashlib.sha256(b"tbs").digest()
-    with pytest.raises(ValueError, match="^unsupported"):
+    with pytest.raises(ValueError, match="^malformed"):
         certinfo.verify_signature("1.2.840.113549.1.1.11", digest, b"\x00" * 256, spki)
 
 

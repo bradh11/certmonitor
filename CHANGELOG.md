@@ -16,7 +16,7 @@ rename the headers to emoji form when cutting a release.
 - `revocation`: `max_age_hours` argument.
 - `key_info`: Ed25519 and Ed448 keys are recognized (`algorithm: "Ed25519"` or `"Ed448"`) and judged strong, instead of `unknown` and failing closed.
 - `CertMonitor.collection_error`: `None` after a successful collection, else `{"error", "message"}`.
-- `key_info` and `revocation`: RSA public keys encoded with `id-RSASSA-PSS` (RFC 4055) are recognized as `rsassaPss`, judged by the RSA size floor, and may only verify RSASSA-PSS signatures whose parameters satisfy the key's restrictions.
+- `key_info` and `revocation`: RSA public keys encoded with `id-RSASSA-PSS` (RFC 4055) are recognized as `rsassaPss`, judged by the RSA size floor, and may only verify RSASSA-PSS signatures whose parameters satisfy the key's restrictions. A PKCS#1 v1.5 signature under such a key is a hard failure that `accept_unverified` does not rescue.
 - `revocation`: OCSP responses, CRLs, responder certificates, and issuer bindings signed with RSASSA-PSS, ECDSA over P-521, Ed25519, or Ed448 are now verified in-house, alongside RSA PKCS#1 v1.5 and ECDSA over P-256 and P-384. Scheme dispatch and the padding checks live in `certmonitor.signatures`; `certinfo` gains `rsa_pss_encoded_message`, `rsa_pss_parameters`, `eddsa_verify`, and `parse_spki`, and reports `signature_algorithm_params` and `key_bits`.
 
 ### Changed
