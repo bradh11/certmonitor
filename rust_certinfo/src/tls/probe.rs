@@ -12,8 +12,9 @@
 //   - Real precomputed ML-KEM-768 key_share (mlkem_kat.rs): a classical
 //     or empty share makes PQ-capable CDNs answer classical or alert.
 //   - Per-call ClientHello random (no fixed fingerprint), no CSPRNG dep.
-//   - Bounded read (<= READ_CAP) with a read timeout, never block
-//     forever, never allocate unboundedly.
+//   - Bounded read (<= READ_CAP total bytes) with a read timeout, never
+//     block forever, never allocate unboundedly; a ServerHello split
+//     across records (RFC 8446 §5.1) is reassembled before it is judged.
 //   - Returns a result in EVERY terminal state (success / n/a / error);
 //     the only `Err` paths are internal bugs, so the Python layer never
 //     needs a try/except around the call.
@@ -195,20 +196,18 @@ pub fn probe(
         };
     }
 
-    // Read until one complete record is buffered, bounded by READ_CAP
-    // and the deadline.
+    // Read the server's first flight. Records are consumed as they
+    // complete; handshake payloads are concatenated until the ServerHello
+    // is whole. Total bytes read are bounded by READ_CAP and the deadline.
     let mut buf: Vec<u8> = Vec::with_capacity(4096);
+    let mut handshake: Vec<u8> = Vec::new();
+    let mut total_read = 0usize;
     let mut chunk = [0u8; 4096];
     loop {
-        match records::read_record(&buf) {
-            Ok((header, payload, _rest)) => return interpret(header, payload),
-            Err(crate::tls::TlsParseError::Truncated) => { /* need more bytes */ }
-            Err(e) => {
-                return ProbeResult::Error {
-                    kind: "ProtocolError".into(),
-                    message: format!("not a TLS record: {e}"),
-                }
-            }
+        match drain(&mut buf, &mut handshake) {
+            Ok(Some(result)) => return result,
+            Ok(None) => {}
+            Err(error) => return error,
         }
         let remaining = remaining(deadline);
         if remaining.is_zero() {
@@ -227,17 +226,18 @@ pub fn probe(
             Ok(0) => {
                 return ProbeResult::Error {
                     kind: "ProtocolError".into(),
-                    message: "connection closed before a full record arrived".into(),
+                    message: "connection closed before the ServerHello was complete".into(),
                 }
             }
             Ok(n) => {
-                buf.extend_from_slice(&chunk[..n]);
-                if buf.len() > READ_CAP {
+                total_read += n;
+                if total_read > READ_CAP {
                     return ProbeResult::Error {
                         kind: "ProtocolError".into(),
                         message: format!("response exceeded {READ_CAP} byte cap"),
                     };
                 }
+                buf.extend_from_slice(&chunk[..n]);
             }
             Err(e) => {
                 return ProbeResult::Error {
@@ -256,6 +256,48 @@ fn random_session_id() -> [u8; 32] {
 
 fn remaining(deadline: std::time::Instant) -> Duration {
     deadline.saturating_duration_since(std::time::Instant::now())
+}
+
+/// Consume every complete record in `buf`, concatenating handshake
+/// payloads until the first handshake message (ServerHello or
+/// HelloRetryRequest) is whole. TLS lets a server split one handshake
+/// message across records (RFC 8446 §5.1), so the message, not the first
+/// record, is the unit that decides the probe.
+fn drain(buf: &mut Vec<u8>, handshake: &mut Vec<u8>) -> Result<Option<ProbeResult>, ProbeResult> {
+    loop {
+        let (header, payload, rest_len) = match records::read_record(buf.as_slice()) {
+            Ok((header, payload, rest)) => (header, payload.to_vec(), rest.len()),
+            Err(crate::tls::TlsParseError::Truncated) => return Ok(None),
+            Err(e) => {
+                return Err(ProbeResult::Error {
+                    kind: "ProtocolError".into(),
+                    message: format!("not a TLS record: {e}"),
+                })
+            }
+        };
+        let consumed = buf.len() - rest_len;
+        buf.drain(..consumed);
+        if header.content_type != records::CONTENT_TYPE_HANDSHAKE {
+            if !handshake.is_empty() {
+                return Err(ProbeResult::Error {
+                    kind: "ProtocolError".into(),
+                    message: "non-handshake record inside a fragmented handshake message".into(),
+                });
+            }
+            return Ok(Some(interpret(header, &payload)));
+        }
+        handshake.extend_from_slice(&payload);
+        if handshake.len() < 4 {
+            continue;
+        }
+        let msg_len = usize::from(handshake[1]) << 16
+            | usize::from(handshake[2]) << 8
+            | usize::from(handshake[3]);
+        if handshake.len() < 4 + msg_len {
+            continue;
+        }
+        return Ok(Some(interpret_handshake(&handshake[..4 + msg_len])));
+    }
 }
 
 /// Turn the first record of the server's flight into a `ProbeResult`.
@@ -293,7 +335,7 @@ fn interpret_handshake(payload: &[u8]) -> ProbeResult {
         None => {
             return ProbeResult::Error {
                 kind: "ProtocolError".into(),
-                message: "ServerHello split across records".into(),
+                message: "handshake message shorter than its declared length".into(),
             }
         }
     };
@@ -487,6 +529,48 @@ mod tests {
         match parse_first(&rec) {
             ProbeResult::Error { kind, .. } => assert_eq!(kind, "ProtocolError"),
             other => panic!("expected Error, got {other:?}"),
+        }
+    }
+
+    // ---- drain() over canned bytes (no socket) -------------------------
+
+    fn drain_all(bytes: &[u8]) -> Option<ProbeResult> {
+        let mut buf = bytes.to_vec();
+        let mut handshake = Vec::new();
+        match drain(&mut buf, &mut handshake) {
+            Ok(done) => done,
+            Err(error) => Some(error),
+        }
+    }
+
+    #[test]
+    fn serverhello_split_across_records_is_reassembled() {
+        let sh = server_hello(Some(handshake::TLS13), Some((0x11EC, 1120)));
+        let cut = sh.len() / 2;
+        let mut wire = record(records::CONTENT_TYPE_HANDSHAKE, &sh[..cut]);
+        let first_only = drain_all(&wire);
+        assert!(
+            first_only.is_none(),
+            "half a message must not decide: {first_only:?}"
+        );
+        wire.extend(record(records::CONTENT_TYPE_HANDSHAKE, &sh[cut..]));
+        match drain_all(&wire) {
+            Some(ProbeResult::Group { name, is_pq, .. }) => {
+                assert_eq!(name, "X25519MLKEM768");
+                assert!(is_pq);
+            }
+            other => panic!("expected Group, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn alert_between_handshake_fragments_is_a_protocol_error() {
+        let sh = server_hello(Some(handshake::TLS13), Some((0x001D, 32)));
+        let mut wire = record(records::CONTENT_TYPE_HANDSHAKE, &sh[..10]);
+        wire.extend(record(records::CONTENT_TYPE_ALERT, &[2, 40]));
+        match drain_all(&wire) {
+            Some(ProbeResult::Error { kind, .. }) => assert_eq!(kind, "ProtocolError"),
+            other => panic!("expected ProtocolError, got {other:?}"),
         }
     }
 
