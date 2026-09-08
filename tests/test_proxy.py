@@ -64,6 +64,17 @@ def test_redacted_url_drops_the_password():
     )
 
 
+@pytest.mark.parametrize(
+    "url",
+    ["http://alice:S3cret@proxy.test:abc", "socks5://alice:S3cret@:1080"],
+)
+def test_parse_errors_never_carry_the_password(url):
+    with pytest.raises(ValueError) as caught:
+        parse_proxy(url)
+    assert "S3cret" not in str(caught.value)
+    assert "alice:***@" in str(caught.value)
+
+
 # --- fake proxies -----------------------------------------------------------------
 
 
