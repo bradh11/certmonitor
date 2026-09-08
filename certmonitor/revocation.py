@@ -143,15 +143,56 @@ def _expiry_for(
     the validity of signed evidence. Capped at a day for answers that promise
     more. An answer without `nextUpdate` is reusable until `thisUpdate` plus
     `max_age`, and never longer than an hour, so re-fetching a historical
-    response cannot give it a fresh lease.
+    response cannot give it a fresh lease. Whatever `nextUpdate` says, nothing
+    is reused once `thisUpdate` is ten days old, the same ceiling a fresh
+    response is held to.
     """
+    ceiling = float(this_update + _MAX_LIFETIME_SECONDS)
     if next_update is None:
-        return min(this_update + max_age, now + _DEFAULT_TTL_SECONDS)
-    return min(float(next_update), now + _CACHE_CEILING_SECONDS)
+        return min(this_update + max_age, now + _DEFAULT_TTL_SECONDS, ceiling)
+    return min(float(next_update), now + _CACHE_CEILING_SECONDS, ceiling)
 
 
 def _still_current(next_update: int | None, now: float) -> bool:
     return next_update is None or next_update > now
+
+
+def _ocsp_freshness_problem(
+    this_update: int, next_update: int | None, now: float, max_age: float
+) -> tuple[str, str] | None:
+    """Why an OCSP response's dates make it unusable at `now`, or `None`.
+
+    One rule for fetched and cached responses alike: `thisUpdate` may not be
+    in the future, a response without `nextUpdate` is good for `max_age`
+    after `thisUpdate`, nothing is good ten days after `thisUpdate`, and a
+    `nextUpdate` that has passed ends it (RFC 6960 §3.2 asks for a recent
+    `thisUpdate` and an unexpired `nextUpdate`).
+    """
+    if this_update > now + 300:
+        return (
+            "OCSPNotYetValid",
+            f"OCSP response thisUpdate {format_time(this_update)} is in the future",
+        )
+    age = now - this_update
+    if next_update is None and age > max_age:
+        return (
+            "OCSPStale",
+            f"OCSP response thisUpdate {format_time(this_update)} is "
+            f"{age / 3600:.0f} hours old and carries no nextUpdate; the limit is "
+            f"{max_age / 3600:.0f} hours (RFC 6960 §3.2 requires a recent thisUpdate)",
+        )
+    if age > _MAX_LIFETIME_SECONDS:
+        return (
+            "OCSPStale",
+            f"OCSP response thisUpdate {format_time(this_update)} is "
+            "older than 10 days, whatever nextUpdate says",
+        )
+    if next_update is not None and next_update < now:
+        return (
+            "OCSPStale",
+            f"OCSP response expired at {format_time(next_update)}",
+        )
+    return None
 
 
 # --- OCSP ----------------------------------------------------------------------------
@@ -283,10 +324,15 @@ def check_ocsp(
 
     The answer's `status` is `good`, `revoked`, or `unknown` when the
     responder answered about this certificate, and `error` otherwise, with
-    `reason` saying why. Verified answers are cached until their `nextUpdate`,
-    never longer than a day; an answer with no `nextUpdate` is cached for at
-    most an hour and never past `thisUpdate` plus `max_age`; failed or
-    unverifiable answers are fetched again next time.
+    `reason` saying why. What is cached is the responder's evidence: an
+    answer whose signature verified under the issuer, kept until its
+    `nextUpdate`, never longer than a day, and never past `thisUpdate` plus
+    ten days; an answer with no `nextUpdate` is kept for at most an hour and
+    never past `thisUpdate` plus `max_age`. Failed or unverifiable answers
+    are fetched again next time. Every answer, cached or fresh, is then
+    capped by how well this call's leaf is bound to the issuer
+    (`issuer_binding`), so a cache hit never inherits an earlier caller's
+    binding.
     """
     now = time.time() if now is None else now
     request, expected = build_ocsp_request(leaf_der, issuer_der)
@@ -299,13 +345,12 @@ def check_ocsp(
     cached = OCSP_CACHE.get(key, now)
     if (
         cached is not None
-        and _still_current(cached.get("_next_update"), now)
-        and (
-            cached.get("_next_update") is not None
-            or now - cached["_this_update"] <= max_age
+        and _ocsp_freshness_problem(
+            cached["_this_update"], cached.get("_next_update"), now, max_age
         )
+        is None
     ):
-        return {**cached, "cached": True}
+        return _bound_answer(cached, issuer_binding, binding_problem, cached=True)
     answer = _ask_ocsp(
         request,
         expected,
@@ -314,13 +359,9 @@ def check_ocsp(
         timeout=timeout,
         proxy=proxy,
         now=now,
-        issuer_binding=issuer_binding,
-        binding_problem=binding_problem,
         max_age=max_age,
     )
-    if answer.get("verification") == VERIFIED and _still_current(
-        answer.get("_next_update"), now
-    ):
+    if answer.get("verification") == VERIFIED:
         OCSP_CACHE.put(
             key,
             answer,
@@ -328,7 +369,32 @@ def check_ocsp(
                 answer["_this_update"], answer.get("_next_update"), now, max_age
             ),
         )
-    return {**answer, "cached": False}
+    return _bound_answer(answer, issuer_binding, binding_problem, cached=False)
+
+
+def _bound_answer(
+    answer: dict[str, Any],
+    binding: str | None,
+    binding_problem: str | None,
+    *,
+    cached: bool,
+) -> dict[str, Any]:
+    """`answer` with its verification capped by this leaf's issuer binding."""
+    bound = {**answer, "cached": cached}
+    if "verification" not in answer:
+        return bound
+    outcome, problem = _bound_by_issuer(
+        answer["verification"],
+        answer.get("verification_error"),
+        binding,
+        binding_problem,
+    )
+    bound["signature_verified"] = outcome == VERIFIED
+    bound["verification"] = outcome
+    bound.pop("verification_error", None)
+    if problem is not None:
+        bound["verification_error"] = problem
+    return bound
 
 
 def _ask_ocsp(
@@ -340,10 +406,13 @@ def _ask_ocsp(
     timeout: float,
     proxy: ProxyConfig | None,
     now: float,
-    issuer_binding: str = UNSUPPORTED,
-    binding_problem: str | None = None,
     max_age: float,
 ) -> dict[str, Any]:
+    """Fetch and verify one response; the outcome is the responder's alone.
+
+    `verification` here says whether the response is signed by the issuer or
+    an authorized responder. Binding that to the leaf is `check_ocsp`'s job.
+    """
     answer: dict[str, Any] = {
         "method": "ocsp",
         "url": url,
@@ -382,47 +451,15 @@ def _ask_ocsp(
             reason="OCSP response does not cover the certificate that was asked about",
         )
         return answer
-    if single["this_update"] > now + 300:
-        answer.update(
-            status="error",
-            error="OCSPNotYetValid",
-            reason=f"OCSP response thisUpdate {format_time(single['this_update'])} is in the future",
-        )
-        return answer
-    age = now - single["this_update"]
-    if single["next_update"] is None and age > max_age:
-        answer.update(
-            status="error",
-            error="OCSPStale",
-            reason=(
-                f"OCSP response thisUpdate {format_time(single['this_update'])} is "
-                f"{age / 3600:.0f} hours old and carries no nextUpdate; the limit is "
-                f"{max_age / 3600:.0f} hours (RFC 6960 §3.2 requires a recent thisUpdate)"
-            ),
-        )
-        return answer
-    if age > _MAX_LIFETIME_SECONDS:
-        answer.update(
-            status="error",
-            error="OCSPStale",
-            reason=(
-                f"OCSP response thisUpdate {format_time(single['this_update'])} is "
-                "older than 10 days, whatever nextUpdate says"
-            ),
-        )
-        return answer
-    if single["next_update"] is not None and single["next_update"] < now:
-        answer.update(
-            status="error",
-            error="OCSPStale",
-            reason=f"OCSP response expired at {format_time(single['next_update'])}",
-        )
+    freshness_problem = _ocsp_freshness_problem(
+        single["this_update"], single["next_update"], now, max_age
+    )
+    if freshness_problem is not None:
+        error, reason = freshness_problem
+        answer.update(status="error", error=error, reason=reason)
         return answer
     outcome, problem = verify_ocsp_response(
         parsed, issuer_der, expected["issuer_key_hash"], now
-    )
-    outcome, problem = _bound_by_issuer(
-        outcome, problem, issuer_binding, binding_problem
     )
     answer["signature_verified"] = outcome == VERIFIED
     answer["verification"] = outcome

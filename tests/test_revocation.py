@@ -480,6 +480,106 @@ def test_failed_verification_is_not_cached(pki, monkeypatch):
     assert again["cached"] is True
 
 
+def test_cached_ocsp_answer_is_capped_by_the_current_leafs_binding(pki):
+    # The cache holds what the responder proved about the serial; how well
+    # the leaf being checked is tied to the issuer is this call's business,
+    # so a cache hit under a weaker binding must not inherit the earlier
+    # caller's `verified`.
+    leaf = ssl.PEM_cert_to_DER_cert((pki.directory / "good.pem").read_text())
+    issuer = ssl.PEM_cert_to_DER_cert(pki.ca_pem.read_text())
+    proven = revocation.check_ocsp(
+        leaf, issuer, pki.ocsp_url, timeout=5, issuer_binding=revocation.VERIFIED
+    )
+    assert proven["verification"] == "verified" and proven["cached"] is False
+    weaker = revocation.check_ocsp(
+        leaf,
+        issuer,
+        pki.ocsp_url,
+        timeout=5,
+        issuer_binding=revocation.UNSUPPORTED,
+        binding_problem="unsupported leaf signature algorithm",
+    )
+    assert weaker["cached"] is True
+    assert weaker["status"] == "good"
+    assert weaker["verification"] == "unsupported"
+    assert weaker["signature_verified"] is False
+    assert "only name-matched" in weaker["verification_error"]
+    assert "unsupported leaf signature algorithm" in weaker["verification_error"]
+    # The evidence itself is still good for a leaf that is properly bound.
+    again = revocation.check_ocsp(
+        leaf, issuer, pki.ocsp_url, timeout=5, issuer_binding=revocation.VERIFIED
+    )
+    assert again["cached"] is True and again["verification"] == "verified"
+    assert "verification_error" not in again
+
+
+def test_ocsp_evidence_is_cached_even_when_this_leafs_binding_is_weak(pki):
+    # A weak binding caps the answer, but the responder's signature checked,
+    # and that is what the cache keeps.
+    leaf = ssl.PEM_cert_to_DER_cert((pki.directory / "good.pem").read_text())
+    issuer = ssl.PEM_cert_to_DER_cert(pki.ca_pem.read_text())
+    first = revocation.check_ocsp(leaf, issuer, pki.ocsp_url, timeout=5)
+    assert first["verification"] == "unsupported" and first["cached"] is False
+    second = revocation.check_ocsp(
+        leaf, issuer, pki.ocsp_url, timeout=5, issuer_binding=revocation.VERIFIED
+    )
+    assert second["cached"] is True and second["verification"] == "verified"
+
+
+def test_cached_ocsp_answer_is_not_served_past_ten_days(pki, monkeypatch):
+    leaf = ssl.PEM_cert_to_DER_cert((pki.directory / "good.pem").read_text())
+    issuer = ssl.PEM_cert_to_DER_cert(pki.ca_pem.read_text())
+    real_parse = certinfo.parse_ocsp_response
+
+    def with_far_next_update(body):
+        parsed = real_parse(body)
+        for single in parsed["responses"]:
+            single["next_update"] = single["this_update"] + 30 * 86400
+        return parsed
+
+    monkeypatch.setattr(certinfo, "parse_ocsp_response", with_far_next_update)
+    produced = time.time()
+    almost = produced + 10 * 86400 - 3600
+    warm = revocation.check_ocsp(
+        leaf,
+        issuer,
+        pki.ocsp_url,
+        timeout=5,
+        now=almost,
+        issuer_binding=revocation.VERIFIED,
+    )
+    assert warm["status"] == "good" and warm["cached"] is False
+    later = revocation.check_ocsp(
+        leaf,
+        issuer,
+        pki.ocsp_url,
+        timeout=5,
+        now=almost + 2 * 3600,
+        issuer_binding=revocation.VERIFIED,
+    )
+    # Past the ceiling the cached copy is dropped and the responder is asked
+    # again; its answer is the same response, which is now refused.
+    assert later["cached"] is False
+    assert later["error"] == "OCSPStale" and "10 days" in later["reason"]
+
+
+def test_cache_expiry_never_passes_the_ten_day_ceiling():
+    now = 1_000_000.0
+    # thisUpdate nine and a half days ago puts the ceiling twelve hours out,
+    # well inside the one-day cap and long before nextUpdate.
+    this_update = int(now) - 9 * 86400 - 43200
+    ceiling = now + 43200
+    assert (
+        revocation._expiry_for(this_update, int(now) + 30 * 86400, now, 86400)
+        == ceiling
+    )
+    # Without nextUpdate, the hour lease usually gets there first; move
+    # thisUpdate to within half an hour of the ceiling and it wins instead.
+    assert revocation._expiry_for(this_update, None, now, 30 * 86400) == now + 3600
+    nearly_out = int(now) - 10 * 86400 + 1800
+    assert revocation._expiry_for(nearly_out, None, now, 30 * 86400) == now + 1800
+
+
 def test_ocsp_good_passes_when_unverified_answers_are_accepted(pki, monkeypatch):
     # An algorithm CertMonitor cannot check leaves the answer unverified but not
     # disproven; accept_unverified takes the responder's word for that case.
