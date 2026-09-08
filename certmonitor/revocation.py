@@ -39,6 +39,7 @@ OCSP_CONTENT_TYPE = "application/ocsp-request"
 OCSP_RESPONSE_TYPE = "application/ocsp-response"
 
 _OID_SHA1 = b"\x06\x05\x2b\x0e\x03\x02\x1a"
+_SHA1_OID_TEXT = "1.3.14.3.2.26"
 _OID_OCSP_SIGNING = "1.3.6.1.5.5.7.3.9"
 _CACHE_CEILING_SECONDS = 24 * 60 * 60
 _DEFAULT_TTL_SECONDS = 60 * 60
@@ -248,6 +249,22 @@ def build_ocsp_request(
     return request, expected
 
 
+def _cert_id_matches(cert_id: dict[str, str], expected: dict[str, str]) -> bool:
+    """Whether a response's CertID is the one the request asked about.
+
+    All four fields must agree (RFC 6960 section 4.2.1): the hash algorithm the
+    request used, both issuer hashes, and the serial. Leading zeros on the
+    serial are ignored because some responders re-encode it.
+    """
+    return (
+        cert_id["hash_algorithm"] == _SHA1_OID_TEXT
+        and cert_id["issuer_name_hash"] == expected["issuer_name_hash"]
+        and cert_id["issuer_key_hash"] == expected["issuer_key_hash"]
+        and cert_id["serial_number"].lstrip("0")
+        == expected["serial_number"].lstrip("0")
+    )
+
+
 def check_ocsp(
     leaf_der: bytes,
     issuer_der: bytes,
@@ -267,7 +284,12 @@ def check_ocsp(
     """
     now = time.time() if now is None else now
     request, expected = build_ocsp_request(leaf_der, issuer_der)
-    key = (url, expected["issuer_key_hash"], expected["serial_number"])
+    key = (
+        url,
+        expected["issuer_name_hash"],
+        expected["issuer_key_hash"],
+        expected["serial_number"],
+    )
     cached = OCSP_CACHE.get(key, now)
     if cached is not None and _still_current(cached.get("_next_update"), now):
         return {**cached, "cached": True}
@@ -329,10 +351,7 @@ def _ask_ocsp(
         return answer
     single = None
     for candidate in parsed["responses"]:
-        cert_id = candidate["cert_id"]
-        if cert_id["issuer_key_hash"] == expected["issuer_key_hash"] and cert_id[
-            "serial_number"
-        ].lstrip("0") == expected["serial_number"].lstrip("0"):
+        if _cert_id_matches(candidate["cert_id"], expected):
             single = candidate
             break
     if single is None:

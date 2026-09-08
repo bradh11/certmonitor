@@ -693,6 +693,32 @@ def test_ocsp_answer_is_matched_to_the_question(pki, monkeypatch):
     assert answer["error"] == "OCSPMismatch"
 
 
+def test_ocsp_answer_must_match_the_whole_cert_id(pki, monkeypatch):
+    leaf = ssl.PEM_cert_to_DER_cert((pki.directory / "good.pem").read_text())
+    issuer = ssl.PEM_cert_to_DER_cert(pki.ca_pem.read_text())
+    real_parse = certinfo.parse_ocsp_response
+
+    def with_wrong_name_hash(body):
+        parsed = real_parse(body)
+        for single in parsed["responses"]:
+            single["cert_id"]["issuer_name_hash"] = "00" * 20
+        return parsed
+
+    monkeypatch.setattr(certinfo, "parse_ocsp_response", with_wrong_name_hash)
+    answer = revocation.check_ocsp(leaf, issuer, pki.ocsp_url, timeout=5)
+    assert answer["error"] == "OCSPMismatch"
+
+    def with_wrong_hash_algorithm(body):
+        parsed = real_parse(body)
+        for single in parsed["responses"]:
+            single["cert_id"]["hash_algorithm"] = "2.16.840.1.101.3.4.2.1"  # sha256
+        return parsed
+
+    monkeypatch.setattr(certinfo, "parse_ocsp_response", with_wrong_hash_algorithm)
+    answer = revocation.check_ocsp(leaf, issuer, pki.ocsp_url, timeout=5)
+    assert answer["error"] == "OCSPMismatch"
+
+
 def test_ocsp_error_statuses_and_staleness(pki, monkeypatch):
     leaf = ssl.PEM_cert_to_DER_cert((pki.directory / "good.pem").read_text())
     issuer = ssl.PEM_cert_to_DER_cert(pki.ca_pem.read_text())
@@ -1133,7 +1159,12 @@ def test_cached_answers_never_outlive_next_update(pki):
     # An entry whose own nextUpdate has passed must not be served, even if
     # something left it in the cache with time to spare.
     _, expected = revocation.build_ocsp_request(leaf, issuer)
-    key = (pki.ocsp_url, expected["issuer_key_hash"], expected["serial_number"])
+    key = (
+        pki.ocsp_url,
+        expected["issuer_name_hash"],
+        expected["issuer_key_hash"],
+        expected["serial_number"],
+    )
     stale = {**first, "_next_update": int(now) - 1}
     revocation.OCSP_CACHE.put(key, stale, expires_at=now + 3600)
     refreshed = revocation.check_ocsp(leaf, issuer, pki.ocsp_url, timeout=5, now=now)
