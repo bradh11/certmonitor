@@ -169,7 +169,8 @@ def test_error_reports_never_serialize_the_endpoint_dict(monkeypatch):
     )
     assert all("error" in r for r in results)
     assert "SECRET" not in json.dumps(results)
-    assert [r["host"] for r in results] == ["<endpoint without host>", "x.test"]
+    # Results arrive in completion order, so only the set of hosts is fixed.
+    assert sorted(r["host"] for r in results) == ["<endpoint without host>", "x.test"]
 
 
 def test_collection_failure_is_a_top_level_report_error(monkeypatch):
