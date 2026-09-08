@@ -924,18 +924,30 @@ def test_cache_expiry_is_anchored_to_this_update_without_next_update():
 
 
 def test_max_age_hours_is_a_validator_argument(pki, monkeypatch):
+    real_parse = certinfo.parse_ocsp_response
+
+    def two_hours_old_without_next_update(body):
+        parsed = real_parse(body)
+        for single in parsed["responses"]:
+            single["next_update"] = None
+            single["this_update"] -= 2 * 3600
+        return parsed
+
     monkeypatch.setattr(
-        certinfo,
-        "parse_ocsp_response",
-        _without_next_update(certinfo.parse_ocsp_response),
+        certinfo, "parse_ocsp_response", two_hours_old_without_next_update
     )
     server, options = monitor_for(pki, "good")
     with server, CertMonitor("localhost", server.port, **options) as monitor:
-        result = monitor.validate(
-            {"revocation": {"methods": ["ocsp"], "max_age_hours": 0}}
+        stale = monitor.validate(
+            {"revocation": {"methods": ["ocsp"], "max_age_hours": 1}}
         )["revocation"]
-    assert result["status"] == "error", result
-    assert result["methods"]["ocsp"]["error"] == "OCSPStale"
+        revocation.OCSP_CACHE.clear()
+        fresh = monitor.validate(
+            {"revocation": {"methods": ["ocsp"], "max_age_hours": 3}}
+        )["revocation"]
+    assert stale["status"] == "error", stale
+    assert stale["methods"]["ocsp"]["error"] == "OCSPStale"
+    assert fresh["status"] == "pass", fresh
 
 
 def test_issuer_fetch_failures_are_reported(pki, monkeypatch):
