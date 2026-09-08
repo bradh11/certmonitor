@@ -234,8 +234,10 @@ class RevocationPKI:
             def do_GET(self):
                 pki.crl_requests.append(self.path)
                 route = self.path.split("?", 1)[0]
-                path = pki.directory / route.lstrip("/")
-                if route.endswith(".crl") and path.exists():
+                name = route[1:] if route.startswith("/") else None
+                path = pki.directory / name if name else None
+                is_bare_name = bool(name) and "/" not in name and name != ".."
+                if route.endswith(".crl") and is_bare_name and path.is_file():
                     body, kind = path.read_bytes(), "application/pkix-crl"
                 elif route == "/ca.pem":
                     body, kind = path.read_bytes(), "application/x-pem-file"
@@ -978,6 +980,10 @@ def test_same_location_ignores_case_of_scheme_and_host():
     )
     assert not revocation._same_location(
         "http://crl.example/ca.crl", "http://crl.example/CA.crl"
+    )
+    assert revocation._same_location("http://crl.example", "http://crl.example/")
+    assert not revocation._same_location(
+        "http://crl.example/a", "http://crl.example/a/"
     )
 
 

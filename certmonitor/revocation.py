@@ -610,18 +610,19 @@ def _crl_scope_problem(info: dict[str, Any], url: str) -> str | None:
             )
         return (
             "the CRL's issuing distribution point names only locations that are "
-            "not URLs, so it cannot be matched to the location it was fetched from"
+            "not URLs, so it cannot be matched to the location it was fetched from "
+            "(RFC 5280 section 6.3.3)"
         )
     return None
 
 
 def _same_location(left: str, right: str) -> bool:
-    """Whether two URLs name the same resource; scheme and host compare case-insensitively."""
+    """Whether two URLs name the same resource; scheme and host compare case-insensitively, and an empty path counts as `/`."""
     a, b = urlsplit(left), urlsplit(right)
     return (
         a.scheme.lower() == b.scheme.lower()
         and (a.netloc or "").lower() == (b.netloc or "").lower()
-        and a.path == b.path
+        and (a.path or "/") == (b.path or "/")
         and a.query == b.query
     )
 
