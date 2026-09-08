@@ -165,6 +165,31 @@ def test_misspelled_validator_fails_the_run(bundle):
     assert "ERROR  expiraton" in out and "not implemented" in out
 
 
+def test_arg_for_unknown_validator_is_a_usage_error_and_disabled_is_a_warning(
+    bundle, capsys
+):
+    code, _ = run(
+        [
+            "check",
+            "--file",
+            bundle,
+            "--host",
+            LEAF_HOST,
+            "--arg",
+            "expiratoin.warning_days=90",
+        ]
+    )
+    assert code == 2
+    assert "unknown validator 'expiratoin'" in capsys.readouterr().err
+    code, out = run(
+        ["check", "--file", bundle, "--host", LEAF_HOST, "-v", "hostname",
+         "--arg", "expiration.warning_days=90"]
+    )  # fmt: skip
+    assert code == 0  # a warning, not a failure
+    assert "not enabled" in capsys.readouterr().err
+    assert "WARN" in out and "expiration" in out
+
+
 def test_check_requires_a_target(capsys):
     assert main(["check"]) == 2
 

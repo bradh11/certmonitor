@@ -15,9 +15,11 @@ from concurrent.futures import ThreadPoolExecutor
 from importlib.metadata import PackageNotFoundError, version
 from typing import Any
 
+from . import config
 from .compare import SEVERITIES, compare_snapshots
 from .core import CertMonitor
 from .protocol_handlers.starttls import PROTOCOLS as STARTTLS_PROTOCOLS
+from .validators import VALIDATORS
 
 STATUS_LABELS = {
     "pass": "PASS",
@@ -201,10 +203,35 @@ def _exit_code(reports: list[dict[str, Any]], fail_on_warn: bool) -> int:
     return 0
 
 
+def _argument_problems(args: argparse.Namespace) -> tuple[list[str], list[str]]:
+    """`(errors, warnings)` for `--arg`: unknown validators are errors, disabled ones warnings."""
+    enabled = (
+        args.validators if args.validators is not None else config.ENABLED_VALIDATORS
+    )
+    errors: list[str] = []
+    warnings: list[str] = []
+    for validator, name, _ in args.arg:
+        if validator not in VALIDATORS:
+            errors.append(f"--arg {validator}.{name}: unknown validator {validator!r}")
+        elif validator not in enabled:
+            warnings.append(
+                f"--arg {validator}.{name}: validator {validator!r} is not enabled, "
+                "so this argument has no effect (add it with -v)"
+            )
+    return errors, warnings
+
+
 def cmd_check(args: argparse.Namespace, out: Any) -> int:
     jobs = _check_jobs(args)
     if not jobs:
         print("check: give at least one target or --file", file=sys.stderr)
+        return 2
+    errors, warnings = _argument_problems(args)
+    for problem in errors:
+        print(f"check: {problem}", file=sys.stderr)
+    for problem in warnings:
+        print(f"check: warning: {problem}", file=sys.stderr)
+    if errors:
         return 2
     with ThreadPoolExecutor(max_workers=max(1, min(args.workers, len(jobs)))) as pool:
         reports = list(pool.map(partial(_run_check_job, args=args), jobs))

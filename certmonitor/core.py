@@ -914,6 +914,33 @@ class CertMonitor:
                     "reason": f"Validator '{requested_validator}' is not implemented.",
                 }
 
+        # Arguments for a validator that will not run are a configuration
+        # mistake, not a no-op: a misspelled name would otherwise leave the
+        # caller believing a threshold was applied.
+        for name in validator_args or {}:
+            if name in results:
+                continue
+            if name not in self.validators:
+                results[name] = {
+                    "is_valid": False,
+                    "status": "error",
+                    "error": "UnknownValidator",
+                    "reason": (
+                        f"validator_args names '{name}', which is not an "
+                        "implemented validator."
+                    ),
+                }
+            elif name not in self.enabled_validators:
+                results[name] = {
+                    "is_valid": True,
+                    "status": "warn",
+                    "warnings": [
+                        f"validator_args names '{name}', which is not enabled, so its "
+                        "arguments were not applied. Add it to enabled_validators or "
+                        "remove them."
+                    ],
+                }
+
         # Active validators: enabled, implemented, and not already flagged
         # unknown above. Order follows the registry.
         active = [

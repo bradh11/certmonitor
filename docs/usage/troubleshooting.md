@@ -23,6 +23,8 @@ with CertMonitor("example.com") as monitor:
 
 A result like `{"is_valid": false, "status": "error", "error": "UnknownValidator", "reason": "Validator 'foo' is not implemented."}` means the name isn't registered. It counts as an error, so `certmonitor check` exits 1 and a fleet scan flags the host: a misspelled validator must not pass silently.
 
+A `status: "warn"` result for a validator you did not enable means `validator_args` (or `--arg`) named it; either enable it or drop the arguments.
+
 - Check spelling against the [validator list](../validators/index.md).
 - Remember most validators are **opt-in**. Enable them with `enabled_validators=[...]`. Only `expiration`, `hostname`, and `root_certificate` run by default.
 
