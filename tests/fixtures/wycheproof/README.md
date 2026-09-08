@@ -13,7 +13,8 @@ carries:
   `tests.support.pss_params` encodes into `RSASSA-PSS-params` (RFC 4055
   section 3.1) since the vectors carry no parameters of their own.
 - EdDSA: `publicKeyDer` alone. RFC 8032 fixes the hash, so there is no `sha`,
-  and one file covers both curves, so the OID comes from the key.
+  and both files carry the algorithm name `EDDSA`, so the curve comes from
+  the key.
 
 Regenerate by downloading an original and running `slim.py`, which writes the
 reduced file next to itself:

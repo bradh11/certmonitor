@@ -70,9 +70,9 @@ def load_cases():
                 )
                 via_signatures, scheme = True, (signatures.RSASSA_PSS, params)
             elif data["algorithm"] == "EDDSA":
-                # One file covers both Edwards curves under the same
-                # `algorithm`, and a group names no algorithm of its own, so
-                # the OID comes from the key.
+                # Both files carry the algorithm name `EDDSA`, and a group
+                # names no algorithm of its own, so the curve comes from the
+                # key.
                 curve = certinfo.parse_spki(key)["algorithm"]
                 via_signatures, scheme = True, (EDDSA_OIDS[curve], None)
             else:
