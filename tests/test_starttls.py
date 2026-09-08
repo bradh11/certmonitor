@@ -378,6 +378,24 @@ def test_overlong_reply_line_is_rejected():
             negotiate(client_end, "smtp")
 
 
+class _EndlessContinuation:
+    """A socket that answers with `250-x` continuation lines forever."""
+
+    def __init__(self):
+        self.sent = 0
+
+    def recv(self, size):
+        line = b"250-x\r\n"
+        byte = line[self.sent % len(line) : self.sent % len(line) + 1]
+        self.sent += 1
+        return byte
+
+
+def test_replies_with_too_many_lines_are_refused():
+    with pytest.raises(starttls.StartTLSError, match="too many lines"):
+        starttls._read_reply(_EndlessContinuation())
+
+
 @pytest.mark.parametrize(
     "protocol,reply,fragment",
     [
