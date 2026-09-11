@@ -13,13 +13,51 @@ rename the headers to emoji form when cutting a release.
 ## [Unreleased]
 
 ### Added
-- Certs-only PKCS#7 bundles (`.p7b`, `.p7c`; CMS SignedData in DER or PEM) are accepted by `CertMonitor.from_file()`, `CertMonitor.from_bytes()`, `certmonitor check --file`, and `certmonitor info --file`; a bundle's certificates are put in chain order by issuer name, leaf first, with the basicConstraints CA flag breaking ties. `certinfo.certificate_signature_parts()` reports `is_ca`. The `revocation` validator's `caIssuers` fetch accepts the same, as RFC 5280 section 4.2.2.1 allows, and asks for `application/pkix-cert, application/pkcs7-mime`. `certinfo.pkcs7_certificates()` and `certmonitor.bundles` are the building blocks. `cafile` and `client_cert` stay PEM, which is what Python's `ssl` module reads.
+- TBD
 
 ### Changed
 - TBD
 
 ### Fixed
 - TBD
+
+## [0.6.1] - 2026-09-11
+
+# 📦 CertMonitor v0.6.1 – PKCS#7 Bundles
+
+**Release Date:** September 11, 2026
+**Repository:** [bradh11/certmonitor](https://github.com/bradh11/certmonitor)
+
+---
+
+## 🚀 Overview
+
+One addition: certs-only PKCS#7 bundles, the `.p7b` and `.p7c` files a Windows CA or a CA portal exports, are accepted wherever CertMonitor reads certificate data. `from_file()`, `from_bytes()`, and the CLI's `--file` load them and put an unordered bundle into chain order, leaf first, and the `revocation` validator's `caIssuers` fetch unpacks one when a CA publishes its issuer that way, so revocation checks no longer report `MissingIssuer` for such servers. The parser is a small DER walk in the Rust extension with a fuzz target; still zero runtime dependencies.
+
+---
+
+## ✨ Added
+- Certs-only PKCS#7 bundles (`.p7b`, `.p7c`; CMS SignedData in DER or PEM) are accepted by `CertMonitor.from_file()`, `CertMonitor.from_bytes()`, `certmonitor check --file`, and `certmonitor info --file`; a bundle's certificates are put in chain order by issuer name, leaf first, with the basicConstraints CA flag breaking ties. `certinfo.certificate_signature_parts()` reports `is_ca`. The `revocation` validator's `caIssuers` fetch accepts the same, as RFC 5280 section 4.2.2.1 allows, and asks for `application/pkix-cert, application/pkcs7-mime`. `certinfo.pkcs7_certificates()` and `certmonitor.bundles` are the building blocks. `cafile` and `client_cert` stay PEM, which is what Python's `ssl` module reads.
+
+---
+
+## 📚 Documentation
+
+Comprehensive documentation is available at [certmonitor.readthedocs.io](https://certmonitor.readthedocs.io/).
+
+---
+
+## 🐍 Python Compatibility
+
+Tested with Python 3.10 through 3.15 with 99% code coverage across all supported versions.
+
+---
+
+## 📝 License
+
+This project is licensed under the MIT License. See the [LICENSE](https://github.com/bradh11/certmonitor/blob/main/LICENSE) file for details.
+
+**Full Changelog**: https://github.com/bradh11/certmonitor/compare/v0.6.0...v0.6.1
 
 ## [0.6.0] - 2026-09-08
 
