@@ -55,3 +55,24 @@ def pss_params(hash_name: str, mgf_hash_name: str, salt_length: int) -> bytes:
         0x30,
         der(0xA0, hash_id) + der(0xA1, mgf_id) + der(0xA2, der_integer(salt_length)),
     )
+
+
+OID_SIGNED_DATA = bytes.fromhex("2a864886f70d010702")
+OID_DATA = bytes.fromhex("2a864886f70d010701")
+
+
+def pkcs7_certs_only(certs: list[bytes]) -> bytes:
+    """A DER certs-only PKCS#7 message (CMS SignedData, RFC 5652 §5.1) carrying `certs`.
+
+    The shape `openssl crl2pkcs7 -nocrl -certfile` produces: version 1, no
+    digest algorithms, id-data with no content, the certificates, no CRLs,
+    and no signers.
+    """
+    signed_data = (
+        der(0x02, b"\x01")
+        + der(0x31, b"")
+        + der(0x30, der(0x06, OID_DATA))
+        + der(0xA0, b"".join(certs))
+        + der(0x31, b"")
+    )
+    return der(0x30, der(0x06, OID_SIGNED_DATA) + der(0xA0, der(0x30, signed_data)))

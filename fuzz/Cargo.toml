@@ -61,6 +61,13 @@ doc = false
 bench = false
 
 [[bin]]
+name = "parse_pkcs7"
+path = "fuzz_targets/parse_pkcs7.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
 name = "verify_signature"
 path = "fuzz_targets/verify_signature.rs"
 test = false

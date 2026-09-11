@@ -94,6 +94,19 @@ def crl_info(der_data: bytes) -> dict[str, Any]:
     """
     ...
 
+def pkcs7_certificates(der_data: bytes) -> list[bytes]:
+    """The DER of every certificate in a DER-encoded certs-only PKCS#7
+    message (CMS SignedData, RFC 5652 section 5.1), in the order the message
+    lists them. This is the shape of `.p7b` and `.p7c` files and of some
+    `caIssuers` responses. Attribute certificates and the other
+    CertificateChoices alternatives are skipped, and the `crls` and
+    `signerInfos` fields are not examined; no signature is verified.
+    Raises `ValueError` when the bytes are not a signedData ContentInfo, so
+    a bare certificate is never mistaken for a bundle, or when the encoding
+    is malformed or uses BER indefinite lengths.
+    """
+    ...
+
 def crl_lookup(der_data: bytes, serial_number: bytes) -> dict[str, Any] | None:
     """The CRL entry for `serial_number` (raw INTEGER bytes, leading zeros
     ignored): `revocation_time` and `revocation_reason`, or `None` when the

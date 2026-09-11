@@ -3,7 +3,6 @@
 from datetime import datetime, timezone
 import hashlib
 import ipaddress
-import re
 import logging
 from functools import partial
 import os
@@ -15,7 +14,7 @@ from typing import Any, cast
 from collections.abc import Callable, Mapping
 from pathlib import Path
 
-from certmonitor import certinfo, config
+from certmonitor import bundles, certinfo, config
 from certmonitor.cipher_algorithms import parse_cipher_suite
 from certmonitor.error_handlers import ErrorHandler
 from certmonitor.protocol_handlers import detection
@@ -148,15 +147,18 @@ class CertMonitor:
     ) -> "CertMonitor":
         """Build a monitor from a certificate file instead of a connection.
 
-        The file may be PEM (a single certificate or a chain, leaf first) or
-        DER. Everything that only needs certificate data works as it does for
+        The file may be PEM (a single certificate or a chain, leaf first),
+        DER (one certificate), or a certs-only PKCS#7 bundle such as a
+        `.p7b` or `.p7c`, in DER or PEM; a bundle's certificates are put in
+        chain order by their issuer names. Everything that only needs
+        certificate data works as it does for
         a connected monitor: `get_cert_info()`, the public key helpers,
         `validate()`, and `refresh()`, which re-reads the file. Checks that
         need a live connection (`tls_version`, `weak_cipher`, `root_certificate`,
         `pq_key_exchange`) report `status: unsupported` with a reason.
 
         Args:
-            path: Path to the PEM or DER file.
+            path: Path to the PEM, DER, or PKCS#7 file.
             host: The identity the certificate should be valid for, used by
                 `hostname` and `subject_alt_names`. Without it those two
                 checks report `unsupported` rather than guessing.
@@ -184,14 +186,15 @@ class CertMonitor:
         port: int = 443,
         enabled_validators: list[str] | None = None,
     ) -> "CertMonitor":
-        """Build a monitor from PEM text or DER bytes already in memory.
+        """Build a monitor from PEM text, DER bytes, or a PKCS#7 bundle in memory.
 
         Behaves like `from_file()`; use it for certificates fetched from an
         API, a secrets store, or a database. `refresh()` re-parses the same
         bytes.
 
         Args:
-            data: PEM text (str or bytes) or DER bytes.
+            data: PEM text (str or bytes), DER bytes, or a certs-only PKCS#7
+                message in DER or PEM.
             host: The identity the certificate should be valid for.
             port: Port to report alongside the host. Defaults to 443.
             enabled_validators: Names to run. `None` uses the environment-backed
@@ -219,30 +222,29 @@ class CertMonitor:
         """True when the certificate comes from a file or bytes, not a connection."""
         return self._certificate_source is not None
 
-    _PEM_BLOCK = re.compile(
-        rb"-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----", re.S
-    )
-
     def _load_offline_certificate(self) -> dict[str, Any]:
-        """Read and decode the offline certificate into the collector's shape."""
+        """Read and decode the offline certificate into the collector's shape.
+
+        PEM chains are taken in file order, leaf first, as documented. A
+        PKCS#7 bundle carries no order, so its certificates are arranged by
+        issuer name with the leaf first.
+        """
         assert self._certificate_source is not None
         try:
             if self._certificate_source["type"] == "file":
                 data = Path(self._certificate_source["path"]).read_bytes()
             else:
                 data = self._offline_bytes or b""
-            blocks = self._PEM_BLOCK.findall(data)
-            if blocks:
-                pems = [block.decode("ascii") + "\n" for block in blocks]
-                chain_der = [ssl.PEM_cert_to_DER_cert(pem) for pem in pems]
-            elif data:
-                chain_der = [bytes(data)]
-                pems = [ssl.DER_cert_to_PEM_cert(chain_der[0])]
-            else:
-                raise ValueError("no certificate data")
+            bundle = bundles.certificates_from_bytes(data)
+            chain_der = (
+                bundles.leaf_first(bundle.certificates)
+                if bundle.kind == "pkcs7"
+                else bundle.certificates
+            )
+            pems = [ssl.DER_cert_to_PEM_cert(chain_der[0])]
             cert_info = self._parse_pem_cert(pems[0])
             if not cert_info:
-                raise ValueError("data is not a PEM or DER X.509 certificate")
+                raise ValueError("data is not a PEM, DER, or PKCS#7 X.509 certificate")
         except Exception as exc:  # noqa: BLE001
             return cast(
                 dict[str, Any],

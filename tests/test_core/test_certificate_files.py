@@ -1,5 +1,6 @@
 """Certificates loaded from files or bytes validate without a connection."""
 
+import base64
 import ssl
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -8,6 +9,7 @@ import pytest
 
 from certmonitor import CertMonitor
 from certmonitor.validators import VALIDATORS
+from tests.support import pkcs7_certs_only
 
 FIXTURES = Path(__file__).resolve().parent.parent / "fixtures"
 CHAIN_DER = [(FIXTURES / f"chain_{i}.der").read_bytes() for i in range(3)]
@@ -53,6 +55,37 @@ def test_der_file_loads_a_single_certificate(leaf_der):
         assert monitor.get_cert_info()["subject"]["commonName"] == LEAF_HOST
         assert monitor.cert_data["chain_der"] == [CHAIN_DER[0]]
         assert monitor.get_raw_pem() == ssl.DER_cert_to_PEM_cert(CHAIN_DER[0])
+
+
+def test_pkcs7_bundle_loads_leaf_first_whatever_its_order(tmp_path):
+    # A .p7b carries no order; the leaf is the certificate that issued none
+    # of the others, and the rest follow by issuer name.
+    path = tmp_path / "chain.p7b"
+    path.write_bytes(pkcs7_certs_only([CHAIN_DER[2], CHAIN_DER[0], CHAIN_DER[1]]))
+    with CertMonitor.from_file(path, host=LEAF_HOST) as monitor:
+        assert monitor.get_cert_info()["subject"]["commonName"] == LEAF_HOST
+        assert monitor.der == CHAIN_DER[0]
+        assert monitor.cert_data["chain_der"] == CHAIN_DER
+        assert monitor.cert_data["chain_analysis"]["chain_length"] == 3
+        assert monitor.validate()["hostname"]["is_valid"] is True
+
+
+def test_pem_pkcs7_loads_through_from_bytes():
+    body = base64.encodebytes(pkcs7_certs_only([CHAIN_DER[0]]))
+    text = b"-----BEGIN PKCS7-----\n" + body + b"-----END PKCS7-----\n"
+    with CertMonitor.from_bytes(text, host=LEAF_HOST) as monitor:
+        assert monitor.get_cert_info()["subject"]["commonName"] == LEAF_HOST
+        assert monitor.der == CHAIN_DER[0]
+        assert monitor.cert_data["chain_der"] == [CHAIN_DER[0]]
+
+
+def test_an_empty_pkcs7_bundle_is_a_certificate_error(tmp_path):
+    path = tmp_path / "empty.p7b"
+    path.write_bytes(pkcs7_certs_only([]))
+    with CertMonitor.from_file(path, host=LEAF_HOST) as monitor:
+        info = monitor.get_cert_info()
+    assert info["error"] == "CertificateError"
+    assert "carries no certificates" in info["message"]
 
 
 def test_every_validator_returns_a_result_offline(bundle):
@@ -159,7 +192,7 @@ def test_undecodable_certificate_is_reported(bundle, monkeypatch):
     monkeypatch.setattr(monitor, "_parse_pem_cert", MagicMock(return_value={}))
     info = monitor.get_cert_info()
     assert info["error"] == "CertificateError"
-    assert "not a PEM or DER" in info["message"]
+    assert "not a PEM, DER, or PKCS#7" in info["message"]
 
 
 def test_probe_is_unsupported_offline(bundle):

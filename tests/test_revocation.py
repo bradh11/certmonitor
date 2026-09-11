@@ -22,6 +22,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from tests.support import pkcs7_certs_only
 from certmonitor import CertMonitor, certinfo, revocation
 from certmonitor.protocol_handlers import http
 from certmonitor.protocol_handlers.http import HTTPError
@@ -196,6 +197,14 @@ class RevocationPKI:
         )
         self.run("ca", "-config", "ca.cnf", "-gencrl", "-out", "ca.crl.pem")
         self.run("crl", "-in", "ca.crl.pem", "-outform", "DER", "-out", "ca.crl")
+        # The issuer as a certs-only PKCS#7, the way some CAs publish their
+        # caIssuers target, in DER (.p7c) and PEM.
+        self.run(
+            "crl2pkcs7", "-nocrl", "-certfile", "ca.pem", "-outform", "DER",
+            "-out", "ca.p7c",
+        )  # fmt: skip
+        self.run("crl2pkcs7", "-nocrl", "-certfile", "ca.pem", "-out", "ca.p7c.pem")
+        (directory / "empty.p7c").write_bytes(pkcs7_certs_only([]))
 
     def publish_crl(self, name: str, crl_ext_lines: str) -> str:
         """Publish a CRL carrying the extensions `crl_ext_lines` describes, served at `/{name}.crl`.
@@ -255,6 +264,12 @@ class RevocationPKI:
                     body, kind = path.read_bytes(), "application/pkix-crl"
                 elif route == "/ca.pem":
                     body, kind = path.read_bytes(), "application/x-pem-file"
+                elif route.endswith(".p7c") and is_bare_name and path.is_file():
+                    body, kind = path.read_bytes(), "application/pkcs7-mime"
+                elif route == "/ca.p7c.pem":
+                    body, kind = path.read_bytes(), "application/pkcs7-mime"
+                elif route == "/not-a-cert.txt":
+                    body, kind = b"hello\n", "text/plain"
                 else:
                     self.send_error(404)
                     return
@@ -818,6 +833,57 @@ def test_impostor_issuer_from_aia_is_rejected(pki, monkeypatch):
     assert result["status"] == "error", result
     assert result["methods"]["ocsp"]["error"] == "MissingIssuer"
     assert "did not sign" in result["methods"]["ocsp"]["reason"]
+
+
+def _leaf_only_evidence(pki, ca_issuers_url):
+    leaf = ssl.PEM_cert_to_DER_cert((pki.directory / "good.pem").read_text())
+    return revocation.RevocationEvidence(
+        leaf_der=leaf,
+        chain_der=[leaf],
+        cert_info={"OCSP": [pki.ocsp_url], "caIssuers": [ca_issuers_url]},
+        timeout=5,
+    )
+
+
+@pytest.mark.parametrize("name", ["ca.p7c", "ca.p7c.pem"])
+def test_issuer_is_found_in_a_pkcs7_bundle_from_the_ca_issuers_pointer(pki, name):
+    # RFC 5280 section 4.2.2.1 lets caIssuers return a certs-only CMS
+    # message; the issuer inside it binds the leaf like a bare certificate.
+    evidence = _leaf_only_evidence(pki, f"http://127.0.0.1:{pki.crl_port}/{name}")
+    issuer = evidence.issuer()
+    assert issuer == ssl.PEM_cert_to_DER_cert(pki.ca_pem.read_text())
+    assert evidence._issuer_binding == revocation.VERIFIED
+    answer = evidence.ocsp()
+    assert answer["status"] == "good" and answer["verification"] == "verified"
+
+
+def test_ca_issuers_pointer_that_serves_no_certificate_is_reported(pki):
+    url = f"http://127.0.0.1:{pki.crl_port}/not-a-cert.txt"
+    evidence = _leaf_only_evidence(pki, url)
+    assert evidence.issuer() is None
+    assert "did not sign" in (evidence._issuer_error or "")
+
+
+def test_ca_issuers_pointer_serving_an_empty_bundle_is_reported(pki):
+    url = f"http://127.0.0.1:{pki.crl_port}/empty.p7c"
+    evidence = _leaf_only_evidence(pki, url)
+    assert evidence.issuer() is None
+    assert "did not return a certificate" in (evidence._issuer_error or "")
+    assert "carries no certificates" in (evidence._issuer_error or "")
+
+
+def test_ca_issuers_request_names_both_certificate_media_types(pki, monkeypatch):
+    real_fetch = http.fetch
+    seen = {}
+
+    def record_accept(url, **kwargs):
+        if url.endswith("/ca.p7c"):
+            seen["accept"] = kwargs.get("accept")
+        return real_fetch(url, **kwargs)
+
+    monkeypatch.setattr(http, "fetch", record_accept)
+    _leaf_only_evidence(pki, f"http://127.0.0.1:{pki.crl_port}/ca.p7c").issuer()
+    assert seen["accept"] == "application/pkix-cert, application/pkcs7-mime"
 
 
 def test_unverifiable_issuer_binding_caps_ocsp_at_unsupported(pki, monkeypatch):

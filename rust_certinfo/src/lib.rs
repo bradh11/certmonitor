@@ -40,6 +40,7 @@ pub use crate::crypto::VerifyError;
 pub use crate::error::ParseError;
 pub use crate::x509::crl::Crl;
 pub use crate::x509::ocsp::OcspResponse;
+pub use crate::x509::pkcs7::certificates as pkcs7_certificates;
 pub use crate::x509::verify::verify_signature;
 pub use crate::x509::Certificate;
 
@@ -54,7 +55,7 @@ mod pyobj;
 mod py {
     use super::{pem, pyobj, pyobj::to_py_err, Certificate};
     use pyo3::prelude::*;
-    use pyo3::types::{PyBytes, PyDict};
+    use pyo3::types::{PyBytes, PyDict, PyList};
 
     /// Parse an X.509 certificate (DER) and return public key info as a dict
     /// `{"algorithm": str, "size": int, "curve": str | None}`.
@@ -174,6 +175,18 @@ mod py {
     pub(super) fn crl_info(py: Python<'_>, der_data: Vec<u8>) -> PyResult<Py<PyAny>> {
         let crl = crate::x509::crl::Crl::from_der(&der_data).map_err(to_py_err)?;
         Ok(pyobj::crl_info_dict(py, &crl)?.into())
+    }
+
+    /// The DER of every certificate in a DER-encoded certs-only PKCS#7
+    /// (CMS SignedData) message, as a list of bytes in message order.
+    #[pyfunction]
+    pub(super) fn pkcs7_certificates(py: Python<'_>, der_data: Vec<u8>) -> PyResult<Py<PyAny>> {
+        let found = crate::x509::pkcs7::certificates(&der_data).map_err(to_py_err)?;
+        let list = PyList::empty(py);
+        for cert in found {
+            list.append(PyBytes::new(py, cert))?;
+        }
+        Ok(list.into())
     }
 
     /// The CRL entry for a serial number (raw INTEGER bytes), or `None`.
@@ -351,6 +364,7 @@ mod py {
         m.add_function(wrap_pyfunction!(ocsp_cert_id_inputs, m)?)?;
         m.add_function(wrap_pyfunction!(crl_info, m)?)?;
         m.add_function(wrap_pyfunction!(crl_lookup, m)?)?;
+        m.add_function(wrap_pyfunction!(pkcs7_certificates, m)?)?;
         m.add_function(wrap_pyfunction!(signature_hash, m)?)?;
         m.add_function(wrap_pyfunction!(verify_signature, m)?)?;
         m.add_function(wrap_pyfunction!(certificate_signature_parts, m)?)?;
