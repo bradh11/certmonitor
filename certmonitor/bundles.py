@@ -92,31 +92,36 @@ def leaf_first(certificates: list[bytes]) -> list[bytes]:
     """`certificates` in chain order: the leaf, then each certificate's issuer.
 
     A PKCS#7 bundle carries no order. The leaf is the certificate that
-    issued none of the others and is not self-signed (a self-signed
-    certificate is a root, whatever else is in the bundle); from it the
-    chain follows issuer names as far as it can, and anything that does not
-    chain keeps its place at the end. When no single leaf can be told
-    apart, or something is not a certificate, the list comes back as given.
+    issued none of the others; when more than one qualifies, say a root and
+    a leaf whose intermediate is missing, the one that is not a CA wins. A
+    self-signed certificate that is not a CA is therefore a leaf like any
+    other. From the leaf the chain follows issuer names as far as it can,
+    and anything that does not chain keeps its place at the end. When no
+    single leaf can be told apart, or something is not a certificate, the
+    list comes back as given.
     """
     if len(certificates) < 2:
         return list(certificates)
     names: list[tuple[bytes, bytes]] = []
+    is_ca: list[bool] = []
     for der in certificates:
         try:
             parts = certinfo.certificate_signature_parts(der)  # type: ignore[attr-defined]
         except ValueError:
             return list(certificates)
         names.append((parts["subject_der"], parts["issuer_der"]))
+        is_ca.append(bool(parts["is_ca"]))
     leaves = [
         index
-        for index, (subject, own_issuer) in enumerate(names)
-        if subject != own_issuer
-        and not any(
+        for index, (subject, _) in enumerate(names)
+        if not any(
             issuer == subject
             for other, (_, issuer) in enumerate(names)
             if other != index
         )
     ]
+    if len(leaves) != 1:
+        leaves = [index for index in leaves if not is_ca[index]]
     if len(leaves) != 1:
         return list(certificates)
     order = [leaves[0]]

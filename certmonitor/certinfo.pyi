@@ -162,7 +162,8 @@ def certificate_signature_parts(der_data: bytes) -> dict[str, Any]:
     `signature_algorithm_params` (the raw DER parameters, or `None` when
     absent or NULL, e.g. for RSASSA-PSS), `spki`, `key_bits`,
     `subject`, `subject_der`, `issuer_der`, `not_before`, `not_after` (unix
-    seconds), `key_usage` (the set bits of the KeyUsage extension as
+    seconds), `is_ca` (the basicConstraints cA flag, `False` when the
+    extension is absent), `key_usage` (the set bits of the KeyUsage extension as
     snake_case names such as `digital_signature`, `key_cert_sign`, and
     `crl_sign`, or `None` when the certificate carries no KeyUsage
     extension), and `extended_key_usage` (OIDs in dotted form).

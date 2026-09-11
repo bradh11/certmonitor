@@ -79,6 +79,14 @@ def test_pem_pkcs7_loads_through_from_bytes():
         assert monitor.cert_data["chain_der"] == [CHAIN_DER[0]]
 
 
+def test_a_self_signed_certificate_loads_from_a_pkcs7_bundle(tmp_path):
+    path = tmp_path / "self-signed.p7b"
+    path.write_bytes(pkcs7_certs_only([CHAIN_DER[2]]))
+    with CertMonitor.from_file(path, host="anything.test") as monitor:
+        assert monitor.get_cert_info()["subject"]["commonName"] == "GTS Root R1"
+        assert monitor.cert_data["chain_der"] == [CHAIN_DER[2]]
+
+
 def test_an_empty_pkcs7_bundle_is_a_certificate_error(tmp_path):
     path = tmp_path / "empty.p7b"
     path.write_bytes(pkcs7_certs_only([]))

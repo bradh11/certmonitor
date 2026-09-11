@@ -13,7 +13,7 @@ rename the headers to emoji form when cutting a release.
 ## [Unreleased]
 
 ### Added
-- Certs-only PKCS#7 bundles (`.p7b`, `.p7c`; CMS SignedData in DER or PEM) are accepted by `CertMonitor.from_file()`, `CertMonitor.from_bytes()`, `certmonitor check --file`, and `certmonitor info --file`; a bundle's certificates are put in chain order by issuer name, leaf first. The `revocation` validator's `caIssuers` fetch accepts the same, as RFC 5280 section 4.2.2.1 allows, and asks for `application/pkix-cert, application/pkcs7-mime`. `certinfo.pkcs7_certificates()` and `certmonitor.bundles` are the building blocks. `cafile` and `client_cert` stay PEM, which is what Python's `ssl` module reads.
+- Certs-only PKCS#7 bundles (`.p7b`, `.p7c`; CMS SignedData in DER or PEM) are accepted by `CertMonitor.from_file()`, `CertMonitor.from_bytes()`, `certmonitor check --file`, and `certmonitor info --file`; a bundle's certificates are put in chain order by issuer name, leaf first, with the basicConstraints CA flag breaking ties. `certinfo.certificate_signature_parts()` reports `is_ca`. The `revocation` validator's `caIssuers` fetch accepts the same, as RFC 5280 section 4.2.2.1 allows, and asks for `application/pkix-cert, application/pkcs7-mime`. `certinfo.pkcs7_certificates()` and `certmonitor.bundles` are the building blocks. `cafile` and `client_cert` stay PEM, which is what Python's `ssl` module reads.
 
 ### Changed
 - TBD

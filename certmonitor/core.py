@@ -150,7 +150,7 @@ class CertMonitor:
         The file may be PEM (a single certificate or a chain, leaf first),
         DER (one certificate), or a certs-only PKCS#7 bundle such as a
         `.p7b` or `.p7c`, in DER or PEM; a bundle's certificates are put in
-        chain order by their issuer names. Everything that only needs
+        chain order by their issuer names, leaf first. Everything that only needs
         certificate data works as it does for
         a connected monitor: `get_cert_info()`, the public key helpers,
         `validate()`, and `refresh()`, which re-reads the file. Checks that

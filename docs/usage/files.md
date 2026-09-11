@@ -20,7 +20,7 @@ with CertMonitor.from_file("service.pem", host="service.example.com") as monitor
         print(f"{name}: {result['status']}")
 ```
 
-A PEM file may hold a whole chain, leaf first, and the `chain` validator will inspect all of it. A DER file holds one certificate. A certs-only PKCS#7 bundle, the `.p7b` or `.p7c` a Windows CA or a CA portal exports, is accepted in DER or PEM; since a bundle carries no order, CertMonitor picks as the leaf the certificate that issued none of the others and chains the rest by issuer name.
+A PEM file may hold a whole chain, leaf first, and the `chain` validator will inspect all of it. A DER file holds one certificate. A certs-only PKCS#7 bundle, the `.p7b` or `.p7c` a Windows CA or a CA portal exports, is accepted in DER or PEM; since a bundle carries no order, CertMonitor picks as the leaf the certificate that issued none of the others, preferring an end-entity certificate over a CA when that is ambiguous, and chains the rest by issuer name. A self-signed certificate on its own, or with certificates it does not chain to, is loaded as the leaf like any other.
 
 If the certificate is already in memory, use `CertMonitor.from_bytes()` with PEM text, DER bytes, or a PKCS#7 message instead. Everything below applies to both.
 

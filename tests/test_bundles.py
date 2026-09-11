@@ -94,20 +94,56 @@ def test_leaf_first_keeps_a_partial_chain_and_strays():
 
 
 def test_leaf_first_leaves_an_ambiguous_bundle_alone():
-    # Two certificates neither of which issued the other: no single leaf.
+    # Two copies of the leaf: neither issued the other and both are
+    # end-entity certificates, so there is no single leaf.
     assert bundles.leaf_first([INTERMEDIATE, LEAF, ROOT, LEAF]) == [
         INTERMEDIATE,
         LEAF,
         ROOT,
         LEAF,
     ]
-    # A self-signed root is never the leaf, so with only the root and its
-    # child the child leads; two self-signed roots alone leave nothing to
-    # choose between.
-    assert bundles.leaf_first([ROOT, INTERMEDIATE]) == [INTERMEDIATE, ROOT]
+    # Two CAs neither of which issued the other, likewise.
     assert bundles.leaf_first([ROOT, ROOT]) == [ROOT, ROOT]
     not_certificates = [b"\x30\x00", LEAF]
     assert bundles.leaf_first(not_certificates) == not_certificates
+
+
+def test_the_ca_flag_breaks_a_tie_between_candidates():
+    # A root and a leaf with the intermediate missing: neither issued the
+    # other, and the end-entity certificate is the leaf.
+    assert bundles.leaf_first([ROOT, LEAF]) == [LEAF, ROOT]
+    # A root and its intermediate: only the intermediate is unissued here.
+    assert bundles.leaf_first([ROOT, INTERMEDIATE]) == [INTERMEDIATE, ROOT]
+
+
+@pytest.fixture(scope="module")
+def self_signed_server(tmp_path_factory):
+    """A self-signed end-entity certificate, the kind a lab service presents."""
+    openssl = shutil.which("openssl")
+    if openssl is None:
+        pytest.skip("OpenSSL CLI required to mint a self-signed certificate")
+    directory = tmp_path_factory.mktemp("self-signed")
+    subprocess.run(
+        [openssl, "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-keyout", "s.key",
+         "-out", "s.pem", "-days", "1", "-subj", "/CN=lab.test",
+         "-addext", "basicConstraints=critical,CA:FALSE",
+         "-addext", "subjectAltName=DNS:lab.test"],
+        cwd=directory, check=True, capture_output=True,
+    )  # fmt: skip
+    return ssl.PEM_cert_to_DER_cert((directory / "s.pem").read_text())
+
+
+def test_a_self_signed_leaf_is_still_the_leaf(self_signed_server):
+    parts = certinfo.certificate_signature_parts(self_signed_server)
+    assert parts["subject_der"] == parts["issuer_der"] and parts["is_ca"] is False
+    assert bundles.leaf_first([self_signed_server]) == [self_signed_server]
+    # Bundled with certificates it never chains to, it still leads: it is
+    # the only end-entity certificate nobody issued.
+    assert bundles.leaf_first([INTERMEDIATE, ROOT, self_signed_server]) == [
+        self_signed_server,
+        INTERMEDIATE,
+        ROOT,
+    ]
 
 
 def test_openssl_bundles_decode_the_same_way(tmp_path):

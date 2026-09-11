@@ -231,8 +231,9 @@ mod py {
     /// The pieces needed to verify a certificate's signature and to use it
     /// as a signer: `tbs`, `signature`, `signature_algorithm`,
     /// `signature_algorithm_params`, `spki`, `key_bits`, `subject`,
-    /// `subject_der`, `issuer_der`, `not_before`, `not_after`, `key_usage`
-    /// (bit names, or `None` when absent), and `extended_key_usage`.
+    /// `subject_der`, `issuer_der`, `not_before`, `not_after`, `is_ca`,
+    /// `key_usage` (bit names, or `None` when absent), and
+    /// `extended_key_usage`.
     #[pyfunction]
     pub(super) fn certificate_signature_parts(
         py: Python<'_>,
