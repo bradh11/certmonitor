@@ -10,6 +10,7 @@ pub mod crl;
 pub mod extensions;
 pub mod name;
 pub mod ocsp;
+pub mod pkcs7;
 pub mod spki;
 pub mod verify;
 

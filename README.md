@@ -157,7 +157,7 @@ Each validator reports its own `is_valid` flag plus the details behind its decis
 ## ✨ Features
 
 - 🔒 **Zero Dependencies:** no third-party Python runtime dependencies, ever. The required native extension is distributed in platform wheels.
-- 📄 **Files too:** `CertMonitor.from_file()` runs the certificate checks on a PEM or DER file with no connection at all. See [Certificates from Files](https://certmonitor.readthedocs.io/en/latest/usage/files/).
+- 📄 **Files too:** `CertMonitor.from_file()` runs the certificate checks on a PEM, DER, or PKCS#7 file with no connection at all. See [Certificates from Files](https://certmonitor.readthedocs.io/en/latest/usage/files/).
 - 📮 **STARTTLS too:** mail, directory, and database ports (SMTP, IMAP, POP3, FTP, PostgreSQL, LDAP) are discovered on any port and get the right preamble before the handshake, so their certificates get the same checks; `starttls="smtp"` pins it when you already know. See [STARTTLS Services](https://certmonitor.readthedocs.io/en/latest/usage/starttls/).
 - 🔁 **Change detection:** `compare_snapshots()` and `certmonitor diff` tell a routine renewal from a removed SAN, a new issuer, a weaker key, or a check that started failing. See [Detect Changes Between Scans](https://certmonitor.readthedocs.io/en/latest/usage/compare/).
 - 🛡️ **Proxies:** `proxy="http://..."` or `"socks5://..."`, with authentication, routes every connection through an HTTP CONNECT or SOCKS5 tunnel. See [Proxies](https://certmonitor.readthedocs.io/en/latest/usage/proxy/).

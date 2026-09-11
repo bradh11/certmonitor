@@ -387,7 +387,7 @@ def build_parser() -> argparse.ArgumentParser:
         action="append",
         default=[],
         metavar="PATH",
-        help="PEM or DER file to check (repeatable)",
+        help="PEM, DER, or PKCS#7 file to check (repeatable)",
     )
     check.add_argument(
         "-v",
@@ -418,7 +418,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     info.add_argument("target", nargs="?", type=parse_target, metavar="TARGET")
     info.add_argument(
-        "--file", metavar="PATH", help="PEM or DER file instead of a host"
+        "--file", metavar="PATH", help="PEM, DER, or PKCS#7 file instead of a host"
     )
     info.add_argument(
         "--pem", action="store_true", help="print the PEM instead of parsed fields"

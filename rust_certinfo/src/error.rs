@@ -33,6 +33,8 @@ pub enum ParseError {
     IntegerOverflow,
     /// BIT STRING had a non-zero "unused bits" prefix where one is not allowed.
     InvalidBitString,
+    /// A CMS ContentInfo names a content type other than the one expected.
+    UnexpectedContentType,
 }
 
 impl fmt::Display for ParseError {
@@ -57,6 +59,7 @@ impl fmt::Display for ParseError {
             Self::UnsupportedStringType(t) => write!(f, "unsupported string tag 0x{:02x}", t),
             Self::IntegerOverflow => f.write_str("integer overflow"),
             Self::InvalidBitString => f.write_str("invalid BIT STRING encoding"),
+            Self::UnexpectedContentType => f.write_str("ContentInfo is not a signedData message"),
         }
     }
 }

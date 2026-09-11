@@ -481,7 +481,7 @@ pub fn cert_id_inputs_dict<'py>(
 
 /// The pieces needed to verify a certificate's own signature and to use it
 /// as a signer: signed bytes, signature, algorithm, key, names, validity,
-/// key usage, and extended key usage.
+/// the CA flag, key usage, and extended key usage.
 pub fn certificate_signature_parts_dict<'py>(
     py: Python<'py>,
     cert: &Certificate<'_>,
@@ -511,6 +511,8 @@ pub fn certificate_signature_parts_dict<'py>(
         purposes.append(purpose.to_id_string())?;
     }
     d.set_item("extended_key_usage", purposes)?;
+    let constraints = cert.extensions.basic_constraints().map_err(to_py_err)?;
+    d.set_item("is_ca", constraints.map(|c| c.ca).unwrap_or(false))?;
     match cert.extensions.key_usage().map_err(to_py_err)? {
         Some(usage) => d.set_item("key_usage", usage.names())?,
         None => d.set_item("key_usage", py.None())?,

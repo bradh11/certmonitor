@@ -34,7 +34,7 @@ from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import urlsplit
 
-from certmonitor import certinfo
+from certmonitor import bundles, certinfo
 from certmonitor.protocol_handlers import http
 from certmonitor.protocol_handlers.proxy import ProxyConfig
 from certmonitor.signatures import FAILED, UNSUPPORTED, VERIFIED
@@ -43,6 +43,7 @@ from certmonitor.signatures import verify as verify_signature_bytes
 METHODS = ("ocsp", "crl")
 OCSP_CONTENT_TYPE = "application/ocsp-request"
 OCSP_RESPONSE_TYPE = "application/ocsp-response"
+CA_ISSUERS_ACCEPT = "application/pkix-cert, application/pkcs7-mime"
 
 _OID_SHA1 = b"\x06\x05\x2b\x0e\x03\x02\x1a"
 _SHA1_OID_TEXT = "1.3.14.3.2.26"
@@ -753,15 +754,27 @@ class RevocationEvidence:
         if found is None:
             for url in self.issuer_urls:
                 try:
-                    body = http.fetch(url, timeout=self.timeout, proxy=self.proxy)
+                    body = http.fetch(
+                        url,
+                        timeout=self.timeout,
+                        proxy=self.proxy,
+                        accept=CA_ISSUERS_ACCEPT,
+                    )
                 except OSError as exc:
                     self._issuer_error = (
                         f"could not fetch the issuer certificate: {exc}"
                     )
                     continue
-                if body.lstrip().startswith(b"-----BEGIN"):
-                    body = pem_to_der(body)
-                found, binding, problem = find_issuer(self.leaf_der, [body])
+                # RFC 5280 §4.2.2.1: the pointer may serve one certificate or
+                # a certs-only PKCS#7 bundle, in DER or PEM either way.
+                try:
+                    candidates = bundles.certificates_from_bytes(body).certificates
+                except ValueError as exc:
+                    self._issuer_error = (
+                        f"the caIssuers pointer did not return a certificate: {exc}"
+                    )
+                    continue
+                found, binding, problem = find_issuer(self.leaf_der, candidates)
                 if found is not None:
                     self._issuer_error = None
                     break

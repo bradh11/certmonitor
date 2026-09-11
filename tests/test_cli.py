@@ -10,6 +10,7 @@ import pytest
 
 import certmonitor.cli as cli
 from certmonitor.cli import main, parse_target, parse_validator_arg
+from tests.support import pkcs7_certs_only
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 CHAIN_DER = [(FIXTURES / f"chain_{i}.der").read_bytes() for i in range(3)]
@@ -146,6 +147,17 @@ def test_check_json_output(bundle):
     assert report[0]["results"]["key_info"]["status"] == "pass"
     assert report[0]["snapshot_at"]
     assert len(report[0]["fingerprint_sha256"]) == 64
+
+
+def test_check_file_accepts_a_pkcs7_bundle(tmp_path):
+    path = tmp_path / "chain.p7b"
+    path.write_bytes(pkcs7_certs_only(list(reversed(CHAIN_DER))))
+    code, out = run(
+        ["check", "--file", str(path), "--host", "www.google.com", "--json"]
+    )
+    report = json.loads(out)[0]
+    assert report["certificate"]["subject"]["commonName"] == "www.google.com"
+    assert report["results"]["hostname"]["is_valid"] is True
 
 
 def test_check_missing_file_is_an_error_line(tmp_path):

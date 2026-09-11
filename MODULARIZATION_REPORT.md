@@ -4,20 +4,20 @@
 
 ### Test Modularization Status
 - **Modular test files:** 10 files
-- **Total test lines:** 2,780 lines
-- **Average file size:** 278 lines
+- **Total test lines:** 2,821 lines
+- **Average file size:** 282 lines
 - **Main test file:** 22 lines
 
 ### Test Coverage
 - **Overall coverage:** 99.9%
-- **Total tests:** 4851
-- **Statements covered:** 3,075/3,079
-- **Files with coverage:** 39
+- **Total tests:** 4883
+- **Statements covered:** 3,145/3,149
+- **Files with coverage:** 40
 
 ### Type Hint Coverage
-- **Files analyzed:** 35
-- **Files with type hints:** 33
-- **Type hint coverage:** 94.3%
+- **Files analyzed:** 36
+- **Files with type hints:** 34
+- **Type hint coverage:** 94.4%
 
 ### Code Quality
 - **Ruff issues:** 0
@@ -29,8 +29,8 @@
 - **Rust vulnerabilities found:** 0
 - **Python security scanning:** ✅ Enabled
 - **Python security issues found:** 0
-- **Files scanned by bandit:** 39
-- **Lines scanned by bandit:** 6,674
+- **Files scanned by bandit:** 40
+- **Lines scanned by bandit:** 6,806
 - **Overall security status:** 🔒 Clean
 - **PyO3 version:** 0.29
 
@@ -54,7 +54,7 @@
 - **test_review_regressions.py**: 363 lines, 39 functions
 - **test_utility_methods.py**: 140 lines, 11 functions
 - **test_connection_management.py**: 390 lines, 22 functions
-- **test_certificate_files.py**: 190 lines, 17 functions
+- **test_certificate_files.py**: 231 lines, 21 functions
 - **test_cipher_operations.py**: 163 lines, 9 functions
 
 ### Main Test File
@@ -66,8 +66,9 @@
 
 ### Files with Type Hints
 - **config.py**: ❌ (14 lines)
-- **core.py**: ✅ (1469 lines)
-- **revocation.py**: ✅ (987 lines)
+- **bundles.py**: ✅ (140 lines)
+- **core.py**: ✅ (1471 lines)
+- **revocation.py**: ✅ (1000 lines)
 - **cli.py**: ✅ (466 lines)
 - **signatures.py**: ✅ (210 lines)
 - **scanning.py**: ✅ (187 lines)
