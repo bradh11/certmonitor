@@ -94,6 +94,19 @@ def crl_info(der_data: bytes) -> dict[str, Any]:
     """
     ...
 
+def pkcs7_certificates(der_data: bytes) -> list[bytes]:
+    """The DER of every certificate in a DER-encoded certs-only PKCS#7
+    message (CMS SignedData, RFC 5652 section 5.1), in the order the message
+    lists them. This is the shape of `.p7b` and `.p7c` files and of some
+    `caIssuers` responses. Attribute certificates and the other
+    CertificateChoices alternatives are skipped, and the `crls` and
+    `signerInfos` fields are not examined; no signature is verified.
+    Raises `ValueError` when the bytes are not a signedData ContentInfo, so
+    a bare certificate is never mistaken for a bundle, or when the encoding
+    is malformed or uses BER indefinite lengths.
+    """
+    ...
+
 def crl_lookup(der_data: bytes, serial_number: bytes) -> dict[str, Any] | None:
     """The CRL entry for `serial_number` (raw INTEGER bytes, leading zeros
     ignored): `revocation_time` and `revocation_reason`, or `None` when the
@@ -149,7 +162,8 @@ def certificate_signature_parts(der_data: bytes) -> dict[str, Any]:
     `signature_algorithm_params` (the raw DER parameters, or `None` when
     absent or NULL, e.g. for RSASSA-PSS), `spki`, `key_bits`,
     `subject`, `subject_der`, `issuer_der`, `not_before`, `not_after` (unix
-    seconds), `key_usage` (the set bits of the KeyUsage extension as
+    seconds), `is_ca` (the basicConstraints cA flag, `False` when the
+    extension is absent), `key_usage` (the set bits of the KeyUsage extension as
     snake_case names such as `digital_signature`, `key_cert_sign`, and
     `crl_sign`, or `None` when the certificate carries no KeyUsage
     extension), and `extended_key_usage` (OIDs in dotted form).

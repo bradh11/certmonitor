@@ -27,6 +27,7 @@ default `python` feature on and get the full PyO3 surface.
 | `parse_server_hello` | the TLS ServerHello / HelloRetryRequest parser | a panic in the PQ probe's parser |
 | `parse_ocsp_response` | `OcspResponse::from_der` | a panic parsing an OCSP responder's answer |
 | `parse_crl` | `Crl::from_der`, `revoked_count`, `lookup` | a panic parsing or searching a CRL |
+| `parse_pkcs7` | `pkcs7_certificates`, the certs-only SignedData walker | a panic unpacking a `.p7b` bundle or a `caIssuers` response |
 | `verify_signature` | arbitrary signatures against real keys, and arbitrary keys against a real signature | a panic in signature or key parsing, or in the big-integer arithmetic |
 | `bigint_divrem` | two arbitrary integers | a **wrong answer**: the division identity or a modular power failed, which would mean a wrong signature verdict |
 | `parse_pss_parameters` | `PssParameters::parse`, the RSASSA-PSS-params decoder | a panic parsing the PSS hash, MGF1, and salt length parameters |
