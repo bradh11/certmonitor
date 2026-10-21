@@ -40,6 +40,7 @@ SUMMARY_FORMATS = {
     "tls_version": "{protocol_version}",
     "weak_cipher": "{cipher_suite}",
     "key_info": "{key_type} {key_size}",
+    "weak_keys": "{certs_checked} keys checked",
     "chain": "{chain_length} certificates",
     "pq_key_exchange": "{kem_name}",
     "pq_signature": "{key_algorithm}",

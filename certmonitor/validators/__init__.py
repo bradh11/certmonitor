@@ -16,6 +16,7 @@ from .sensitive_date import SensitiveDateValidator
 from .subject_alt_names import SubjectAltNamesValidator
 from .tls_version import TLSVersionValidator
 from .weak_cipher import WeakCipherValidator
+from .weak_keys import WeakKeysValidator
 
 # ... Import other validators as needed
 
@@ -32,6 +33,7 @@ VALIDATORS = {
     "sensitive_date": SensitiveDateValidator(),
     "tls_version": TLSVersionValidator(),
     "weak_cipher": WeakCipherValidator(),
+    "weak_keys": WeakKeysValidator(),
     "chain": ChainValidator(),
     # Opt-in (not in DEFAULT_VALIDATORS): post-quantum key-exchange posture.
     "pq_key_exchange": PqKeyExchangeValidator(),

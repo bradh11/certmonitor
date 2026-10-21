@@ -14,9 +14,11 @@ rename the headers to emoji form when cutting a release.
 
 ### Added
 - `certinfo.ec_small_scalar(spki_der, bound)` recovers the private key of a P-256, P-384, or P-521 public key whose private scalar `d`, or `n - d`, is at most `bound`, and returns `None` for a properly generated key. It is the building block for the upcoming `weak_keys` validator (#140), prompted by the October 2026 eMudhra incident, where eight intermediate CA keys had private scalars below 256. Up to a `bound` of 4096 the check is a lookup in a built-in table of the first 4096 multiples of each curve's generator (tens of microseconds); past that, each candidate costs one point addition (about 8 microseconds on P-384), and `bound` is capped at 2**24. `scripts/generate_small_multiples.py` writes the table, and a test recomputes every entry with the crate's own arithmetic. The eight eMudhra certificates are regression fixtures, with their scalars confirmed independently with OpenSSL, and the search has a fuzz target (`ec_small_scalar`).
+- `weak_keys` validator: checks the key of the leaf and every certificate in the chain for a private key anyone can recover from the public key: a small EC private scalar (`ec_small_scalar`), RSA primes close enough for Fermat's method (`rsa_close_primes`, CVE-2022-26320), and the Infineon RSALib structure (`rsa_roca`, CVE-2017-15361). Findings name the certificate's position, role, subject, and the check that fired. The recovered key is left out unless you pass `show_evidence=True` (`--arg weak_keys.show_evidence=true`). `ec_scalar_bound` (default 4096, at most 2**24) sets how far the EC search counts, and `checks` picks a subset. Each distinct key is analyzed once per process, so `scan_hosts()` pays for a shared intermediate once. Docs: [WeakKeys](docs/validators/weak_keys.md).
+- `certinfo.parse_spki()` reports `rsa_modulus` and `rsa_public_exponent` (big-endian bytes) for RSA keys, `None` otherwise.
 
 ### Changed
-- TBD
+- `weak_keys` joins the default validators, so `validate()` with no `enabled_validators` now runs `expiration`, `hostname`, `root_certificate`, and `weak_keys`, and its result has a `weak_keys` key. In a release build it adds under 0.1 ms per host for an EC chain and under a millisecond for a typical RSA chain, well inside network noise. To keep the previous set, pass `enabled_validators=["expiration", "hostname", "root_certificate"]` or set `ENABLED_VALIDATORS`.
 
 ### Fixed
 - TBD

@@ -10,7 +10,7 @@ This is the validator that catches the most common certificate incident there is
 It reports how long until the certificate's `notAfter` date, and it flags the situations you care about: the cert is already expired, isn't valid yet, is approaching expiration, or was issued for longer than your lifetime policy allows.
 
 !!! note "Enabled by default"
-    You don't have to turn this one on. `expiration` is one of the three default validators, along with `hostname` and `root_certificate`.
+    You don't have to turn this one on. `expiration` is one of the four default validators, along with `hostname`, `root_certificate`, and `weak_keys`.
 
 ## Try it
 

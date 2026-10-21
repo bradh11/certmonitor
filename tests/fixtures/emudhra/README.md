@@ -21,3 +21,14 @@ certificate's public key:
 | EM OV CS CA - G3C | 237 |
 | EM OV TLS CA - G3B | 155 |
 | EM OV TLS CA - G3C | 4 |
+
+## Served chains
+
+`chains/` holds two of the chains the incident's test hosts served, from
+`chains.zip` at the same site, leaf first:
+
+- `dv-g3b-emudhra.we-have-a-problem.com.pem`: leaf, EM DV TLS CA - G3B
+  (scalar 156), and emSign Root TLS CA - G3 cross-signed by emSign ECC Root
+  CA - G3.
+- `ov-g3c-aaa-emudhra.we-have-a-problem.com.pem`: leaf and EM OV TLS CA - G3C
+  cross-signed by AAA Certificate Services (the same key, scalar 4).

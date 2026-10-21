@@ -16,7 +16,7 @@ print(list_validators())
 ```
 
 !!! info "Which validators run by default?"
-    Three validators are enabled out of the box: `expiration`, `hostname`, and `root_certificate`. Every other validator is opt-in, so you turn it on when you need it.
+    Four validators are enabled out of the box: `expiration`, `hostname`, `root_certificate`, and `weak_keys`. Every other validator is opt-in, so you turn it on when you need it.
 
 ## How do I debug certificate parsing errors?
 

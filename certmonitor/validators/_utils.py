@@ -35,3 +35,12 @@ def parse_not_before(cert: dict[str, Any]) -> datetime | None:
     if not isinstance(value, str):
         return None
     return datetime.strptime(value, _VALIDITY_FORMAT)
+
+
+def format_dn(fields: dict[str, Any]) -> str:
+    """A short label for a parsed name: `CN (O)`, or whichever one is present."""
+    cn = fields.get("commonName")
+    o = fields.get("organizationName")
+    if cn and o:
+        return f"{cn} ({o})"
+    return cn or o or "Unknown"

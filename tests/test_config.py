@@ -70,5 +70,5 @@ def test_default_validators_constant():
     """Test that DEFAULT_VALIDATORS constant is as expected."""
     from certmonitor import config
 
-    expected_defaults = ["expiration", "hostname", "root_certificate"]
+    expected_defaults = ["expiration", "hostname", "root_certificate", "weak_keys"]
     assert config.DEFAULT_VALIDATORS == expected_defaults

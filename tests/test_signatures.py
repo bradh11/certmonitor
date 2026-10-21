@@ -14,7 +14,7 @@ from pathlib import Path
 import pytest
 
 from certmonitor import certinfo, signatures
-from tests.support import der, pss_params
+from tests.support import der, der_integer, pss_params
 
 VECTORS = Path(__file__).resolve().parent / "fixtures" / "wycheproof"
 
@@ -224,6 +224,24 @@ def test_parse_spki_reports_an_rsassa_pss_key_and_its_parameters(rsa_spki):
     plain = certinfo.parse_spki(rsa_spki)
     assert plain["algorithm"] == "rsaEncryption"
     assert plain["algorithm_params"] is None
+
+
+def test_parse_spki_reports_an_rsa_keys_modulus_and_exponent():
+    modulus = (1 << 2047) + 0x1D  # odd, 2048 bits
+    rsa_public_key = der(0x30, der_integer(modulus) + der_integer(65537))
+    spki = der(
+        0x30,
+        RSA_ENCRYPTION_ALGORITHM_IDENTIFIER + der(0x03, b"\x00" + rsa_public_key),
+    )
+    info = certinfo.parse_spki(spki)
+    assert int.from_bytes(info["rsa_modulus"], "big") == modulus
+    assert int.from_bytes(info["rsa_public_exponent"], "big") == 65537
+
+
+def test_parse_spki_reports_no_rsa_numbers_for_other_keys():
+    info = certinfo.parse_spki(ED25519_SPKI)
+    assert info["rsa_modulus"] is None
+    assert info["rsa_public_exponent"] is None
 
 
 def test_pss_signature_parameters_must_satisfy_the_keys_restrictions(rsa_spki):
