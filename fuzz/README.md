@@ -32,6 +32,7 @@ default `python` feature on and get the full PyO3 surface.
 | `bigint_divrem` | two arbitrary integers | a **wrong answer**: the division identity or a modular power failed, which would mean a wrong signature verdict |
 | `parse_pss_parameters` | `PssParameters::parse`, the RSASSA-PSS-params decoder | a panic parsing the PSS hash, MGF1, and salt length parameters |
 | `eddsa_decode_point` | arbitrary bytes as an Ed25519 or Ed448 public key | a panic in the Edwards point decoder or the group arithmetic |
+| `ec_small_scalar` | arbitrary bytes as an EC public key, whole or as a raw point under a valid P-256, P-384, or P-521 header | a panic in key parsing, the on-curve check, or the weak-key search loop |
 
 Run one with `make fuzz FUZZ_TARGET=verify_signature`, or all of them
 with `make fuzz-all` (60 seconds each by default).

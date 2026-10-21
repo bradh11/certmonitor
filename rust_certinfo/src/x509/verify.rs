@@ -82,7 +82,7 @@ pub fn verify_signature(
     }
 }
 
-fn curve_for(curve_oid: Oid<'_>) -> Result<ecdsa::Curve, VerifyError> {
+pub(crate) fn curve_for(curve_oid: Oid<'_>) -> Result<ecdsa::Curve, VerifyError> {
     match curve_oid.as_bytes() {
         bytes if bytes == oid::OID_SECP256R1 => Ok(ecdsa::Curve::P256),
         bytes if bytes == oid::OID_SECP384R1 => Ok(ecdsa::Curve::P384),
