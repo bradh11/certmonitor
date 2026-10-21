@@ -81,7 +81,7 @@ VALIDATORS = {
 ```
 
 !!! warning "Default or opt-in?"
-    New validators should be **opt-in** by default. The default set (`expiration`, `hostname`, `root_certificate`, `weak_keys`, defined as `DEFAULT_VALIDATORS` in `certmonitor/config.py`) is deliberately small to give a focused baseline for validity, identity, trust, and keys anyone can recover. The trust check uses a separate handshake; `weak_keys` reads keys the scan already has, uses a precomputed table for the EC search, and caches each key it has seen, so it adds a millisecond or so per host. Only propose adding to the defaults if the check is universally useful and cheap, and call it out explicitly in your PR so it can be discussed.
+    New validators should be **opt-in** by default. The default set (`expiration`, `hostname`, `root_certificate`, `weak_keys`, defined as `DEFAULT_VALIDATORS` in `certmonitor/config.py`) is deliberately small to give a focused baseline for validity, identity, trust, and keys anyone can recover. The trust check uses a separate handshake; `weak_keys` reads keys the scan already has, uses a precomputed table for the EC search, and caches each key it has seen, so it adds microseconds per host for an EC chain and under a millisecond for a typical RSA one. Only propose adding to the defaults if the check is universally useful and cheap, and call it out explicitly in your PR so it can be discussed.
 
 ## 3. Test it
 

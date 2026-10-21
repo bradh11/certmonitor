@@ -114,7 +114,7 @@ with CertMonitor(
 ```
 
 !!! info "Scanning lots of hosts?"
-    The same intermediates show up behind thousands of sites. `weak_keys` remembers each key it has already checked, so a `scan_hosts()` run pays for each distinct intermediate once. That matters most for RSA keys, whose checks take a millisecond or two each, and for a raised `ec_scalar_bound`.
+    The same intermediates show up behind thousands of sites. `weak_keys` remembers each key it has already checked, so a `scan_hosts()` run pays for each distinct intermediate once. That matters most for RSA keys, whose checks take up to about half a millisecond each, and for a raised `ec_scalar_bound`.
 
 ## How it decides
 

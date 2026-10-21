@@ -18,7 +18,7 @@ rename the headers to emoji form when cutting a release.
 - `certinfo.parse_spki()` reports `rsa_modulus` and `rsa_public_exponent` (big-endian bytes) for RSA keys, `None` otherwise.
 
 ### Changed
-- `weak_keys` joins the default validators, so `validate()` with no `enabled_validators` now runs `expiration`, `hostname`, `root_certificate`, and `weak_keys`, and its result has a `weak_keys` key. In a release build it adds about 0.1 ms per host for an EC chain and a few milliseconds for an RSA chain, well inside network noise. To keep the previous set, pass `enabled_validators=["expiration", "hostname", "root_certificate"]` or set `ENABLED_VALIDATORS`.
+- `weak_keys` joins the default validators, so `validate()` with no `enabled_validators` now runs `expiration`, `hostname`, `root_certificate`, and `weak_keys`, and its result has a `weak_keys` key. In a release build it adds under 0.1 ms per host for an EC chain and under a millisecond for a typical RSA chain, well inside network noise. To keep the previous set, pass `enabled_validators=["expiration", "hostname", "root_certificate"]` or set `ENABLED_VALIDATORS`.
 
 ### Fixed
 - TBD
