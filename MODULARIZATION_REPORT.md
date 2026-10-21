@@ -10,14 +10,14 @@
 
 ### Test Coverage
 - **Overall coverage:** 99.9%
-- **Total tests:** 4883
-- **Statements covered:** 3,145/3,149
-- **Files with coverage:** 40
+- **Total tests:** 4919
+- **Statements covered:** 3,248/3,251
+- **Files with coverage:** 41
 
 ### Type Hint Coverage
-- **Files analyzed:** 36
-- **Files with type hints:** 34
-- **Type hint coverage:** 94.4%
+- **Files analyzed:** 37
+- **Files with type hints:** 35
+- **Type hint coverage:** 94.6%
 
 ### Code Quality
 - **Ruff issues:** 0
@@ -29,8 +29,8 @@
 - **Rust vulnerabilities found:** 0
 - **Python security scanning:** ✅ Enabled
 - **Python security issues found:** 0
-- **Files scanned by bandit:** 40
-- **Lines scanned by bandit:** 6,806
+- **Files scanned by bandit:** 41
+- **Lines scanned by bandit:** 7,061
 - **Overall security status:** 🔒 Clean
 - **PyO3 version:** 0.29
 
@@ -69,7 +69,7 @@
 - **bundles.py**: ✅ (140 lines)
 - **core.py**: ✅ (1471 lines)
 - **revocation.py**: ✅ (1000 lines)
-- **cli.py**: ✅ (466 lines)
+- **cli.py**: ✅ (467 lines)
 - **signatures.py**: ✅ (210 lines)
 - **scanning.py**: ✅ (187 lines)
 - **error_handlers.py**: ✅ (29 lines)
@@ -90,17 +90,18 @@
 - **validators/sensitive_date.py**: ✅ (215 lines)
 - **validators/subject_alt_names.py**: ✅ (177 lines)
 - **validators/results.py**: ✅ (71 lines)
-- **validators/chain.py**: ✅ (336 lines)
+- **validators/chain.py**: ✅ (329 lines)
 - **validators/expiration.py**: ✅ (187 lines)
 - **validators/pq_key_exchange.py**: ✅ (186 lines)
 - **validators/root_certificate_validator.py**: ✅ (88 lines)
 - **validators/pq_signature.py**: ✅ (187 lines)
 - **validators/revocation.py**: ✅ (220 lines)
 - **validators/tls_version.py**: ✅ (95 lines)
+- **validators/weak_keys.py**: ✅ (297 lines)
 - **validators/key_info.py**: ✅ (222 lines)
 - **validators/base.py**: ✅ (157 lines)
 - **validators/hostname.py**: ✅ (129 lines)
-- **validators/_utils.py**: ✅ (38 lines)
+- **validators/_utils.py**: ✅ (47 lines)
 
 ---
 
