@@ -146,6 +146,13 @@ This is the full result of a scan against example.com at the time of writing. Ce
       "commonName": "Cloudflare TLS Issuing ECC CA 3"
     },
     "code": "root_certificate.pass"
+  },
+  "weak_keys": {
+    "is_valid": true,
+    "certs_checked": 4,
+    "findings": [],
+    "status": "pass",
+    "code": "weak_keys.pass"
   }
 }
 ```
@@ -181,6 +188,7 @@ CertMonitor uses a powerful system of **validators**, modular checks that automa
 - Detect expired or soon-to-expire certificates
 - Ensure hostnames and SANs match
 - Enforce strong key types and lengths
+- Catch keys, including a CA's, whose private half anyone can recover
 - Require modern TLS versions and strong cipher suites
 - Allow you to add custom organization-specific checks
 
@@ -192,6 +200,7 @@ You can enable, disable, or extend validators to fit your needs, making CertMoni
 - `subject_alt_names`: Checks requested alternate DNS/IP identities against the SANs, or the primary host when none are given.
 - `root_certificate`: Validates if the certificate is issued by a trusted root CA.
 - `key_info`: Validates the public key type and strength.
+- `weak_keys`: Checks the key of the leaf and every chain certificate for a private key anyone can recover (a tiny EC private key, RSA primes that are too close, ROCA). On by default.
 - `tls_version`: Validates the negotiated TLS version.
 - `weak_cipher`: Validates that the negotiated cipher suite is in the allowed list.
 - `sensitive_date`: Validates that the certificate doesn't expire on built-in or user specified sensitive dates.
@@ -247,6 +256,7 @@ By default, the following validators are enabled:
 - expiration
 - hostname
 - root_certificate
+- weak_keys
 
 ### Environment Variables
 CertMonitor can also read the list of enabled validators from an environment variable `ENABLED_VALIDATORS`. This is useful for configuring the validators without modifying the code.

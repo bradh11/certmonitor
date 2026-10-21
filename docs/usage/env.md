@@ -25,7 +25,7 @@ The enabled set is resolved in this order:
 
 1. The `enabled_validators=[...]` argument to `CertMonitor(...)`, if given.
 2. Otherwise the non-empty `ENABLED_VALIDATORS` environment variable captured when the configuration module was imported.
-3. Otherwise the built-in defaults: `expiration`, `hostname`, `root_certificate`.
+3. Otherwise the built-in defaults: `expiration`, `hostname`, `root_certificate`, `weak_keys`.
 
 !!! tip "Turning on post-quantum checks fleet-wide"
     To enable the opt-in PQ validators across every monitor without touching code:

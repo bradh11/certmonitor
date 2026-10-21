@@ -3,7 +3,7 @@
 import os
 
 # Default validators if not set in environment
-DEFAULT_VALIDATORS = ["expiration", "hostname", "root_certificate"]
+DEFAULT_VALIDATORS = ["expiration", "hostname", "root_certificate", "weak_keys"]
 
 # Read from environment variable, fall back to default if not set
 env_validators = os.environ.get("ENABLED_VALIDATORS")

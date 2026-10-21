@@ -6,7 +6,7 @@ This includes **post-quantum readiness**: opt-in validators report whether the T
 
 ## Registered vs. enabled
 
-Two words worth keeping straight. A validator is **registered** when CertMonitor knows it exists (every built-in, plus any you add yourself). It's **enabled** when it actually runs for a given monitor. Enabled is always a subset of registered: only `expiration`, `hostname`, and `root_certificate` run by default, and everything else is registered but waits until you opt in.
+Two words worth keeping straight. A validator is **registered** when CertMonitor knows it exists (every built-in, plus any you add yourself). It's **enabled** when it actually runs for a given monitor. Enabled is always a subset of registered: only `expiration`, `hostname`, `root_certificate`, and `weak_keys` run by default, and everything else is registered but waits until you opt in.
 
 <div class="validator-map">
   <p class="validator-map__label">Registered: every validator CertMonitor knows about</p>
@@ -16,6 +16,7 @@ Two words worth keeping straight. A validator is **registered** when CertMonitor
       <span class="validator-chip validator-chip--on">expiration</span>
       <span class="validator-chip validator-chip--on">hostname</span>
       <span class="validator-chip validator-chip--on">root_certificate</span>
+      <span class="validator-chip validator-chip--on">weak_keys</span>
     </div>
   </div>
   <div class="validator-group validator-group--optin">
@@ -35,15 +36,16 @@ Two words worth keeping straight. A validator is **registered** when CertMonitor
   </div>
 </div>
 
-The default three run out of the box. The opt-in validators are registered and ready, but stay off until you name them in `enabled_validators` or `ENABLED_VALIDATORS`. To register and enable your own custom validators, see [Custom Validators](../usage/custom_validators.md).
+The default four run out of the box. The opt-in validators are registered and ready, but stay off until you name them in `enabled_validators` or `ENABLED_VALIDATORS`. To register and enable your own custom validators, see [Custom Validators](../usage/custom_validators.md).
 
 ## Available validators
 
-**Enabled by default** (`expiration`, `hostname`, `root_certificate`):
+**Enabled by default** (`expiration`, `hostname`, `root_certificate`, `weak_keys`):
 
 - [Expiration](expiration.md): Checks if the certificate is expired or expiring soon.
 - [Hostname](hostname.md): Validates that the certificate matches the expected hostname.
 - [RootCertificate](root_certificate.md): Checks if the certificate is issued by a trusted root CA.
+- [WeakKeys](weak_keys.md): Checks the leaf and every chain certificate for a private key anyone can recover from the public key.
 
 **Opt-in** (enable via `enabled_validators=[...]` or `ENABLED_VALIDATORS`):
 

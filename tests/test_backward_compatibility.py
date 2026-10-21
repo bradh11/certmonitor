@@ -19,6 +19,7 @@ def test_original_constructor_and_defaults():
         "expiration",
         "hostname",
         "root_certificate",
+        "weak_keys",
     ]
 
 

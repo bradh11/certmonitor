@@ -99,7 +99,7 @@ def test_get_enabled_validators():
     result = get_enabled_validators()
     assert isinstance(result, list)
     # Should return the default validators
-    expected_defaults = ["expiration", "hostname", "root_certificate"]
+    expected_defaults = ["expiration", "hostname", "root_certificate", "weak_keys"]
     assert result == expected_defaults
 
 

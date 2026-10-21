@@ -31,7 +31,7 @@ with CertMonitor("example.com") as monitor:
     print(monitor.validate())
 ```
 
-Out of the box, `validate()` runs the three default validators: `expiration`, `hostname`, and `root_certificate`. Each one returns a structured result keyed by its name. This is the full result of a scan against example.com at the time of writing:
+Out of the box, `validate()` runs the four default validators: `expiration`, `hostname`, `root_certificate`, and `weak_keys`. Each one returns a structured result keyed by its name. This is the full result of a scan against example.com at the time of writing:
 
 ```json
 {
@@ -70,6 +70,13 @@ Out of the box, `validate()` runs the three default validators: `expiration`, `h
       "commonName": "Cloudflare TLS Issuing ECC CA 3"
     },
     "code": "root_certificate.pass"
+  },
+  "weak_keys": {
+    "is_valid": true,
+    "certs_checked": 4,
+    "findings": [],
+    "status": "pass",
+    "code": "weak_keys.pass"
   }
 }
 ```

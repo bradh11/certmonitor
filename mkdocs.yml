@@ -42,6 +42,7 @@ nav:
       - SubjectAltNames: validators/subject_alt_names.md
       - RootCertificate: validators/root_certificate.md
       - KeyInfo: validators/key_info.md
+      - WeakKeys: validators/weak_keys.md
       - TLSVersion: validators/tls_version.md
       - WeakCipher: validators/weak_cipher.md
       - SensitiveDate: validators/sensitive_date.md

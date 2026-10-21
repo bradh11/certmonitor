@@ -308,15 +308,19 @@ mod py {
 
     /// Parse a bare DER SubjectPublicKeyInfo into
     /// `{"algorithm": str, "size": int, "curve": str | None,
-    /// "key_bits": bytes, "algorithm_params": bytes | None}`. The first
+    /// "key_bits": bytes, "algorithm_params": bytes | None,
+    /// "rsa_modulus": bytes | None, "rsa_public_exponent": bytes | None}`. The first
     /// three keys are exactly what `parse_public_key_info` reports, which
     /// takes a whole certificate; this takes the SubjectPublicKeyInfo on
     /// its own, which is what a signature check has in hand, and adds the
     /// raw `subjectPublicKey` bits along with the raw
     /// `AlgorithmIdentifier.parameters` TLV (`None` when absent or NULL),
     /// which is where an id-RSASSA-PSS key carries the restrictions RFC
-    /// 4055 §3.3 puts on it. Raises `ValueError` when the
-    /// SubjectPublicKeyInfo does not parse.
+    /// 4055 §3.3 puts on it. For an RSA key whose RSAPublicKey parses
+    /// within the verifier's bounds, `rsa_modulus` and
+    /// `rsa_public_exponent` are the big-endian integers; otherwise both
+    /// are `None`. Raises `ValueError` when the SubjectPublicKeyInfo does
+    /// not parse.
     #[pyfunction]
     pub(super) fn parse_spki(py: Python<'_>, spki_der: Vec<u8>) -> PyResult<Py<PyAny>> {
         let mut reader = crate::der::DerReader::new(&spki_der);
@@ -328,6 +332,29 @@ mod py {
         match spki.algorithm.parameters {
             Some(params) => dict.set_item("algorithm_params", PyBytes::new(py, params))?,
             None => dict.set_item("algorithm_params", py.None())?,
+        }
+        let rsa = match spki.parsed() {
+            crate::x509::spki::PublicKeyAlgorithm::Rsa { .. } => {
+                crate::crypto::rsa::RsaPublicKey::from_der(spki.subject_public_key).ok()
+            }
+            _ => None,
+        };
+        let big_endian = |n: &crate::BigUint| {
+            n.to_be_bytes(n.bit_len().div_ceil(8).max(1))
+                .expect("width fits the value")
+        };
+        match rsa {
+            Some(key) => {
+                dict.set_item("rsa_modulus", PyBytes::new(py, &big_endian(&key.modulus)))?;
+                dict.set_item(
+                    "rsa_public_exponent",
+                    PyBytes::new(py, &big_endian(&key.exponent)),
+                )?;
+            }
+            None => {
+                dict.set_item("rsa_modulus", py.None())?;
+                dict.set_item("rsa_public_exponent", py.None())?;
+            }
         }
         Ok(dict.into())
     }
