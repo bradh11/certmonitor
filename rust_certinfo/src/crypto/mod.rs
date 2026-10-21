@@ -1,16 +1,19 @@
 // rust_certinfo/src/crypto/mod.rs
 //
 // Signature verification for OCSP responses and CRLs, standard library
-// only. This is verification, not signing: there is no private key here,
-// so there are no secrets to protect and no side channels to close. A bug
-// yields a wrong verdict, which the tests against published vectors and
-// real OpenSSL output are there to catch.
+// only. This is verification, not signing: no private key is ever held
+// here, so there are no secrets to protect and no side channels to close.
+// The one private value this code can produce is a scalar recovered from a
+// weak public key (`ecdsa::small_scalar`), which is public by definition. A
+// bug yields a wrong verdict, which the tests against published vectors
+// and real OpenSSL output are there to catch.
 //
 //   bigint.rs, unsigned big integers (multiply, divide, modular power)
 //   rsa.rs   , RSASSA-PKCS1-v1_5 verification (RFC 8017 §8.2.2), the RSAVP1
 //              primitive and PSS encoded message (§5.2.2, §8.1.2), and
 //              RSASSA-PSS-params parsing (RFC 4055 §3.1)
-//   ecdsa.rs , ECDSA verification over P-256, P-384, and P-521 (FIPS 186-4)
+//   ecdsa.rs , ECDSA verification over P-256, P-384, and P-521 (FIPS 186-4),
+//              and detection of keys with a small private scalar
 //   eddsa.rs , Ed25519 and Ed448 verification (RFC 8032 §5.1, §5.2)
 
 pub mod bigint;

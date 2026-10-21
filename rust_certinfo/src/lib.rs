@@ -42,6 +42,7 @@ pub use crate::x509::crl::Crl;
 pub use crate::x509::ocsp::OcspResponse;
 pub use crate::x509::pkcs7::certificates as pkcs7_certificates;
 pub use crate::x509::verify::verify_signature;
+pub use crate::x509::weak_key::{ec_small_scalar, MAX_SMALL_SCALAR_BOUND};
 pub use crate::x509::Certificate;
 
 // Everything below is the PyO3 / Python wheel surface. None of it is
@@ -353,6 +354,32 @@ mod py {
         Ok(d.into())
     }
 
+    /// The private scalar of the EC key in `spki_der` when it, or its
+    /// negation mod n, is at most `bound`, as a Python int; `None` when
+    /// there is no such scalar. Raises `ValueError` when the key is not a
+    /// P-256, P-384, or P-521 key, does not parse, or `bound` is above
+    /// 2**24.
+    #[pyfunction]
+    pub(super) fn ec_small_scalar(
+        py: Python<'_>,
+        spki_der: Vec<u8>,
+        bound: u64,
+    ) -> PyResult<Option<Py<PyAny>>> {
+        let scalar = py
+            .detach(|| crate::x509::weak_key::ec_small_scalar(&spki_der, bound))
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+        let Some(scalar) = scalar else {
+            return Ok(None);
+        };
+        // A scalar is below n, so it always fits in bit_len / 8 rounded up.
+        let width = scalar.bit_len().div_ceil(8).max(1);
+        let bytes = scalar.to_be_bytes(width).expect("width fits the scalar");
+        let int = py
+            .get_type::<pyo3::types::PyInt>()
+            .call_method1("from_bytes", (PyBytes::new(py, &bytes), "big"))?;
+        Ok(Some(int.unbind()))
+    }
+
     #[pymodule]
     fn certinfo(m: &Bound<'_, PyModule>) -> PyResult<()> {
         m.add_function(wrap_pyfunction!(parse_public_key_info, m)?)?;
@@ -373,6 +400,7 @@ mod py {
         m.add_function(wrap_pyfunction!(rsa_pss_parameters, m)?)?;
         m.add_function(wrap_pyfunction!(eddsa_verify, m)?)?;
         m.add_function(wrap_pyfunction!(parse_spki, m)?)?;
+        m.add_function(wrap_pyfunction!(ec_small_scalar, m)?)?;
         Ok(())
     }
 }

@@ -13,7 +13,7 @@ rename the headers to emoji form when cutting a release.
 ## [Unreleased]
 
 ### Added
-- TBD
+- `certinfo.ec_small_scalar(spki_der, bound)` recovers the private key of a P-256, P-384, or P-521 public key whose private scalar `d`, or `n - d`, is at most `bound`, and returns `None` for a properly generated key. It is the building block for the upcoming `weak_keys` validator (#140), prompted by the October 2026 eMudhra incident, where eight intermediate CA keys had private scalars below 256. Up to a `bound` of 4096 the check is a lookup in a built-in table of the first 4096 multiples of each curve's generator (tens of microseconds); past that, each candidate costs one point addition (about 8 microseconds on P-384), and `bound` is capped at 2**24. `scripts/generate_small_multiples.py` writes the table, and a test recomputes every entry with the crate's own arithmetic. The eight eMudhra certificates are regression fixtures, with their scalars confirmed independently with OpenSSL, and the search has a fuzz target (`ec_small_scalar`).
 
 ### Changed
 - TBD

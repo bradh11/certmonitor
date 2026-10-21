@@ -5,11 +5,16 @@
 // inversion is the final one. Both curves have a = -3, which the doubling
 // formula relies on. Arithmetic is the generic `BigUint` with reduction
 // after every step: slow by cryptographic-library standards, fast enough
-// to verify a handful of OCSP responses.
+// to verify a handful of OCSP responses. The same arithmetic backs
+// `small_scalar`, which spots public keys whose private scalar is small
+// enough to find by counting, with a precomputed table of the first
+// multiples of G (`small_multiples`) so the common case is a lookup.
 
 use crate::crypto::bigint::BigUint;
 use crate::crypto::VerifyError;
 use crate::der::{tag, DerReader};
+
+mod small_multiples;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Curve {
@@ -300,11 +305,64 @@ pub fn verify(key: &PublicKey, digest: &[u8], signature: &[u8]) -> Result<bool, 
     }
 }
 
+/// The private scalar behind `key` when it is small: a `d` in `1..=bound`,
+/// or `n - d` for such a `d`, with `[d]G` equal to the key. A properly
+/// generated key is uniform below `n`, so a hit means anyone can recover
+/// it (the eMudhra intermediates of October 2026 had scalars below 256).
+///
+/// The first `small_multiples::TABLE_LEN` multiples come from a precomputed
+/// table, so a bound up to that costs one lookup. Past the table, the
+/// search steps `[k]G` by one point addition each. Either way a candidate
+/// is confirmed by comparing coordinates without leaving Jacobian form
+/// (`X / Z^2 == x` is `X == x * Z^2`). `[d]G` and `[n - d]G` share x, so
+/// one comparison finds both; y tells them apart.
+pub fn small_scalar(key: &PublicKey, bound: u64) -> Option<BigUint> {
+    let params = key.curve.params();
+    let field = Field { p: &params.p };
+    let g = Point {
+        x: params.gx.clone(),
+        y: params.gy.clone(),
+        z: BigUint::one(),
+    };
+    let private_scalar = |multiple: &Point, k: u64| -> Option<BigUint> {
+        let z2 = field.sqr(&multiple.z);
+        if multiple.x != field.mul(&key.x, &z2) {
+            return None;
+        }
+        let y = field.mul(&key.y, &field.mul(&z2, &multiple.z));
+        let k = BigUint::from_u64(k);
+        Some(if multiple.y == y { k } else { params.n.sub(&k) })
+    };
+    if let Some(k) = small_multiples::lookup(key.curve, &key.x) {
+        if k <= bound {
+            let multiple = field.scalar_mul(&BigUint::from_u64(k), &g);
+            if let Some(d) = private_scalar(&multiple, k) {
+                return Some(d);
+            }
+        }
+    }
+    // Every multiple in the table has its own x, so a key within the table
+    // was found above; counting only covers what lies past it.
+    if bound <= small_multiples::TABLE_LEN {
+        return None;
+    }
+    let first = small_multiples::TABLE_LEN + 1;
+    let mut multiple = field.scalar_mul(&BigUint::from_u64(first), &g);
+    for k in first..=bound {
+        if let Some(d) = private_scalar(&multiple, k) {
+            return Some(d);
+        }
+        multiple = field.add_points(&multiple, &g);
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::crypto::test_vectors::{
-        hex as hex_bytes, DIGEST256, DIGEST384, P256_SIG, P256_SPKI, P384_SIG, P384_SPKI,
+        hex as hex_bytes, DIGEST256, DIGEST384, EMUDHRA_OV_CS_G3C_SPKI, EMUDHRA_OV_TLS_G3C_SPKI,
+        P256_SIG, P256_SPKI, P384_SIG, P384_SPKI,
     };
     use crate::x509::spki::SubjectPublicKeyInfo;
 
@@ -406,6 +464,91 @@ mod tests {
             PublicKey::from_sec1(Curve::P256, &compressed).unwrap_err(),
             VerifyError::Unsupported(_)
         ));
+    }
+
+    /// `[k]G` as an affine public key, by the double-and-add that `verify`
+    /// uses rather than the repeated addition `small_scalar` steps with.
+    fn multiple_of_generator(curve: Curve, k: &BigUint) -> PublicKey {
+        let params = curve.params();
+        let field = Field { p: &params.p };
+        let g = Point {
+            x: params.gx.clone(),
+            y: params.gy.clone(),
+            z: BigUint::one(),
+        };
+        let q = field.scalar_mul(k, &g);
+        let zinv = field.inv(&q.z);
+        let zinv2 = field.sqr(&zinv);
+        PublicKey {
+            curve,
+            x: field.mul(&q.x, &zinv2),
+            y: field.mul(&q.y, &field.mul(&zinv2, &zinv)),
+        }
+    }
+
+    #[test]
+    fn small_scalar_recovers_multiples_of_the_generator_on_every_curve() {
+        for curve in [Curve::P256, Curve::P384, Curve::P521] {
+            for k in [1u64, 2, 3, 5, 200] {
+                let key = multiple_of_generator(curve, &BigUint::from_u64(k));
+                assert_eq!(
+                    small_scalar(&key, 256),
+                    Some(BigUint::from_u64(k)),
+                    "{curve:?} k={k}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn small_scalar_recovers_the_negated_scalar() {
+        // [n - k]G is -[k]G: the same x, the opposite y. A key generated as
+        // n - k is just as recoverable as one generated as k.
+        for curve in [Curve::P256, Curve::P384, Curve::P521] {
+            let n = curve.params().n;
+            for k in [1u64, 7] {
+                let d = n.sub(&BigUint::from_u64(k));
+                let key = multiple_of_generator(curve, &d);
+                assert_eq!(small_scalar(&key, 256), Some(d), "{curve:?} n-{k}");
+            }
+        }
+    }
+
+    #[test]
+    fn small_scalar_stops_at_the_bound() {
+        let key = multiple_of_generator(Curve::P256, &BigUint::from_u64(200));
+        assert_eq!(small_scalar(&key, 199), None);
+        assert_eq!(small_scalar(&key, 200), Some(BigUint::from_u64(200)));
+        assert_eq!(small_scalar(&key, 0), None);
+    }
+
+    #[test]
+    fn small_scalar_crosses_from_the_table_to_counting() {
+        // The table covers 1..=4096; beyond it the search counts on.
+        for k in [4096u64, 4097, 5000] {
+            let key = multiple_of_generator(Curve::P384, &BigUint::from_u64(k));
+            assert_eq!(small_scalar(&key, k), Some(BigUint::from_u64(k)), "k={k}");
+            assert_eq!(small_scalar(&key, k - 1), None, "k={k}");
+        }
+        let n = Curve::P384.params().n;
+        let d = n.sub(&BigUint::from_u64(5000));
+        let key = multiple_of_generator(Curve::P384, &d);
+        assert_eq!(small_scalar(&key, 5000), Some(d));
+    }
+
+    #[test]
+    fn properly_generated_keys_have_no_small_scalar() {
+        assert_eq!(small_scalar(&key(Curve::P256, P256_SPKI), 1024), None);
+        assert_eq!(small_scalar(&key(Curve::P384, P384_SPKI), 1024), None);
+    }
+
+    #[test]
+    fn emudhra_intermediate_keys_give_up_their_scalars() {
+        let ov_tls = key(Curve::P384, EMUDHRA_OV_TLS_G3C_SPKI);
+        assert_eq!(small_scalar(&ov_tls, 256), Some(BigUint::from_u64(4)));
+        let ov_cs = key(Curve::P384, EMUDHRA_OV_CS_G3C_SPKI);
+        assert_eq!(small_scalar(&ov_cs, 256), Some(BigUint::from_u64(237)));
+        assert_eq!(small_scalar(&ov_cs, 236), None);
     }
 
     fn der_signature(r: &str, s: &str) -> Vec<u8> {

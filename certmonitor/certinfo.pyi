@@ -144,6 +144,21 @@ def parse_spki(spki_der: bytes) -> dict[str, Any]:
     """
     ...
 
+def ec_small_scalar(spki_der: bytes, bound: int) -> int | None:
+    """The private scalar of the EC key in `spki_der` (a DER
+    SubjectPublicKeyInfo) when it, or its negation mod n, is at most `bound`.
+    A properly generated key is uniform below the group order, so a result
+    means anyone can recover the private key from the public one, as with the
+    eMudhra intermediates of October 2026 (scalars below 256). Returns `None`
+    when no such scalar exists. Up to a `bound` of 4096 the answer comes from
+    a precomputed table, so the check takes microseconds; past that, each
+    further candidate costs one point addition, about 8 microseconds on P-384.
+    Raises `ValueError` when the key is not a P-256, P-384, or
+    P-521 key, does not parse, or `bound` is above `2**24`, and
+    `OverflowError` for a negative `bound`.
+    """
+    ...
+
 def eddsa_verify(curve: str, public_key: bytes, r: bytes, s: bytes, k: bytes) -> bool:
     """Verify a PureEdDSA signature (RFC 8032 §5.1.7, §5.2.7). `curve` is
     `"Ed25519"` or `"Ed448"`, `public_key` the raw `subjectPublicKey` bits,

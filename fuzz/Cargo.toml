@@ -94,3 +94,9 @@ path = "fuzz_targets/eddsa_decode_point.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "ec_small_scalar"
+path = "fuzz_targets/ec_small_scalar.rs"
+test = false
+doc = false
