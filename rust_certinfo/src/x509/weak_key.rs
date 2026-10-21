@@ -11,9 +11,10 @@ use crate::der::DerReader;
 use crate::x509::spki::{PublicKeyAlgorithm, SubjectPublicKeyInfo};
 use crate::x509::verify::curve_for;
 
-/// The largest search `ec_small_scalar` accepts. Each candidate costs one
-/// point addition (about 8 microseconds on P-384 in a release build), so
-/// this ceiling is a couple of minutes per key, not days.
+/// The largest search `ec_small_scalar` accepts. Past the precomputed
+/// table, each candidate costs one point addition (about 8 microseconds on
+/// P-384 in a release build), so this ceiling is a couple of minutes per
+/// key, not days.
 pub const MAX_SMALL_SCALAR_BOUND: u64 = 1 << 24;
 
 /// The private scalar of the EC key in `spki_der` when it, or its negation
