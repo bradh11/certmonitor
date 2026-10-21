@@ -99,9 +99,11 @@ For `rsa_close_primes` the evidence is the two primes, `p` and `q`. A `rsa_roca`
 
 ## How far does it count?
 
-For `ec_small_scalar`, the validator counts up from the public key until it hits `ec_scalar_bound`, which defaults to **4096**. Each step costs about 8 microseconds on P-384, so the default is a few tens of milliseconds per EC key. That's sixteen times further than the largest eMudhra key, 237.
+For `ec_small_scalar`, the validator looks for a private key up to `ec_scalar_bound`, which defaults to **4096**. That's sixteen times further than the largest eMudhra key, 237.
 
-You can go further, up to 2**24, if you're auditing something specific:
+The first 4096 candidates are the same for every key, so CertMonitor ships them as a small precomputed table. Checking a key against all of them is a single lookup that takes microseconds, which is why `weak_keys` can run on every scan without slowing it down.
+
+You can go further, up to 2**24, if you're auditing something specific. Past the table, each extra candidate costs one point addition, about 8 microseconds on P-384, so 65536 adds roughly half a second per EC key:
 
 ```python
 with CertMonitor(
@@ -112,7 +114,7 @@ with CertMonitor(
 ```
 
 !!! info "Scanning lots of hosts?"
-    The same intermediates show up behind thousands of sites. `weak_keys` remembers each key it has already checked, so a `scan_hosts()` run pays for each distinct intermediate once.
+    The same intermediates show up behind thousands of sites. `weak_keys` remembers each key it has already checked, so a `scan_hosts()` run pays for each distinct intermediate once. That matters most for RSA keys, whose checks take a millisecond or two each, and for a raised `ec_scalar_bound`.
 
 ## How it decides
 

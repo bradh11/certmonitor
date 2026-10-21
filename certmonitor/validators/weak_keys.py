@@ -156,10 +156,11 @@ class WeakKeysValidator(BaseCertValidator):
                 a warning says so.
             host: The hostname (unused; accepted for dispatcher compatibility).
             port: The port (unused; accepted for dispatcher compatibility).
-            ec_scalar_bound: How far to count when looking for a small EC
-                private key, up to 2**24. Each step is one point addition,
-                so the default of 4096 costs a few tens of milliseconds per
-                EC key; the largest eMudhra scalar was 237.
+            ec_scalar_bound: How far to look for a small EC private key,
+                up to 2**24. The first 4096 come from a precomputed table,
+                so the default costs microseconds per EC key; each step past
+                that is one point addition (about 8 microseconds on P-384).
+                The largest eMudhra scalar was 237.
             checks: Which weaknesses to look for, from `ec_small_scalar`,
                 `rsa_close_primes`, and `rsa_roca`. `None` means all of them.
             show_evidence: Include the recovered secret in each finding: the
