@@ -38,7 +38,7 @@ The enabled set is resolved in this order:
 
 1. The `enabled_validators=[...]` argument, if you pass one.
 2. Otherwise the `ENABLED_VALIDATORS` environment variable, if it was non-empty when CertMonitor's configuration module was imported.
-3. Otherwise the built-in defaults: `expiration`, `hostname`, `root_certificate`.
+3. Otherwise the built-in defaults: `expiration`, `hostname`, `root_certificate`, `weak_keys`.
 
 So the argument always wins over the environment variable, which in turn wins over the defaults.
 

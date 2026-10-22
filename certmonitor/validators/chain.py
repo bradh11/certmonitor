@@ -3,6 +3,7 @@
 import datetime
 from typing import Any
 
+from ._utils import format_dn
 from .base import BaseCertValidator
 from .results import ValidationResult
 
@@ -29,14 +30,6 @@ _DEFAULT_WEAK_SIG_OIDS: frozenset = frozenset(
         "1.2.840.10040.4.3",  # dsa-with-sha1
     }
 )
-
-
-def _format_dn(fields: dict[str, Any]) -> str:
-    cn = fields.get("commonName")
-    o = fields.get("organizationName")
-    if cn and o:
-        return f"{cn} ({o})"
-    return cn or o or "Unknown"
 
 
 def _iso(ts: int) -> str:
@@ -282,7 +275,7 @@ class ChainValidator(BaseCertValidator):
             and raw_certs[0].get("is_self_signed", False)
         )
         if leaf_self_signed and not allow_self_signed_leaf:
-            leaf_dn = _format_dn(raw_certs[0].get("subject", {}))
+            leaf_dn = format_dn(raw_certs[0].get("subject", {}))
             warnings.append(
                 f"Leaf certificate is self-signed ({leaf_dn}). "
                 "Pass allow_self_signed_leaf=True to accept this."

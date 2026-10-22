@@ -20,6 +20,9 @@ with CertMonitor("example.com", enabled_validators=["key_info"]) as monitor:
 
 Look at `key_type` first, then `key_size` and `curve`. A 256-bit EC key and a 256-bit RSA modulus do not mean the same thing; this validator applies a separate rule to each family. PQ recognition is an algorithm classification, not a cryptographic proof of key or signature correctness.
 
+!!! info "A strong key type isn't the same as a safe key"
+    `key_info` checks the *kind* of key and only looks at the leaf. A P-384 key whose private half is the number 4 passes it. To catch keys anyone can recover, in the leaf and every intermediate, see [WeakKeys](weak_keys.md), which runs by default.
+
 ## How it decides
 
 ```mermaid

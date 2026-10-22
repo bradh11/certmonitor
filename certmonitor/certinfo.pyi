@@ -139,8 +139,26 @@ def parse_spki(spki_der: bytes) -> dict[str, Any]:
     `algorithm_params`, the raw `AlgorithmIdentifier.parameters` TLV or
     `None` when absent or NULL. An `id-RSASSA-PSS` key (RFC 4055 section 1.2)
     reports `algorithm` as `rsassaPss` and carries its usage restrictions in
-    `algorithm_params`. Raises `ValueError` when the SubjectPublicKeyInfo
-    does not parse.
+    `algorithm_params`. For an RSA key, `rsa_modulus` and
+    `rsa_public_exponent` are the big-endian integers, or `None` when the
+    RSAPublicKey is malformed or outside the verifier's bounds (512 to 16384
+    bits); both are `None` for every other key type. Raises `ValueError` when
+    the SubjectPublicKeyInfo does not parse.
+    """
+    ...
+
+def ec_small_scalar(spki_der: bytes, bound: int) -> int | None:
+    """The private scalar of the EC key in `spki_der` (a DER
+    SubjectPublicKeyInfo) when it, or its negation mod n, is at most `bound`.
+    A properly generated key is uniform below the group order, so a result
+    means anyone can recover the private key from the public one, as with the
+    eMudhra intermediates of October 2026 (scalars below 256). Returns `None`
+    when no such scalar exists. Up to a `bound` of 4096 the answer comes from
+    a precomputed table, so the check takes microseconds; past that, each
+    further candidate costs one point addition, about 8 microseconds on P-384.
+    Raises `ValueError` when the key is not a P-256, P-384, or
+    P-521 key, does not parse, or `bound` is above `2**24`, and
+    `OverflowError` for a negative `bound`.
     """
     ...
 
